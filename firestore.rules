@@ -1,0 +1,47 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Campanhas - leitura pública (rotador precisa ler), escrita autenticada
+    match /campaigns/{campaignId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // Links - leitura pública (rotador precisa ler)
+    // Escrita autenticada, EXCETO atualização de currentClicks e isFull (rotador público)
+    match /links/{linkId} {
+      allow read: if true;
+      allow create, delete: if request.auth != null;
+      allow update: if request.auth != null ||
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['currentClicks', 'isFull', 'lastClickAt']);
+    }
+
+    // Clicks - qualquer pessoa pode criar (rotador público registra clicks)
+    // Apenas autenticados podem ler, atualizar ou deletar
+    match /clicks/{clickId} {
+      allow create: if true;
+      allow read: if request.auth != null;
+      allow update: if true; // Permite atualizar com dados de geo
+      allow delete: if request.auth != null;
+    }
+
+    // Alertas - qualquer pessoa pode criar (rotador cria alertas)
+    // Apenas autenticados podem ler/atualizar/deletar
+    match /alerts/{alertId} {
+      allow create: if true;
+      allow read, update, delete: if request.auth != null;
+    }
+
+    // Usuários - apenas autenticados
+    match /users/{userId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+
+    // Configurações - apenas autenticados
+    match /settings/{settingId} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}

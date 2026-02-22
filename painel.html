@@ -1,0 +1,2338 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LinkRotator Pro - Painel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg-primary: #0d1b2a;
+  --bg-secondary: #1b2838;
+  --bg-card: #162032;
+  --bg-hover: #1e2d42;
+  --border: #1e3a5f;
+  --border-light: #264a6e;
+  --text-primary: #e8edf3;
+  --text-secondary: #8899aa;
+  --text-muted: #556677;
+  --accent: #25D366;
+  --accent-hover: #1eba57;
+  --accent-glow: rgba(37,211,102,0.15);
+  --accent-dim: rgba(37,211,102,0.08);
+  --danger: #FF3B30;
+  --danger-bg: rgba(255,59,48,0.1);
+  --warning: #FFD60A;
+  --warning-bg: rgba(255,214,10,0.1);
+  --info: #0A84FF;
+  --info-bg: rgba(10,132,255,0.1);
+  --purple: #BF5AF2;
+  --purple-bg: rgba(191,90,242,0.1);
+  --sidebar-width: 260px;
+  --header-height: 64px;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --shadow: 0 4px 24px rgba(0,0,0,0.3);
+  --transition: all .2s ease;
+}
+
+/* Light mode */
+.light-mode {
+  --bg-primary: #f0f2f5;
+  --bg-secondary: #ffffff;
+  --bg-card: #ffffff;
+  --bg-hover: #f5f6f8;
+  --border: #e0e4ea;
+  --border-light: #d0d5dd;
+  --text-primary: #1a1a2e;
+  --text-secondary: #5f6b7a;
+  --text-muted: #9aa5b4;
+  --shadow: 0 4px 24px rgba(0,0,0,0.08);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ===== SIDEBAR ===== */
+.sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: var(--sidebar-width);
+  height: 100vh;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  transition: transform .3s ease;
+}
+
+.sidebar-header {
+  padding: 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sidebar-logo {
+  width: 38px;
+  height: 38px;
+  background: var(--accent-glow);
+  border: 2px solid var(--accent);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.sidebar-logo i { color: var(--accent); font-size: 18px; }
+.sidebar-header h2 { font-size: 16px; font-weight: 700; }
+.sidebar-header span { font-size: 11px; color: var(--text-muted); }
+
+.sidebar-nav { flex: 1; padding: 12px; overflow-y: auto; }
+
+.nav-section {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+  padding: 16px 12px 8px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition);
+  font-size: 13px;
+  font-weight: 500;
+  position: relative;
+}
+
+.nav-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+.nav-item.active { background: var(--accent-dim); color: var(--accent); }
+.nav-item i { width: 20px; text-align: center; font-size: 15px; }
+
+.nav-badge {
+  position: absolute;
+  right: 10px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 10px;
+  min-width: 18px;
+  text-align: center;
+}
+
+.sidebar-footer {
+  padding: 16px 20px;
+  border-top: 1px solid var(--border);
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.user-avatar {
+  width: 34px;
+  height: 34px;
+  background: var(--accent-glow);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.user-details { flex: 1; min-width: 0; }
+.user-details .name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.user-details .role { font-size: 11px; color: var(--text-muted); }
+
+.btn-logout {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 6px;
+  transition: var(--transition);
+}
+
+.btn-logout:hover { background: var(--danger-bg); color: var(--danger); }
+
+/* ===== MAIN ===== */
+.main {
+  margin-left: var(--sidebar-width);
+  min-height: 100vh;
+}
+
+.header {
+  position: sticky;
+  top: 0;
+  height: var(--header-height);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  z-index: 50;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.menu-toggle {
+  display: none;
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  font-size: 20px;
+  cursor: pointer;
+  padding: 6px;
+}
+
+.page-title { font-size: 18px; font-weight: 700; }
+
+.header-right { display: flex; align-items: center; gap: 12px; }
+
+.header-btn {
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: var(--transition);
+  position: relative;
+  font-size: 15px;
+}
+
+.header-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+.notif-count {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 10px;
+  min-width: 16px;
+  text-align: center;
+}
+
+.content { padding: 24px; }
+
+/* ===== CARDS ===== */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  transition: var(--transition);
+}
+
+.stat-card:hover { border-color: var(--border-light); transform: translateY(-2px); box-shadow: var(--shadow); }
+
+.stat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.stat-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+}
+
+.stat-icon.green { background: var(--accent-glow); color: var(--accent); }
+.stat-icon.blue { background: var(--info-bg); color: var(--info); }
+.stat-icon.purple { background: var(--purple-bg); color: var(--purple); }
+.stat-icon.red { background: var(--danger-bg); color: var(--danger); }
+.stat-icon.yellow { background: var(--warning-bg); color: var(--warning); }
+
+.stat-label { font-size: 12px; color: var(--text-muted); font-weight: 500; }
+.stat-value { font-size: 28px; font-weight: 700; margin-top: 4px; }
+.stat-change { font-size: 11px; margin-top: 4px; }
+.stat-change.up { color: var(--accent); }
+.stat-change.down { color: var(--danger); }
+
+/* ===== TABLES ===== */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 24px;
+  overflow: hidden;
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.card-title { font-size: 15px; font-weight: 600; }
+.card-body { padding: 20px; }
+
+.table-wrap { overflow-x: auto; }
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+thead th {
+  text-align: left;
+  padding: 10px 16px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+tbody td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+tbody tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: var(--bg-hover); }
+
+/* ===== BADGES ===== */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badge-success { background: var(--accent-glow); color: var(--accent); }
+.badge-danger { background: var(--danger-bg); color: var(--danger); }
+.badge-warning { background: var(--warning-bg); color: var(--warning); }
+.badge-info { background: var(--info-bg); color: var(--info); }
+.badge-purple { background: var(--purple-bg); color: var(--purple); }
+
+/* ===== PROGRESS BAR ===== */
+.progress-bar {
+  width: 100%;
+  height: 6px;
+  background: var(--bg-primary);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width .5s ease, background .3s;
+}
+
+.progress-text {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* ===== BUTTONS ===== */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  border: none;
+  cursor: pointer;
+  transition: var(--transition);
+  white-space: nowrap;
+}
+
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: var(--accent-hover); box-shadow: 0 4px 12px rgba(37,211,102,0.3); }
+.btn-secondary { background: var(--bg-hover); color: var(--text-primary); border: 1px solid var(--border); }
+.btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+.btn-danger { background: var(--danger-bg); color: var(--danger); }
+.btn-danger:hover { background: var(--danger); color: #fff; }
+.btn-sm { padding: 5px 10px; font-size: 12px; }
+.btn-icon { width: 32px; height: 32px; padding: 0; justify-content: center; }
+
+/* ===== MODALS ===== */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  backdrop-filter: blur(4px);
+  z-index: 200;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.modal-overlay.active { display: flex; }
+
+.modal {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  width: 100%;
+  max-width: 520px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-title { font-size: 16px; font-weight: 700; }
+
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  transition: var(--transition);
+}
+
+.modal-close:hover { background: var(--danger-bg); color: var(--danger); }
+
+.modal-body { padding: 20px; }
+.modal-footer { padding: 16px 20px; border-top: 1px solid var(--border); display: flex; gap: 8px; justify-content: flex-end; }
+
+/* ===== FORMS ===== */
+.form-group { margin-bottom: 16px; }
+.form-group label { display: block; font-size: 13px; font-weight: 500; color: var(--text-secondary); margin-bottom: 6px; }
+
+.form-control {
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  transition: var(--transition);
+  outline: none;
+}
+
+.form-control:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+.form-control::placeholder { color: var(--text-muted); }
+
+select.form-control {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238899aa' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+}
+
+.form-hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+/* ===== TOAST ===== */
+.toast-container {
+  position: fixed;
+  top: 80px;
+  right: 20px;
+  z-index: 300;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.toast {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  box-shadow: var(--shadow);
+  animation: slideIn .3s ease;
+  min-width: 280px;
+  max-width: 400px;
+}
+
+.toast-success { border-left: 3px solid var(--accent); }
+.toast-error { border-left: 3px solid var(--danger); }
+.toast-warning { border-left: 3px solid var(--warning); }
+.toast-info { border-left: 3px solid var(--info); }
+
+@keyframes slideIn {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+/* ===== VIEWS ===== */
+.view { display: none; }
+.view.active { display: block; }
+
+/* ===== NOTIFICATIONS PANEL ===== */
+.notif-panel {
+  position: fixed;
+  top: 0;
+  right: -380px;
+  width: 380px;
+  height: 100vh;
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border);
+  z-index: 150;
+  transition: right .3s ease;
+  display: flex;
+  flex-direction: column;
+}
+
+.notif-panel.open { right: 0; }
+
+.notif-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.notif-panel-body { flex: 1; overflow-y: auto; padding: 12px; }
+
+.notif-item {
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.notif-item:hover { background: var(--bg-hover); }
+.notif-item.unread { border-left: 3px solid var(--accent); }
+.notif-item .notif-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.notif-item .notif-text { font-size: 12px; color: var(--text-secondary); }
+.notif-item .notif-time { font-size: 10px; color: var(--text-muted); margin-top: 6px; }
+
+/* ===== EMPTY STATE ===== */
+.empty-state {
+  text-align: center;
+  padding: 48px 20px;
+  color: var(--text-muted);
+}
+
+.empty-state i { font-size: 48px; margin-bottom: 12px; opacity: .4; }
+.empty-state h3 { font-size: 16px; color: var(--text-secondary); margin-bottom: 4px; }
+.empty-state p { font-size: 13px; }
+
+/* ===== CHARTS ===== */
+.chart-container { position: relative; height: 300px; }
+
+/* ===== COPY ===== */
+.copy-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  font-size: 12px;
+  transition: var(--transition);
+}
+
+.copy-btn:hover { color: var(--accent); }
+
+.link-url {
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  color: var(--text-secondary);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+/* ===== SEARCH & FILTER ===== */
+.search-input {
+  width: 200px;
+  padding: 7px 12px 7px 32px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+  transition: var(--transition);
+}
+
+.search-input:focus { border-color: var(--accent); }
+
+.search-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.search-wrap i {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+/* ===== RESPONSIVE ===== */
+@media (max-width: 768px) {
+  .sidebar { transform: translateX(-100%); }
+  .sidebar.open { transform: translateX(0); }
+  .main { margin-left: 0; }
+  .menu-toggle { display: block; }
+  .stats-grid { grid-template-columns: 1fr 1fr; }
+  .content { padding: 16px; }
+  .form-row { grid-template-columns: 1fr; }
+  .notif-panel { width: 100%; right: -100%; }
+}
+
+@media (max-width: 480px) {
+  .stats-grid { grid-template-columns: 1fr; }
+}
+
+/* ===== LOADING ===== */
+.loading-screen {
+  position: fixed;
+  inset: 0;
+  background: var(--bg-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+}
+
+.loading-screen .spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin .6s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Skeleton loading */
+.skeleton {
+  background: linear-gradient(90deg, var(--bg-hover) 25%, var(--border) 50%, var(--bg-hover) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: var(--radius-sm);
+}
+
+@keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+
+/* Toggle switch */
+.toggle {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  background: var(--border);
+  border-radius: 11px;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.toggle.active { background: var(--accent); }
+
+.toggle::after {
+  content: '';
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  background: #fff;
+  border-radius: 50%;
+  top: 2px;
+  left: 2px;
+  transition: var(--transition);
+}
+
+.toggle.active::after { left: 20px; }
+</style>
+</head>
+<body>
+
+<div class="loading-screen" id="loadingScreen">
+  <div class="spinner"></div>
+</div>
+
+<!-- SIDEBAR -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <div class="sidebar-logo"><i class="fab fa-whatsapp"></i></div>
+    <div>
+      <h2>LinkRotator</h2>
+      <span>v1.0.0</span>
+    </div>
+  </div>
+
+  <nav class="sidebar-nav">
+    <div class="nav-section">Principal</div>
+    <div class="nav-item active" data-view="dashboard" onclick="navigateTo('dashboard')">
+      <i class="fas fa-chart-line"></i> Dashboard
+    </div>
+    <div class="nav-item" data-view="campaigns" onclick="navigateTo('campaigns')">
+      <i class="fas fa-bullhorn"></i> Campanhas
+    </div>
+    <div class="nav-item" data-view="links" onclick="navigateTo('links')">
+      <i class="fas fa-link"></i> Links
+    </div>
+
+    <div class="nav-section">Análise</div>
+    <div class="nav-item" data-view="analytics" onclick="navigateTo('analytics')">
+      <i class="fas fa-chart-bar"></i> Analytics
+    </div>
+    <div class="nav-item" data-view="leads" onclick="navigateTo('leads')">
+      <i class="fas fa-users"></i> Leads
+    </div>
+
+    <div class="nav-section">Sistema</div>
+    <div class="nav-item" data-view="alerts" onclick="navigateTo('alerts')">
+      <i class="fas fa-bell"></i> Alertas
+      <span class="nav-badge" id="alertsBadge" style="display:none">0</span>
+    </div>
+    <div class="nav-item" data-view="users" onclick="navigateTo('users')">
+      <i class="fas fa-user-shield"></i> Usuários
+    </div>
+    <div class="nav-item" data-view="settings" onclick="navigateTo('settings')">
+      <i class="fas fa-cog"></i> Configurações
+    </div>
+  </nav>
+
+  <div class="sidebar-footer">
+    <div class="user-info">
+      <div class="user-avatar" id="userAvatar">A</div>
+      <div class="user-details">
+        <div class="name" id="userName">Admin</div>
+        <div class="role" id="userRole">Administrador</div>
+      </div>
+      <button class="btn-logout" onclick="handleLogout()" title="Sair">
+        <i class="fas fa-sign-out-alt"></i>
+      </button>
+    </div>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<div class="main">
+  <header class="header">
+    <div class="header-left">
+      <button class="menu-toggle" onclick="toggleSidebar()"><i class="fas fa-bars"></i></button>
+      <div class="page-title" id="pageTitle">Dashboard</div>
+    </div>
+    <div class="header-right">
+      <button class="header-btn" id="themeToggle" onclick="toggleTheme()" title="Alternar tema">
+        <i class="fas fa-moon"></i>
+      </button>
+      <button class="header-btn" onclick="toggleNotifPanel()" title="Notificações">
+        <i class="fas fa-bell"></i>
+        <span class="notif-count" id="notifCount" style="display:none">0</span>
+      </button>
+    </div>
+  </header>
+
+  <div class="content">
+
+    <!-- ===== DASHBOARD VIEW ===== -->
+    <div class="view active" id="view-dashboard">
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon green"><i class="fas fa-mouse-pointer"></i></div>
+            <span class="stat-label">Total de Clicks</span>
+          </div>
+          <div class="stat-value" id="statTotalClicks">0</div>
+          <div class="stat-change up" id="statClicksChange"></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon blue"><i class="fas fa-bullhorn"></i></div>
+            <span class="stat-label">Campanhas Ativas</span>
+          </div>
+          <div class="stat-value" id="statActiveCampaigns">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon purple"><i class="fas fa-link"></i></div>
+            <span class="stat-label">Links Ativos</span>
+          </div>
+          <div class="stat-value" id="statActiveLinks">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon red"><i class="fas fa-ban"></i></div>
+            <span class="stat-label">Links Cheios</span>
+          </div>
+          <div class="stat-value" id="statFullLinks">0</div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Clicks por Hora (Hoje)</span>
+          </div>
+          <div class="card-body">
+            <div class="chart-container"><canvas id="clicksChart"></canvas></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Dispositivos</span>
+          </div>
+          <div class="card-body">
+            <div class="chart-container"><canvas id="devicesChart"></canvas></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Últimos Clicks</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Link</th>
+                <th>Campanha</th>
+                <th>Dispositivo</th>
+                <th>Local</th>
+                <th>Horário</th>
+              </tr>
+            </thead>
+            <tbody id="recentClicksTable">
+              <tr><td colspan="5" class="empty-state"><p>Carregando...</p></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== CAMPAIGNS VIEW ===== -->
+    <div class="view" id="view-campaigns">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Campanhas</span>
+          <button class="btn btn-primary" onclick="openCampaignModal()">
+            <i class="fas fa-plus"></i> Nova Campanha
+          </button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Nome</th>
+                <th>Slug</th>
+                <th>Rotação</th>
+                <th>Links</th>
+                <th>Clicks</th>
+                <th>Status</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody id="campaignsTable">
+              <tr><td colspan="7" class="empty-state"><i class="fas fa-bullhorn"></i><h3>Nenhuma campanha</h3><p>Crie sua primeira campanha</p></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== LINKS VIEW ===== -->
+    <div class="view" id="view-links">
+      <div class="card">
+        <div class="card-header">
+          <div style="display:flex;align-items:center;gap:12px">
+            <span class="card-title">Links</span>
+            <select class="form-control" id="linksCampaignFilter" onchange="loadLinks()" style="width:200px;padding:6px 10px;font-size:12px">
+              <option value="">Todas as campanhas</option>
+            </select>
+          </div>
+          <button class="btn btn-primary" onclick="openLinkModal()">
+            <i class="fas fa-plus"></i> Novo Link
+          </button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Nome do Grupo</th>
+                <th>URL</th>
+                <th>Campanha</th>
+                <th>Vagas</th>
+                <th>Clicks</th>
+                <th>Peso</th>
+                <th>Status</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody id="linksTable">
+              <tr><td colspan="8" class="empty-state"><i class="fas fa-link"></i><h3>Nenhum link</h3><p>Adicione links de grupos WhatsApp</p></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== ANALYTICS VIEW ===== -->
+    <div class="view" id="view-analytics">
+      <div class="stats-grid" style="margin-bottom:16px">
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon green"><i class="fas fa-mouse-pointer"></i></div>
+            <span class="stat-label">Clicks Hoje</span>
+          </div>
+          <div class="stat-value" id="statClicksToday">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon blue"><i class="fas fa-calendar-week"></i></div>
+            <span class="stat-label">Clicks esta Semana</span>
+          </div>
+          <div class="stat-value" id="statClicksWeek">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon purple"><i class="fas fa-calendar"></i></div>
+            <span class="stat-label">Clicks este Mês</span>
+          </div>
+          <div class="stat-value" id="statClicksMonth">0</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Clicks por Dia (Últimos 30 dias)</span>
+          <button class="btn btn-secondary btn-sm" onclick="exportCSV()">
+            <i class="fas fa-download"></i> Exportar CSV
+          </button>
+        </div>
+        <div class="card-body">
+          <div class="chart-container"><canvas id="dailyClicksChart"></canvas></div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="card">
+          <div class="card-header"><span class="card-title">Top Países</span></div>
+          <div class="card-body">
+            <div class="chart-container"><canvas id="countriesChart"></canvas></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">Navegadores</span></div>
+          <div class="card-body">
+            <div class="chart-container"><canvas id="browsersChart"></canvas></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== LEADS VIEW ===== -->
+    <div class="view" id="view-leads">
+      <div class="card">
+        <div class="card-header">
+          <div style="display:flex;align-items:center;gap:12px">
+            <span class="card-title">Leads / Clicks Detalhados</span>
+            <div class="search-wrap">
+              <i class="fas fa-search"></i>
+              <input class="search-input" id="leadsSearch" placeholder="Buscar..." oninput="filterLeads()">
+            </div>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="exportLeadsCSV()">
+            <i class="fas fa-download"></i> Exportar CSV
+          </button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Data/Hora</th>
+                <th>Link</th>
+                <th>Campanha</th>
+                <th>Dispositivo</th>
+                <th>Navegador</th>
+                <th>OS</th>
+                <th>País</th>
+                <th>Cidade</th>
+                <th>Referrer</th>
+              </tr>
+            </thead>
+            <tbody id="leadsTable">
+              <tr><td colspan="9" class="empty-state"><p>Carregando...</p></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div style="padding:16px;text-align:center">
+          <button class="btn btn-secondary btn-sm" id="loadMoreLeads" onclick="loadMoreLeads()" style="display:none">
+            Carregar mais
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== ALERTS VIEW ===== -->
+    <div class="view" id="view-alerts">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Alertas</span>
+          <button class="btn btn-secondary btn-sm" onclick="markAllAlertsRead()">
+            <i class="fas fa-check-double"></i> Marcar todos como lidos
+          </button>
+        </div>
+        <div id="alertsList" class="card-body">
+          <div class="empty-state"><i class="fas fa-bell"></i><h3>Nenhum alerta</h3><p>Alertas aparecerão aqui quando grupos estiverem cheios</p></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== USERS VIEW ===== -->
+    <div class="view" id="view-users">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Usuários Administradores</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Nome</th>
+                <th>Email</th>
+                <th>Role</th>
+                <th>Criado em</th>
+                <th>Último login</th>
+              </tr>
+            </thead>
+            <tbody id="usersTable">
+              <tr><td colspan="5" class="empty-state"><p>Carregando...</p></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== SETTINGS VIEW ===== -->
+    <div class="view" id="view-settings">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Configurações Gerais</span>
+        </div>
+        <div class="card-body">
+          <div class="form-group">
+            <label>Limiar de Alerta (%)</label>
+            <input type="number" class="form-control" id="settingAlertThreshold" value="90" min="50" max="100" style="width:200px">
+            <div class="form-hint">Percentual de preenchimento para disparar alerta de "quase cheio"</div>
+          </div>
+          <div class="form-group">
+            <label>Notificações no Navegador</label>
+            <div class="toggle" id="settingBrowserNotif" onclick="toggleSetting(this)"></div>
+            <div class="form-hint">Receber notificações push no navegador</div>
+          </div>
+          <div class="form-group">
+            <label>Som de Alerta</label>
+            <div class="toggle" id="settingSoundAlert" onclick="toggleSetting(this)"></div>
+            <div class="form-hint">Tocar som quando um grupo estiver cheio</div>
+          </div>
+          <div style="margin-top:24px">
+            <button class="btn btn-primary" onclick="saveSettings()">
+              <i class="fas fa-save"></i> Salvar Configurações
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Dados</span>
+        </div>
+        <div class="card-body">
+          <button class="btn btn-secondary" onclick="exportAllData()">
+            <i class="fas fa-download"></i> Exportar todos os dados (JSON)
+          </button>
+          <div class="form-hint" style="margin-top:8px">Faz backup de campanhas, links e configurações</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- NOTIFICATIONS PANEL -->
+<div class="notif-panel" id="notifPanel">
+  <div class="notif-panel-header">
+    <strong>Notificações</strong>
+    <button class="modal-close" onclick="toggleNotifPanel()"><i class="fas fa-times"></i></button>
+  </div>
+  <div class="notif-panel-body" id="notifPanelBody">
+    <div class="empty-state"><i class="fas fa-bell"></i><p>Sem notificações</p></div>
+  </div>
+</div>
+
+<!-- TOASTS -->
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- CAMPAIGN MODAL -->
+<div class="modal-overlay" id="campaignModal">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title" id="campaignModalTitle">Nova Campanha</span>
+      <button class="modal-close" onclick="closeModal('campaignModal')"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="campaignEditId">
+      <div class="form-group">
+        <label>Nome da Campanha</label>
+        <input type="text" class="form-control" id="campaignName" placeholder="Ex: Campanha Black Friday">
+      </div>
+      <div class="form-group">
+        <label>Slug (para URL)</label>
+        <input type="text" class="form-control" id="campaignSlug" placeholder="Ex: black-friday" oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9-]/g,'')">
+        <div class="form-hint">Usado na URL: seusite.com/r.html?c=<strong>slug-aqui</strong></div>
+      </div>
+      <div class="form-group">
+        <label>Modo de Rotação</label>
+        <select class="form-control" id="campaignRotation">
+          <option value="random">Aleatório - Distribui aleatoriamente entre os links</option>
+          <option value="sequential">Sequencial - Round-robin na ordem cadastrada</option>
+          <option value="weighted">Por Peso - Links com mais peso recebem mais tráfego</option>
+          <option value="least-filled">Menos Cheio - Prioriza grupos com mais vagas</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Limiar de Alerta (%)</label>
+        <input type="number" class="form-control" id="campaignAlertThreshold" value="90" min="50" max="100" style="width:120px">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('campaignModal')">Cancelar</button>
+      <button class="btn btn-primary" id="campaignSaveBtn" onclick="saveCampaign()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- LINK MODAL -->
+<div class="modal-overlay" id="linkModal">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title" id="linkModalTitle">Novo Link</span>
+      <button class="modal-close" onclick="closeModal('linkModal')"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="linkEditId">
+      <div class="form-group">
+        <label>Campanha</label>
+        <select class="form-control" id="linkCampaign">
+          <option value="">Selecione uma campanha</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Nome do Grupo</label>
+        <input type="text" class="form-control" id="linkName" placeholder="Ex: Grupo VIP 01">
+      </div>
+      <div class="form-group">
+        <label>URL do WhatsApp</label>
+        <input type="url" class="form-control" id="linkUrl" placeholder="https://chat.whatsapp.com/...">
+        <div class="form-hint">Link de convite do grupo WhatsApp</div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Número de Vagas</label>
+          <input type="number" class="form-control" id="linkVacancies" placeholder="Ex: 250" min="1">
+          <div class="form-hint">Máximo de pessoas no grupo</div>
+        </div>
+        <div class="form-group">
+          <label>Peso (prioridade)</label>
+          <input type="number" class="form-control" id="linkWeight" value="1" min="1" max="100">
+          <div class="form-hint">Maior peso = mais tráfego (modo peso)</div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Clicks Atuais</label>
+        <input type="number" class="form-control" id="linkCurrentClicks" value="0" min="0" style="width:120px">
+        <div class="form-hint">Se o grupo já tem membros, coloque aqui</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('linkModal')">Cancelar</button>
+      <button class="btn btn-primary" id="linkSaveBtn" onclick="saveLink()">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- CONFIRM MODAL -->
+<div class="modal-overlay" id="confirmModal">
+  <div class="modal" style="max-width:400px">
+    <div class="modal-header">
+      <span class="modal-title">Confirmar</span>
+      <button class="modal-close" onclick="closeModal('confirmModal')"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <p id="confirmMessage">Tem certeza?</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('confirmModal')">Cancelar</button>
+      <button class="btn btn-danger" id="confirmBtn" onclick="confirmAction()">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script src="config.js"></script>
+<script>
+(function() {
+  'use strict';
+
+  // ===== INIT =====
+  firebase.initializeApp(FIREBASE_CONFIG);
+  const auth = firebase.auth();
+  const db = firebase.firestore();
+
+  let currentUser = null;
+  let campaigns = [];
+  let links = [];
+  let allClicks = [];
+  let alerts = [];
+  let unsubscribers = [];
+  let pendingConfirmAction = null;
+  let lastLeadDoc = null;
+  let leadsData = [];
+
+  // Charts
+  let clicksChart, devicesChart, dailyClicksChart, countriesChart, browsersChart;
+
+  // Verifica autenticação
+  auth.onAuthStateChanged(function(user) {
+    if (!user) {
+      window.location.href = 'index.html';
+      return;
+    }
+    currentUser = user;
+    document.getElementById('userName').textContent = user.displayName || user.email;
+    document.getElementById('userAvatar').textContent = (user.displayName || user.email).charAt(0).toUpperCase();
+
+    // Atualiza último login
+    db.collection('users').doc(user.uid).update({
+      lastLogin: firebase.firestore.FieldValue.serverTimestamp()
+    }).catch(function() {});
+
+    init();
+  });
+
+  async function init() {
+    // Carrega dados iniciais em paralelo
+    await Promise.all([
+      loadCampaigns(),
+      loadAllLinks(),
+      loadAlerts()
+    ]);
+
+    loadDashboard();
+    hideLoading();
+
+    // Listeners real-time para alertas
+    var unsubAlerts = db.collection('alerts')
+      .orderBy('timestamp', 'desc')
+      .limit(50)
+      .onSnapshot(function(snap) {
+        alerts = [];
+        snap.forEach(function(doc) { alerts.push({ id: doc.id, ...doc.data() }); });
+        updateAlertsBadge();
+        renderAlerts();
+        renderNotifications();
+      });
+    unsubscribers.push(unsubAlerts);
+
+    // Listener real-time para links (atualiza contagem de clicks)
+    var unsubLinks = db.collection('links').onSnapshot(function(snap) {
+      links = [];
+      snap.forEach(function(doc) { links.push({ id: doc.id, ...doc.data() }); });
+      renderLinksTable();
+      updateDashboardStats();
+    });
+    unsubscribers.push(unsubLinks);
+  }
+
+  function hideLoading() {
+    document.getElementById('loadingScreen').style.display = 'none';
+  }
+
+  // ===== NAVIGATION =====
+  window.navigateTo = function(viewName) {
+    document.querySelectorAll('.view').forEach(function(v) { v.classList.remove('active'); });
+    document.querySelectorAll('.nav-item').forEach(function(n) { n.classList.remove('active'); });
+
+    var view = document.getElementById('view-' + viewName);
+    if (view) view.classList.add('active');
+
+    var navItem = document.querySelector('[data-view="' + viewName + '"]');
+    if (navItem) navItem.classList.add('active');
+
+    var titles = {
+      dashboard: 'Dashboard',
+      campaigns: 'Campanhas',
+      links: 'Links',
+      analytics: 'Analytics',
+      leads: 'Leads',
+      alerts: 'Alertas',
+      users: 'Usuários',
+      settings: 'Configurações'
+    };
+    document.getElementById('pageTitle').textContent = titles[viewName] || viewName;
+
+    // Carrega dados específicos da view
+    if (viewName === 'analytics') loadAnalytics();
+    if (viewName === 'leads') { leadsData = []; lastLeadDoc = null; loadLeads(); }
+    if (viewName === 'users') loadUsers();
+
+    // Fecha sidebar no mobile
+    document.getElementById('sidebar').classList.remove('open');
+  };
+
+  window.toggleSidebar = function() {
+    document.getElementById('sidebar').classList.toggle('open');
+  };
+
+  // ===== THEME =====
+  window.toggleTheme = function() {
+    document.body.classList.toggle('light-mode');
+    var icon = document.querySelector('#themeToggle i');
+    if (document.body.classList.contains('light-mode')) {
+      icon.className = 'fas fa-sun';
+      localStorage.setItem('rl_theme', 'light');
+    } else {
+      icon.className = 'fas fa-moon';
+      localStorage.setItem('rl_theme', 'dark');
+    }
+    // Atualiza charts
+    updateChartsTheme();
+  };
+
+  // Restaura tema salvo
+  if (localStorage.getItem('rl_theme') === 'light') {
+    document.body.classList.add('light-mode');
+    setTimeout(function() {
+      document.querySelector('#themeToggle i').className = 'fas fa-sun';
+    }, 0);
+  }
+
+  function updateChartsTheme() {
+    var textColor = getComputedStyle(document.body).getPropertyValue('--text-secondary').trim();
+    var borderColor = getComputedStyle(document.body).getPropertyValue('--border').trim();
+    Chart.defaults.color = textColor;
+    Chart.defaults.borderColor = borderColor;
+    // Re-render charts if they exist
+    [clicksChart, devicesChart, dailyClicksChart, countriesChart, browsersChart].forEach(function(c) {
+      if (c) c.update();
+    });
+  }
+
+  // ===== CAMPAIGNS =====
+  async function loadCampaigns() {
+    var snap = await db.collection('campaigns').orderBy('createdAt', 'desc').get();
+    campaigns = [];
+    snap.forEach(function(doc) { campaigns.push({ id: doc.id, ...doc.data() }); });
+    renderCampaignsTable();
+    populateCampaignSelectors();
+  }
+
+  function renderCampaignsTable() {
+    var tbody = document.getElementById('campaignsTable');
+    if (campaigns.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><i class="fas fa-bullhorn"></i><h3>Nenhuma campanha</h3><p>Crie sua primeira campanha</p></div></td></tr>';
+      return;
+    }
+
+    var html = '';
+    campaigns.forEach(function(c) {
+      var campLinks = links.filter(function(l) { return l.campaignId === c.id; });
+      var totalClicks = campLinks.reduce(function(sum, l) { return sum + (l.currentClicks || 0); }, 0);
+      var activeLinks = campLinks.filter(function(l) { return l.isActive && !l.isFull; }).length;
+      var rotationLabels = { random: 'Aleatório', sequential: 'Sequencial', weighted: 'Por Peso', 'least-filled': 'Menos Cheio' };
+
+      html += '<tr>' +
+        '<td><strong>' + escHtml(c.name) + '</strong></td>' +
+        '<td><code style="font-size:11px;color:var(--accent)">' + escHtml(c.slug) + '</code>' +
+        ' <button class="copy-btn" onclick="copyToClipboard(\'' + escHtml(window.location.origin + '/r.html?c=' + c.slug) + '\')"><i class="fas fa-copy"></i></button></td>' +
+        '<td><span class="badge badge-info">' + (rotationLabels[c.rotationMode] || c.rotationMode) + '</span></td>' +
+        '<td>' + activeLinks + ' / ' + campLinks.length + '</td>' +
+        '<td>' + totalClicks.toLocaleString() + '</td>' +
+        '<td>' + (c.isActive !== false ? '<span class="badge badge-success">Ativa</span>' : '<span class="badge badge-danger">Inativa</span>') + '</td>' +
+        '<td>' +
+        '<button class="btn btn-secondary btn-sm btn-icon" onclick="editCampaign(\'' + c.id + '\')" title="Editar"><i class="fas fa-pen"></i></button> ' +
+        '<button class="btn btn-secondary btn-sm btn-icon" onclick="toggleCampaignStatus(\'' + c.id + '\')" title="' + (c.isActive !== false ? 'Desativar' : 'Ativar') + '"><i class="fas fa-' + (c.isActive !== false ? 'pause' : 'play') + '"></i></button> ' +
+        '<button class="btn btn-danger btn-sm btn-icon" onclick="deleteCampaign(\'' + c.id + '\')" title="Excluir"><i class="fas fa-trash"></i></button>' +
+        '</td></tr>';
+    });
+    tbody.innerHTML = html;
+  }
+
+  function populateCampaignSelectors() {
+    var options = '<option value="">Selecione uma campanha</option>';
+    var filterOptions = '<option value="">Todas as campanhas</option>';
+    campaigns.forEach(function(c) {
+      options += '<option value="' + c.id + '">' + escHtml(c.name) + '</option>';
+      filterOptions += '<option value="' + c.id + '">' + escHtml(c.name) + '</option>';
+    });
+    document.getElementById('linkCampaign').innerHTML = options;
+    document.getElementById('linksCampaignFilter').innerHTML = filterOptions;
+  }
+
+  window.openCampaignModal = function(editId) {
+    document.getElementById('campaignEditId').value = '';
+    document.getElementById('campaignName').value = '';
+    document.getElementById('campaignSlug').value = '';
+    document.getElementById('campaignRotation').value = 'random';
+    document.getElementById('campaignAlertThreshold').value = '90';
+    document.getElementById('campaignModalTitle').textContent = 'Nova Campanha';
+    openModal('campaignModal');
+  };
+
+  window.editCampaign = function(id) {
+    var c = campaigns.find(function(x) { return x.id === id; });
+    if (!c) return;
+    document.getElementById('campaignEditId').value = id;
+    document.getElementById('campaignName').value = c.name || '';
+    document.getElementById('campaignSlug').value = c.slug || '';
+    document.getElementById('campaignRotation').value = c.rotationMode || 'random';
+    document.getElementById('campaignAlertThreshold').value = c.alertThreshold || 90;
+    document.getElementById('campaignModalTitle').textContent = 'Editar Campanha';
+    openModal('campaignModal');
+  };
+
+  window.saveCampaign = async function() {
+    var name = document.getElementById('campaignName').value.trim();
+    var slug = document.getElementById('campaignSlug').value.trim();
+    var rotationMode = document.getElementById('campaignRotation').value;
+    var alertThreshold = parseInt(document.getElementById('campaignAlertThreshold').value) || 90;
+    var editId = document.getElementById('campaignEditId').value;
+
+    if (!name || !slug) {
+      showToast('Preencha nome e slug', 'error');
+      return;
+    }
+
+    // Verifica slug único
+    var existing = campaigns.find(function(c) { return c.slug === slug && c.id !== editId; });
+    if (existing) {
+      showToast('Este slug já está em uso', 'error');
+      return;
+    }
+
+    try {
+      var data = {
+        name: name,
+        slug: slug,
+        rotationMode: rotationMode,
+        alertThreshold: alertThreshold,
+        isActive: true,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      };
+
+      if (editId) {
+        await db.collection('campaigns').doc(editId).update(data);
+        showToast('Campanha atualizada!', 'success');
+      } else {
+        data.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+        data.createdBy = currentUser.uid;
+        await db.collection('campaigns').add(data);
+        showToast('Campanha criada!', 'success');
+      }
+
+      closeModal('campaignModal');
+      await loadCampaigns();
+    } catch (err) {
+      showToast('Erro ao salvar: ' + err.message, 'error');
+    }
+  };
+
+  window.toggleCampaignStatus = async function(id) {
+    var c = campaigns.find(function(x) { return x.id === id; });
+    if (!c) return;
+    await db.collection('campaigns').doc(id).update({ isActive: !(c.isActive !== false) });
+    showToast('Status atualizado', 'success');
+    await loadCampaigns();
+  };
+
+  window.deleteCampaign = function(id) {
+    var c = campaigns.find(function(x) { return x.id === id; });
+    showConfirm('Excluir campanha "' + (c ? c.name : '') + '" e todos os links associados?', async function() {
+      // Deleta links associados
+      var linksSnap = await db.collection('links').where('campaignId', '==', id).get();
+      var batch = db.batch();
+      linksSnap.forEach(function(doc) { batch.delete(doc.ref); });
+      batch.delete(db.collection('campaigns').doc(id));
+      await batch.commit();
+      showToast('Campanha excluída', 'success');
+      await loadCampaigns();
+      await loadAllLinks();
+    });
+  };
+
+  // ===== LINKS =====
+  async function loadAllLinks() {
+    var snap = await db.collection('links').orderBy('createdAt', 'desc').get();
+    links = [];
+    snap.forEach(function(doc) { links.push({ id: doc.id, ...doc.data() }); });
+    renderLinksTable();
+  }
+
+  window.loadLinks = function() {
+    renderLinksTable();
+  };
+
+  function renderLinksTable() {
+    var tbody = document.getElementById('linksTable');
+    var filter = document.getElementById('linksCampaignFilter').value;
+    var filtered = filter ? links.filter(function(l) { return l.campaignId === filter; }) : links;
+
+    if (filtered.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state"><i class="fas fa-link"></i><h3>Nenhum link</h3><p>Adicione links de grupos WhatsApp</p></div></td></tr>';
+      return;
+    }
+
+    var html = '';
+    filtered.forEach(function(l) {
+      var camp = campaigns.find(function(c) { return c.id === l.campaignId; });
+      var campName = camp ? camp.name : 'N/A';
+      var fill = l.maxVacancies ? ((l.currentClicks || 0) / l.maxVacancies * 100) : 0;
+      var fillColor = fill >= 90 ? 'var(--danger)' : fill >= 70 ? 'var(--warning)' : 'var(--accent)';
+      var statusBadge = l.isFull ? '<span class="badge badge-danger">Cheio</span>' :
+                        l.isActive ? '<span class="badge badge-success">Ativo</span>' :
+                        '<span class="badge badge-warning">Inativo</span>';
+
+      html += '<tr>' +
+        '<td><strong>' + escHtml(l.name || 'Sem nome') + '</strong></td>' +
+        '<td><span class="link-url">' + escHtml(l.url || '') + '</span> <button class="copy-btn" onclick="copyToClipboard(\'' + escHtml(l.url || '') + '\')"><i class="fas fa-copy"></i></button></td>' +
+        '<td><span class="badge badge-purple">' + escHtml(campName) + '</span></td>' +
+        '<td style="min-width:140px">' +
+        '<div style="display:flex;align-items:center;gap:8px"><span style="font-size:13px;font-weight:600">' + (l.currentClicks || 0) + '/' + (l.maxVacancies || '∞') + '</span></div>' +
+        '<div class="progress-bar"><div class="progress-fill" style="width:' + Math.min(fill, 100) + '%;background:' + fillColor + '"></div></div>' +
+        '<div class="progress-text">' + Math.round(fill) + '% preenchido</div>' +
+        '</td>' +
+        '<td>' + (l.currentClicks || 0).toLocaleString() + '</td>' +
+        '<td>' + (l.weight || 1) + '</td>' +
+        '<td>' + statusBadge + '</td>' +
+        '<td style="white-space:nowrap">' +
+        '<button class="btn btn-secondary btn-sm btn-icon" onclick="editLink(\'' + l.id + '\')" title="Editar"><i class="fas fa-pen"></i></button> ' +
+        '<button class="btn btn-secondary btn-sm btn-icon" onclick="resetLinkClicks(\'' + l.id + '\')" title="Resetar clicks"><i class="fas fa-redo"></i></button> ' +
+        '<button class="btn btn-secondary btn-sm btn-icon" onclick="toggleLinkStatus(\'' + l.id + '\')" title="' + (l.isActive ? 'Desativar' : 'Ativar') + '"><i class="fas fa-' + (l.isActive ? 'pause' : 'play') + '"></i></button> ' +
+        '<button class="btn btn-danger btn-sm btn-icon" onclick="deleteLink(\'' + l.id + '\')" title="Excluir"><i class="fas fa-trash"></i></button>' +
+        '</td></tr>';
+    });
+    tbody.innerHTML = html;
+  }
+
+  window.openLinkModal = function() {
+    document.getElementById('linkEditId').value = '';
+    document.getElementById('linkName').value = '';
+    document.getElementById('linkUrl').value = '';
+    document.getElementById('linkVacancies').value = '';
+    document.getElementById('linkWeight').value = '1';
+    document.getElementById('linkCurrentClicks').value = '0';
+    document.getElementById('linkCampaign').value = '';
+    document.getElementById('linkModalTitle').textContent = 'Novo Link';
+    openModal('linkModal');
+  };
+
+  window.editLink = function(id) {
+    var l = links.find(function(x) { return x.id === id; });
+    if (!l) return;
+    document.getElementById('linkEditId').value = id;
+    document.getElementById('linkName').value = l.name || '';
+    document.getElementById('linkUrl').value = l.url || '';
+    document.getElementById('linkVacancies').value = l.maxVacancies || '';
+    document.getElementById('linkWeight').value = l.weight || 1;
+    document.getElementById('linkCurrentClicks').value = l.currentClicks || 0;
+    document.getElementById('linkCampaign').value = l.campaignId || '';
+    document.getElementById('linkModalTitle').textContent = 'Editar Link';
+    openModal('linkModal');
+  };
+
+  window.saveLink = async function() {
+    var campaignId = document.getElementById('linkCampaign').value;
+    var name = document.getElementById('linkName').value.trim();
+    var url = document.getElementById('linkUrl').value.trim();
+    var maxVacancies = parseInt(document.getElementById('linkVacancies').value) || 0;
+    var weight = parseInt(document.getElementById('linkWeight').value) || 1;
+    var currentClicks = parseInt(document.getElementById('linkCurrentClicks').value) || 0;
+    var editId = document.getElementById('linkEditId').value;
+
+    if (!campaignId || !name || !url) {
+      showToast('Preencha todos os campos obrigatórios', 'error');
+      return;
+    }
+
+    if (!url.includes('chat.whatsapp.com') && !url.includes('whatsapp.com')) {
+      showToast('URL deve ser um link de grupo WhatsApp', 'error');
+      return;
+    }
+
+    try {
+      var data = {
+        campaignId: campaignId,
+        name: name,
+        url: url,
+        maxVacancies: maxVacancies,
+        weight: weight,
+        currentClicks: currentClicks,
+        isActive: true,
+        isFull: maxVacancies > 0 && currentClicks >= maxVacancies,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      };
+
+      if (editId) {
+        await db.collection('links').doc(editId).update(data);
+        showToast('Link atualizado!', 'success');
+      } else {
+        data.createdAt = firebase.firestore.FieldValue.serverTimestamp();
+        data.createdBy = currentUser.uid;
+        data.order = links.length;
+        await db.collection('links').add(data);
+        showToast('Link adicionado!', 'success');
+      }
+
+      closeModal('linkModal');
+      await loadAllLinks();
+    } catch (err) {
+      showToast('Erro ao salvar: ' + err.message, 'error');
+    }
+  };
+
+  window.resetLinkClicks = function(id) {
+    var l = links.find(function(x) { return x.id === id; });
+    showConfirm('Resetar clicks do link "' + (l ? l.name : '') + '"?', async function() {
+      await db.collection('links').doc(id).update({ currentClicks: 0, isFull: false });
+      showToast('Clicks resetados', 'success');
+    });
+  };
+
+  window.toggleLinkStatus = async function(id) {
+    var l = links.find(function(x) { return x.id === id; });
+    if (!l) return;
+    await db.collection('links').doc(id).update({ isActive: !l.isActive });
+    showToast('Status atualizado', 'success');
+  };
+
+  window.deleteLink = function(id) {
+    var l = links.find(function(x) { return x.id === id; });
+    showConfirm('Excluir link "' + (l ? l.name : '') + '"?', async function() {
+      await db.collection('links').doc(id).delete();
+      showToast('Link excluído', 'success');
+      await loadAllLinks();
+    });
+  };
+
+  // ===== DASHBOARD =====
+  function loadDashboard() {
+    updateDashboardStats();
+    loadRecentClicks();
+    initDashboardCharts();
+  }
+
+  function updateDashboardStats() {
+    var activeCampaigns = campaigns.filter(function(c) { return c.isActive !== false; }).length;
+    var activeLinks = links.filter(function(l) { return l.isActive && !l.isFull; }).length;
+    var fullLinks = links.filter(function(l) { return l.isFull; }).length;
+    var totalClicks = links.reduce(function(sum, l) { return sum + (l.currentClicks || 0); }, 0);
+
+    document.getElementById('statTotalClicks').textContent = totalClicks.toLocaleString();
+    document.getElementById('statActiveCampaigns').textContent = activeCampaigns;
+    document.getElementById('statActiveLinks').textContent = activeLinks;
+    document.getElementById('statFullLinks').textContent = fullLinks;
+  }
+
+  async function loadRecentClicks() {
+    try {
+      var snap = await db.collection('clicks')
+        .orderBy('timestamp', 'desc')
+        .limit(10)
+        .get();
+
+      var tbody = document.getElementById('recentClicksTable');
+      if (snap.empty) {
+        tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><p>Nenhum click registrado ainda</p></div></td></tr>';
+        return;
+      }
+
+      var html = '';
+      snap.forEach(function(doc) {
+        var d = doc.data();
+        var time = d.timestamp ? new Date(d.timestamp.seconds * 1000).toLocaleString('pt-BR') : 'N/A';
+        html += '<tr>' +
+          '<td>' + escHtml(d.linkName || 'N/A') + '</td>' +
+          '<td><span class="badge badge-purple">' + escHtml(getCampaignName(d.campaignId)) + '</span></td>' +
+          '<td><span class="badge badge-info">' + escHtml(d.device || 'N/A') + '</span></td>' +
+          '<td>' + escHtml((d.city || '') + (d.country ? ', ' + d.country : '')) + '</td>' +
+          '<td style="font-size:12px;color:var(--text-muted)">' + time + '</td>' +
+          '</tr>';
+      });
+      tbody.innerHTML = html;
+    } catch (err) {
+      console.error('Erro ao carregar clicks:', err);
+    }
+  }
+
+  function initDashboardCharts() {
+    var textColor = getComputedStyle(document.body).getPropertyValue('--text-secondary').trim() || '#8899aa';
+    var borderColor = getComputedStyle(document.body).getPropertyValue('--border').trim() || '#1e3a5f';
+    Chart.defaults.color = textColor;
+    Chart.defaults.borderColor = borderColor;
+
+    // Clicks por hora
+    var ctx1 = document.getElementById('clicksChart').getContext('2d');
+    clicksChart = new Chart(ctx1, {
+      type: 'bar',
+      data: {
+        labels: Array.from({length: 24}, function(_, i) { return i + 'h'; }),
+        datasets: [{
+          label: 'Clicks',
+          data: new Array(24).fill(0),
+          backgroundColor: 'rgba(37, 211, 102, 0.3)',
+          borderColor: '#25D366',
+          borderWidth: 1,
+          borderRadius: 4
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+      }
+    });
+
+    // Dispositivos
+    var ctx2 = document.getElementById('devicesChart').getContext('2d');
+    devicesChart = new Chart(ctx2, {
+      type: 'doughnut',
+      data: {
+        labels: ['Mobile', 'Desktop', 'Tablet'],
+        datasets: [{
+          data: [0, 0, 0],
+          backgroundColor: ['#25D366', '#0A84FF', '#BF5AF2'],
+          borderWidth: 0
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { position: 'bottom' } }
+      }
+    });
+
+    // Carrega dados dos charts
+    loadChartData();
+  }
+
+  async function loadChartData() {
+    try {
+      var today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      var snap = await db.collection('clicks')
+        .where('timestamp', '>=', today)
+        .get();
+
+      var hourly = new Array(24).fill(0);
+      var devices = { Mobile: 0, Desktop: 0, Tablet: 0 };
+
+      snap.forEach(function(doc) {
+        var d = doc.data();
+        if (d.timestamp) {
+          var hour = new Date(d.timestamp.seconds * 1000).getHours();
+          hourly[hour]++;
+        }
+        var dev = d.device || 'Desktop';
+        if (devices[dev] !== undefined) devices[dev]++;
+        else devices['Desktop']++;
+      });
+
+      if (clicksChart) {
+        clicksChart.data.datasets[0].data = hourly;
+        clicksChart.update();
+      }
+
+      if (devicesChart) {
+        devicesChart.data.datasets[0].data = [devices.Mobile, devices.Desktop, devices.Tablet];
+        devicesChart.update();
+      }
+    } catch (err) {
+      console.error('Erro ao carregar chart data:', err);
+    }
+  }
+
+  // ===== ANALYTICS =====
+  async function loadAnalytics() {
+    try {
+      var now = new Date();
+      var todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
+      var weekStart = new Date(now); weekStart.setDate(weekStart.getDate() - 7);
+      var monthStart = new Date(now); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
+      var thirtyDaysAgo = new Date(now); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+      var snap = await db.collection('clicks')
+        .where('timestamp', '>=', thirtyDaysAgo)
+        .get();
+
+      var clicksToday = 0, clicksWeek = 0, clicksMonth = 0;
+      var dailyData = {};
+      var countryData = {};
+      var browserData = {};
+
+      snap.forEach(function(doc) {
+        var d = doc.data();
+        if (!d.timestamp) return;
+        var date = new Date(d.timestamp.seconds * 1000);
+
+        if (date >= todayStart) clicksToday++;
+        if (date >= weekStart) clicksWeek++;
+        if (date >= monthStart) clicksMonth++;
+
+        var dayKey = date.toISOString().split('T')[0];
+        dailyData[dayKey] = (dailyData[dayKey] || 0) + 1;
+
+        var country = d.country || d.countryCode || 'Desconhecido';
+        countryData[country] = (countryData[country] || 0) + 1;
+
+        var browser = d.browser || 'Outro';
+        browserData[browser] = (browserData[browser] || 0) + 1;
+      });
+
+      document.getElementById('statClicksToday').textContent = clicksToday.toLocaleString();
+      document.getElementById('statClicksWeek').textContent = clicksWeek.toLocaleString();
+      document.getElementById('statClicksMonth').textContent = clicksMonth.toLocaleString();
+
+      // Daily clicks chart
+      var days = [];
+      var dayValues = [];
+      for (var i = 29; i >= 0; i--) {
+        var d = new Date(now);
+        d.setDate(d.getDate() - i);
+        var key = d.toISOString().split('T')[0];
+        days.push(d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }));
+        dayValues.push(dailyData[key] || 0);
+      }
+
+      var ctx3 = document.getElementById('dailyClicksChart').getContext('2d');
+      if (dailyClicksChart) dailyClicksChart.destroy();
+      dailyClicksChart = new Chart(ctx3, {
+        type: 'line',
+        data: {
+          labels: days,
+          datasets: [{
+            label: 'Clicks',
+            data: dayValues,
+            borderColor: '#25D366',
+            backgroundColor: 'rgba(37,211,102,0.1)',
+            fill: true,
+            tension: 0.4,
+            pointRadius: 2,
+            pointHoverRadius: 5
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+        }
+      });
+
+      // Countries chart
+      var sortedCountries = Object.entries(countryData).sort(function(a, b) { return b[1] - a[1]; }).slice(0, 8);
+      var ctx4 = document.getElementById('countriesChart').getContext('2d');
+      if (countriesChart) countriesChart.destroy();
+      countriesChart = new Chart(ctx4, {
+        type: 'bar',
+        data: {
+          labels: sortedCountries.map(function(c) { return c[0]; }),
+          datasets: [{
+            label: 'Clicks',
+            data: sortedCountries.map(function(c) { return c[1]; }),
+            backgroundColor: 'rgba(37,211,102,0.3)',
+            borderColor: '#25D366',
+            borderWidth: 1,
+            borderRadius: 4
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          indexAxis: 'y',
+          plugins: { legend: { display: false } },
+          scales: { x: { beginAtZero: true, ticks: { precision: 0 } } }
+        }
+      });
+
+      // Browsers chart
+      var sortedBrowsers = Object.entries(browserData).sort(function(a, b) { return b[1] - a[1]; });
+      var colors = ['#25D366', '#0A84FF', '#BF5AF2', '#FF3B30', '#FFD60A', '#FF9500'];
+      var ctx5 = document.getElementById('browsersChart').getContext('2d');
+      if (browsersChart) browsersChart.destroy();
+      browsersChart = new Chart(ctx5, {
+        type: 'pie',
+        data: {
+          labels: sortedBrowsers.map(function(b) { return b[0]; }),
+          datasets: [{
+            data: sortedBrowsers.map(function(b) { return b[1]; }),
+            backgroundColor: colors.slice(0, sortedBrowsers.length),
+            borderWidth: 0
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { position: 'bottom' } }
+        }
+      });
+    } catch (err) {
+      console.error('Erro no analytics:', err);
+    }
+  }
+
+  // ===== LEADS =====
+  async function loadLeads() {
+    try {
+      var query = db.collection('clicks').orderBy('timestamp', 'desc').limit(50);
+      if (lastLeadDoc) query = query.startAfter(lastLeadDoc);
+
+      var snap = await query.get();
+      if (snap.empty && leadsData.length === 0) {
+        document.getElementById('leadsTable').innerHTML =
+          '<tr><td colspan="9"><div class="empty-state"><i class="fas fa-users"></i><h3>Nenhum lead</h3><p>Clicks aparecerão aqui</p></div></td></tr>';
+        document.getElementById('loadMoreLeads').style.display = 'none';
+        return;
+      }
+
+      snap.forEach(function(doc) {
+        leadsData.push({ id: doc.id, ...doc.data() });
+        lastLeadDoc = doc;
+      });
+
+      renderLeadsTable();
+      document.getElementById('loadMoreLeads').style.display = snap.size >= 50 ? 'inline-flex' : 'none';
+    } catch (err) {
+      console.error('Erro ao carregar leads:', err);
+    }
+  }
+
+  window.loadMoreLeads = loadLeads;
+
+  function renderLeadsTable() {
+    var search = (document.getElementById('leadsSearch').value || '').toLowerCase();
+    var filtered = search ? leadsData.filter(function(d) {
+      return (d.linkName || '').toLowerCase().includes(search) ||
+             (d.country || '').toLowerCase().includes(search) ||
+             (d.city || '').toLowerCase().includes(search) ||
+             (d.browser || '').toLowerCase().includes(search) ||
+             (d.device || '').toLowerCase().includes(search);
+    }) : leadsData;
+
+    var html = '';
+    filtered.forEach(function(d) {
+      var time = d.timestamp ? new Date(d.timestamp.seconds * 1000).toLocaleString('pt-BR') : 'N/A';
+      html += '<tr>' +
+        '<td style="font-size:12px;white-space:nowrap">' + time + '</td>' +
+        '<td>' + escHtml(d.linkName || 'N/A') + '</td>' +
+        '<td>' + escHtml(getCampaignName(d.campaignId)) + '</td>' +
+        '<td><span class="badge badge-info">' + escHtml(d.device || 'N/A') + '</span></td>' +
+        '<td>' + escHtml(d.browser || 'N/A') + '</td>' +
+        '<td>' + escHtml(d.os || 'N/A') + '</td>' +
+        '<td>' + escHtml(d.country || d.countryCode || 'N/A') + '</td>' +
+        '<td>' + escHtml(d.city || 'N/A') + '</td>' +
+        '<td style="font-size:11px;max-width:150px;overflow:hidden;text-overflow:ellipsis">' + escHtml(d.referrer || 'Direto') + '</td>' +
+        '</tr>';
+    });
+
+    document.getElementById('leadsTable').innerHTML = html || '<tr><td colspan="9"><div class="empty-state"><p>Nenhum resultado</p></div></td></tr>';
+  }
+
+  window.filterLeads = function() { renderLeadsTable(); };
+
+  // ===== ALERTS =====
+  async function loadAlerts() {
+    try {
+      var snap = await db.collection('alerts').orderBy('timestamp', 'desc').limit(50).get();
+      alerts = [];
+      snap.forEach(function(doc) { alerts.push({ id: doc.id, ...doc.data() }); });
+      updateAlertsBadge();
+      renderAlerts();
+    } catch (err) {
+      console.error('Erro ao carregar alertas:', err);
+    }
+  }
+
+  function updateAlertsBadge() {
+    var unread = alerts.filter(function(a) { return !a.read; }).length;
+    var badge = document.getElementById('alertsBadge');
+    var notifCount = document.getElementById('notifCount');
+
+    if (unread > 0) {
+      badge.textContent = unread;
+      badge.style.display = 'inline';
+      notifCount.textContent = unread;
+      notifCount.style.display = 'inline';
+    } else {
+      badge.style.display = 'none';
+      notifCount.style.display = 'none';
+    }
+  }
+
+  function renderAlerts() {
+    var container = document.getElementById('alertsList');
+    if (alerts.length === 0) {
+      container.innerHTML = '<div class="empty-state"><i class="fas fa-bell"></i><h3>Nenhum alerta</h3><p>Alertas aparecerão quando grupos encherem</p></div>';
+      return;
+    }
+
+    var html = '';
+    alerts.forEach(function(a) {
+      var time = a.timestamp ? new Date(a.timestamp.seconds * 1000).toLocaleString('pt-BR') : '';
+      var icon, title, color;
+
+      switch (a.type) {
+        case 'link_full':
+          icon = 'fa-ban';
+          color = 'var(--danger)';
+          title = 'Grupo Cheio: ' + (a.linkName || 'N/A');
+          break;
+        case 'link_near_full':
+          icon = 'fa-exclamation-triangle';
+          color = 'var(--warning)';
+          title = 'Grupo Quase Cheio (' + (a.percent || 0) + '%): ' + (a.linkName || 'N/A');
+          break;
+        case 'all_full':
+          icon = 'fa-exclamation-circle';
+          color = 'var(--danger)';
+          title = 'TODOS os grupos cheios na campanha: ' + (a.campaignName || 'N/A');
+          break;
+        default:
+          icon = 'fa-info-circle';
+          color = 'var(--info)';
+          title = a.type;
+      }
+
+      html += '<div class="notif-item ' + (a.read ? '' : 'unread') + '" onclick="markAlertRead(\'' + a.id + '\')">' +
+        '<div class="notif-title"><i class="fas ' + icon + '" style="color:' + color + ';margin-right:6px"></i>' + escHtml(title) + '</div>' +
+        '<div class="notif-text">Campanha: ' + escHtml(a.campaignName || 'N/A') + '</div>' +
+        '<div class="notif-time">' + time + '</div>' +
+        '</div>';
+    });
+    container.innerHTML = html;
+  }
+
+  function renderNotifications() {
+    var container = document.getElementById('notifPanelBody');
+    if (alerts.length === 0) {
+      container.innerHTML = '<div class="empty-state"><i class="fas fa-bell"></i><p>Sem notificações</p></div>';
+      return;
+    }
+    // Reusa mesmo HTML dos alertas
+    var html = '';
+    alerts.slice(0, 20).forEach(function(a) {
+      var time = a.timestamp ? new Date(a.timestamp.seconds * 1000).toLocaleString('pt-BR') : '';
+      var icon = a.type === 'link_full' ? 'fa-ban' : a.type === 'all_full' ? 'fa-exclamation-circle' : 'fa-exclamation-triangle';
+      var color = a.type === 'link_full' || a.type === 'all_full' ? 'var(--danger)' : 'var(--warning)';
+      var title = a.linkName || a.campaignName || a.type;
+
+      html += '<div class="notif-item ' + (a.read ? '' : 'unread') + '" onclick="markAlertRead(\'' + a.id + '\')">' +
+        '<div class="notif-title"><i class="fas ' + icon + '" style="color:' + color + ';margin-right:6px"></i>' + escHtml(title) + '</div>' +
+        '<div class="notif-time">' + time + '</div></div>';
+    });
+    container.innerHTML = html;
+  }
+
+  window.markAlertRead = async function(id) {
+    await db.collection('alerts').doc(id).update({ read: true });
+  };
+
+  window.markAllAlertsRead = async function() {
+    var batch = db.batch();
+    alerts.filter(function(a) { return !a.read; }).forEach(function(a) {
+      batch.update(db.collection('alerts').doc(a.id), { read: true });
+    });
+    await batch.commit();
+    showToast('Todos os alertas marcados como lidos', 'success');
+  };
+
+  window.toggleNotifPanel = function() {
+    document.getElementById('notifPanel').classList.toggle('open');
+  };
+
+  // ===== USERS =====
+  async function loadUsers() {
+    try {
+      var snap = await db.collection('users').get();
+      var tbody = document.getElementById('usersTable');
+      var html = '';
+
+      snap.forEach(function(doc) {
+        var u = doc.data();
+        var created = u.createdAt ? new Date(u.createdAt.seconds * 1000).toLocaleDateString('pt-BR') : 'N/A';
+        var lastLogin = u.lastLogin ? new Date(u.lastLogin.seconds * 1000).toLocaleString('pt-BR') : 'N/A';
+
+        html += '<tr>' +
+          '<td><strong>' + escHtml(u.displayName || 'N/A') + '</strong></td>' +
+          '<td>' + escHtml(u.email || 'N/A') + '</td>' +
+          '<td><span class="badge badge-info">' + escHtml(u.role || 'admin') + '</span></td>' +
+          '<td>' + created + '</td>' +
+          '<td style="font-size:12px;color:var(--text-muted)">' + lastLogin + '</td>' +
+          '</tr>';
+      });
+
+      tbody.innerHTML = html || '<tr><td colspan="5"><div class="empty-state"><p>Nenhum usuário</p></div></td></tr>';
+    } catch (err) {
+      console.error('Erro ao carregar usuários:', err);
+    }
+  }
+
+  // ===== SETTINGS =====
+  window.toggleSetting = function(el) {
+    el.classList.toggle('active');
+  };
+
+  window.saveSettings = async function() {
+    var threshold = parseInt(document.getElementById('settingAlertThreshold').value) || 90;
+    var browserNotif = document.getElementById('settingBrowserNotif').classList.contains('active');
+    var soundAlert = document.getElementById('settingSoundAlert').classList.contains('active');
+
+    try {
+      await db.collection('settings').doc('general').set({
+        alertThreshold: threshold,
+        browserNotif: browserNotif,
+        soundAlert: soundAlert,
+        updatedBy: currentUser.uid,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+
+      // Solicita permissão de notificação
+      if (browserNotif && 'Notification' in window) {
+        Notification.requestPermission();
+      }
+
+      showToast('Configurações salvas!', 'success');
+    } catch (err) {
+      showToast('Erro ao salvar: ' + err.message, 'error');
+    }
+  };
+
+  // ===== EXPORTS =====
+  window.exportCSV = function() {
+    var rows = [['Data', 'Link', 'Campanha', 'Dispositivo', 'Navegador', 'OS', 'País', 'Cidade', 'Referrer']];
+
+    // Usa dados já carregados
+    leadsData.forEach(function(d) {
+      rows.push([
+        d.timestamp ? new Date(d.timestamp.seconds * 1000).toISOString() : '',
+        d.linkName || '',
+        getCampaignName(d.campaignId),
+        d.device || '',
+        d.browser || '',
+        d.os || '',
+        d.country || d.countryCode || '',
+        d.city || '',
+        d.referrer || ''
+      ]);
+    });
+
+    downloadCSV(rows, 'analytics_' + new Date().toISOString().split('T')[0] + '.csv');
+    showToast('CSV exportado!', 'success');
+  };
+
+  window.exportLeadsCSV = window.exportCSV;
+
+  window.exportAllData = async function() {
+    try {
+      var data = { campaigns: campaigns, links: links, exportDate: new Date().toISOString() };
+      var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'linkrotator_backup_' + new Date().toISOString().split('T')[0] + '.json';
+      a.click();
+      showToast('Backup exportado!', 'success');
+    } catch (err) {
+      showToast('Erro na exportação: ' + err.message, 'error');
+    }
+  };
+
+  function downloadCSV(rows, filename) {
+    var csv = rows.map(function(r) {
+      return r.map(function(c) { return '"' + String(c).replace(/"/g, '""') + '"'; }).join(',');
+    }).join('\n');
+    var bom = '\uFEFF';
+    var blob = new Blob([bom + csv], { type: 'text/csv;charset=utf-8;' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+  }
+
+  // ===== MODALS =====
+  window.openModal = function(id) { document.getElementById(id).classList.add('active'); };
+  window.closeModal = function(id) { document.getElementById(id).classList.remove('active'); };
+
+  window.showConfirm = function(message, onConfirm) {
+    document.getElementById('confirmMessage').textContent = message;
+    pendingConfirmAction = onConfirm;
+    openModal('confirmModal');
+  };
+
+  window.confirmAction = async function() {
+    if (pendingConfirmAction) {
+      await pendingConfirmAction();
+      pendingConfirmAction = null;
+    }
+    closeModal('confirmModal');
+  };
+
+  // Click fora do modal fecha
+  document.querySelectorAll('.modal-overlay').forEach(function(overlay) {
+    overlay.addEventListener('click', function(e) {
+      if (e.target === overlay) overlay.classList.remove('active');
+    });
+  });
+
+  // ===== TOASTS =====
+  window.showToast = function(message, type) {
+    type = type || 'info';
+    var container = document.getElementById('toastContainer');
+    var icons = { success: 'fa-check-circle', error: 'fa-times-circle', warning: 'fa-exclamation-triangle', info: 'fa-info-circle' };
+    var colors = { success: 'var(--accent)', error: 'var(--danger)', warning: 'var(--warning)', info: 'var(--info)' };
+
+    var toast = document.createElement('div');
+    toast.className = 'toast toast-' + type;
+    toast.innerHTML = '<i class="fas ' + icons[type] + '" style="color:' + colors[type] + ';font-size:16px"></i><span>' + escHtml(message) + '</span>';
+    container.appendChild(toast);
+
+    setTimeout(function() {
+      toast.style.opacity = '0';
+      toast.style.transform = 'translateX(100%)';
+      toast.style.transition = 'all .3s ease';
+      setTimeout(function() { toast.remove(); }, 300);
+    }, 4000);
+  };
+
+  // ===== HELPERS =====
+  function getCampaignName(id) {
+    var c = campaigns.find(function(x) { return x.id === id; });
+    return c ? c.name : 'N/A';
+  }
+
+  function escHtml(str) {
+    if (!str) return '';
+    var div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  window.copyToClipboard = function(text) {
+    navigator.clipboard.writeText(text).then(function() {
+      showToast('Copiado!', 'success');
+    }).catch(function() {
+      // Fallback
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      showToast('Copiado!', 'success');
+    });
+  };
+
+  // ===== LOGOUT =====
+  window.handleLogout = function() {
+    // Limpa listeners
+    unsubscribers.forEach(function(unsub) { unsub(); });
+    auth.signOut();
+  };
+
+})();
+</script>
+</body>
+</html>

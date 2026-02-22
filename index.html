@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LinkRotator Pro - Login</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg-primary: #0d1b2a;
+  --bg-secondary: #1b2838;
+  --bg-card: #162032;
+  --border: #1e3a5f;
+  --text-primary: #e8edf3;
+  --text-secondary: #8899aa;
+  --accent: #25D366;
+  --accent-hover: #1eba57;
+  --accent-glow: rgba(37,211,102,0.15);
+  --danger: #FF3B30;
+  --warning: #FFD60A;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Background animado */
+body::before {
+  content: '';
+  position: absolute;
+  width: 600px;
+  height: 600px;
+  background: radial-gradient(circle, rgba(37,211,102,0.08) 0%, transparent 70%);
+  top: -200px;
+  right: -200px;
+  border-radius: 50%;
+  animation: float 8s ease-in-out infinite;
+}
+
+body::after {
+  content: '';
+  position: absolute;
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, rgba(37,211,102,0.05) 0%, transparent 70%);
+  bottom: -100px;
+  left: -100px;
+  border-radius: 50%;
+  animation: float 6s ease-in-out infinite reverse;
+}
+
+@keyframes float {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(30px, -30px); }
+}
+
+.login-container {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 420px;
+  padding: 20px;
+}
+
+.login-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 40px 32px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+}
+
+.logo {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.logo-icon {
+  width: 56px;
+  height: 56px;
+  background: var(--accent-glow);
+  border: 2px solid var(--accent);
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.logo-icon svg {
+  width: 28px;
+  height: 28px;
+  fill: var(--accent);
+}
+
+.logo h1 {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.logo p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+/* Tabs login/registro */
+.tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--bg-primary);
+  border-radius: 10px;
+  padding: 4px;
+  margin-bottom: 28px;
+}
+
+.tab {
+  flex: 1;
+  padding: 10px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all .2s;
+}
+
+.tab.active {
+  background: var(--bg-card);
+  color: var(--accent);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+.tab:hover:not(.active) {
+  color: var(--text-primary);
+}
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-group label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.form-group input {
+  width: 100%;
+  padding: 12px 14px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: inherit;
+  transition: border-color .2s, box-shadow .2s;
+  outline: none;
+}
+
+.form-group input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.form-group input::placeholder {
+  color: #4a5568;
+}
+
+.btn {
+  width: 100%;
+  padding: 13px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all .2s;
+  position: relative;
+  overflow: hidden;
+}
+
+.btn:hover {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 15px rgba(37,211,102,0.3);
+}
+
+.btn:active {
+  transform: translateY(0);
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-loading::after {
+  content: '';
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin .6s linear infinite;
+  right: 16px;
+  top: 50%;
+  margin-top: -10px;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.forgot-link {
+  display: block;
+  text-align: center;
+  margin-top: 16px;
+  font-size: 13px;
+  color: var(--accent);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.forgot-link:hover {
+  text-decoration: underline;
+}
+
+.alert {
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  margin-bottom: 16px;
+  display: none;
+}
+
+.alert-error {
+  background: rgba(255,59,48,0.1);
+  border: 1px solid rgba(255,59,48,0.3);
+  color: #FF6B6B;
+}
+
+.alert-success {
+  background: rgba(37,211,102,0.1);
+  border: 1px solid rgba(37,211,102,0.3);
+  color: var(--accent);
+}
+
+.form-view { display: none; }
+.form-view.active { display: block; }
+
+/* Proteção brute-force */
+.lockout-banner {
+  background: rgba(255,59,48,0.1);
+  border: 1px solid rgba(255,59,48,0.3);
+  border-radius: 8px;
+  padding: 12px;
+  text-align: center;
+  font-size: 13px;
+  color: #FF6B6B;
+  margin-bottom: 16px;
+  display: none;
+}
+
+/* Responsivo */
+@media (max-width: 480px) {
+  .login-card { padding: 28px 20px; }
+  .logo h1 { font-size: 20px; }
+}
+</style>
+</head>
+<body>
+
+<div class="login-container">
+  <div class="login-card">
+    <div class="logo">
+      <div class="logo-icon">
+        <svg viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+      </div>
+      <h1>LinkRotator Pro</h1>
+      <p>Rotacionador de Links WhatsApp</p>
+    </div>
+
+    <div class="lockout-banner" id="lockoutBanner"></div>
+    <div class="alert alert-error" id="alertError"></div>
+    <div class="alert alert-success" id="alertSuccess"></div>
+
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('login')">Entrar</button>
+      <button class="tab" onclick="switchTab('register')">Registrar</button>
+    </div>
+
+    <!-- Login Form -->
+    <div class="form-view active" id="loginView">
+      <form id="loginForm" onsubmit="handleLogin(event)">
+        <div class="form-group">
+          <label for="loginEmail">Email</label>
+          <input type="email" id="loginEmail" placeholder="seu@email.com" required autocomplete="email">
+        </div>
+        <div class="form-group">
+          <label for="loginPassword">Senha</label>
+          <input type="password" id="loginPassword" placeholder="Sua senha" required minlength="8" autocomplete="current-password">
+        </div>
+        <button type="submit" class="btn" id="loginBtn">Entrar</button>
+        <a class="forgot-link" onclick="switchTab('forgot')">Esqueceu a senha?</a>
+      </form>
+    </div>
+
+    <!-- Register Form -->
+    <div class="form-view" id="registerView">
+      <form id="registerForm" onsubmit="handleRegister(event)">
+        <div class="form-group">
+          <label for="regName">Nome</label>
+          <input type="text" id="regName" placeholder="Seu nome" required>
+        </div>
+        <div class="form-group">
+          <label for="regEmail">Email</label>
+          <input type="email" id="regEmail" placeholder="seu@email.com" required autocomplete="email">
+        </div>
+        <div class="form-group">
+          <label for="regPassword">Senha</label>
+          <input type="password" id="regPassword" placeholder="Mínimo 8 caracteres" required minlength="8" autocomplete="new-password">
+        </div>
+        <div class="form-group">
+          <label for="regPassword2">Confirmar Senha</label>
+          <input type="password" id="regPassword2" placeholder="Repita a senha" required minlength="8" autocomplete="new-password">
+        </div>
+        <button type="submit" class="btn" id="registerBtn">Criar Conta</button>
+      </form>
+    </div>
+
+    <!-- Forgot Password Form -->
+    <div class="form-view" id="forgotView">
+      <form id="forgotForm" onsubmit="handleForgot(event)">
+        <div class="form-group">
+          <label for="forgotEmail">Email</label>
+          <input type="email" id="forgotEmail" placeholder="seu@email.com" required autocomplete="email">
+        </div>
+        <button type="submit" class="btn" id="forgotBtn">Enviar Link de Recuperação</button>
+        <a class="forgot-link" onclick="switchTab('login')">Voltar ao login</a>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script src="config.js"></script>
+<script>
+(function() {
+  'use strict';
+
+  firebase.initializeApp(FIREBASE_CONFIG);
+  const auth = firebase.auth();
+  const db = firebase.firestore();
+
+  // Persistência de sessão
+  auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+
+  // Se já está logado, redireciona
+  auth.onAuthStateChanged(function(user) {
+    if (user) {
+      window.location.href = 'painel.html';
+    }
+  });
+
+  // Proteção brute-force (client-side)
+  const MAX_ATTEMPTS = 5;
+  const LOCKOUT_TIME = 5 * 60 * 1000; // 5 minutos
+  let loginAttempts = JSON.parse(localStorage.getItem('rl_login_attempts') || '{"count":0,"lockUntil":0}');
+
+  function checkLockout() {
+    if (loginAttempts.lockUntil > Date.now()) {
+      var remaining = Math.ceil((loginAttempts.lockUntil - Date.now()) / 1000);
+      var minutes = Math.floor(remaining / 60);
+      var seconds = remaining % 60;
+      document.getElementById('lockoutBanner').textContent =
+        'Conta bloqueada temporariamente. Tente novamente em ' + minutes + 'm ' + seconds + 's';
+      document.getElementById('lockoutBanner').style.display = 'block';
+      document.getElementById('loginBtn').disabled = true;
+      return true;
+    }
+    document.getElementById('lockoutBanner').style.display = 'none';
+    document.getElementById('loginBtn').disabled = false;
+    return false;
+  }
+
+  function recordFailedAttempt() {
+    loginAttempts.count++;
+    if (loginAttempts.count >= MAX_ATTEMPTS) {
+      loginAttempts.lockUntil = Date.now() + LOCKOUT_TIME;
+      loginAttempts.count = 0;
+    }
+    localStorage.setItem('rl_login_attempts', JSON.stringify(loginAttempts));
+  }
+
+  function resetAttempts() {
+    loginAttempts = { count: 0, lockUntil: 0 };
+    localStorage.setItem('rl_login_attempts', JSON.stringify(loginAttempts));
+  }
+
+  // Verifica lockout periodicamente
+  setInterval(checkLockout, 1000);
+  checkLockout();
+
+  // Funções expostas globalmente
+  window.switchTab = function(tab) {
+    document.querySelectorAll('.form-view').forEach(function(v) { v.classList.remove('active'); });
+    document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
+    hideAlerts();
+
+    if (tab === 'login') {
+      document.getElementById('loginView').classList.add('active');
+      document.querySelectorAll('.tab')[0].classList.add('active');
+    } else if (tab === 'register') {
+      document.getElementById('registerView').classList.add('active');
+      document.querySelectorAll('.tab')[1].classList.add('active');
+    } else if (tab === 'forgot') {
+      document.getElementById('forgotView').classList.add('active');
+    }
+  };
+
+  window.handleLogin = async function(e) {
+    e.preventDefault();
+    if (checkLockout()) return;
+
+    var email = document.getElementById('loginEmail').value.trim();
+    var password = document.getElementById('loginPassword').value;
+    var btn = document.getElementById('loginBtn');
+
+    hideAlerts();
+    btn.classList.add('btn-loading');
+    btn.disabled = true;
+
+    try {
+      await auth.signInWithEmailAndPassword(email, password);
+      resetAttempts();
+      // onAuthStateChanged vai redirecionar
+    } catch (err) {
+      recordFailedAttempt();
+      checkLockout();
+      var msg = 'Erro ao fazer login.';
+      switch (err.code) {
+        case 'auth/user-not-found':
+        case 'auth/wrong-password':
+        case 'auth/invalid-credential':
+          msg = 'Email ou senha incorretos.';
+          break;
+        case 'auth/too-many-requests':
+          msg = 'Muitas tentativas. Conta bloqueada temporariamente pelo servidor.';
+          break;
+        case 'auth/user-disabled':
+          msg = 'Conta desativada. Contate o administrador.';
+          break;
+      }
+      showError(msg);
+    } finally {
+      btn.classList.remove('btn-loading');
+      btn.disabled = false;
+    }
+  };
+
+  window.handleRegister = async function(e) {
+    e.preventDefault();
+    var name = document.getElementById('regName').value.trim();
+    var email = document.getElementById('regEmail').value.trim();
+    var password = document.getElementById('regPassword').value;
+    var password2 = document.getElementById('regPassword2').value;
+    var btn = document.getElementById('registerBtn');
+
+    hideAlerts();
+
+    if (password !== password2) {
+      showError('As senhas não coincidem.');
+      return;
+    }
+
+    if (password.length < 8) {
+      showError('A senha deve ter no mínimo 8 caracteres.');
+      return;
+    }
+
+    btn.classList.add('btn-loading');
+    btn.disabled = true;
+
+    try {
+      var cred = await auth.createUserWithEmailAndPassword(email, password);
+      await cred.user.updateProfile({ displayName: name });
+
+      // Salva dados do usuário no Firestore
+      await db.collection('users').doc(cred.user.uid).set({
+        email: email,
+        displayName: name,
+        role: 'admin',
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        lastLogin: firebase.firestore.FieldValue.serverTimestamp()
+      });
+
+      // onAuthStateChanged vai redirecionar
+    } catch (err) {
+      var msg = 'Erro ao criar conta.';
+      switch (err.code) {
+        case 'auth/email-already-in-use':
+          msg = 'Este email já está cadastrado.';
+          break;
+        case 'auth/weak-password':
+          msg = 'Senha muito fraca. Use pelo menos 8 caracteres.';
+          break;
+        case 'auth/invalid-email':
+          msg = 'Email inválido.';
+          break;
+      }
+      showError(msg);
+    } finally {
+      btn.classList.remove('btn-loading');
+      btn.disabled = false;
+    }
+  };
+
+  window.handleForgot = async function(e) {
+    e.preventDefault();
+    var email = document.getElementById('forgotEmail').value.trim();
+    var btn = document.getElementById('forgotBtn');
+
+    hideAlerts();
+    btn.classList.add('btn-loading');
+    btn.disabled = true;
+
+    try {
+      await auth.sendPasswordResetEmail(email);
+      showSuccess('Link de recuperação enviado! Verifique seu email.');
+    } catch (err) {
+      // Não revelamos se o email existe ou não (segurança)
+      showSuccess('Se este email estiver cadastrado, você receberá um link de recuperação.');
+    } finally {
+      btn.classList.remove('btn-loading');
+      btn.disabled = false;
+    }
+  };
+
+  function showError(msg) {
+    var el = document.getElementById('alertError');
+    el.textContent = msg;
+    el.style.display = 'block';
+  }
+
+  function showSuccess(msg) {
+    var el = document.getElementById('alertSuccess');
+    el.textContent = msg;
+    el.style.display = 'block';
+  }
+
+  function hideAlerts() {
+    document.getElementById('alertError').style.display = 'none';
+    document.getElementById('alertSuccess').style.display = 'none';
+  }
+
+})();
+</script>
+</body>
+</html>

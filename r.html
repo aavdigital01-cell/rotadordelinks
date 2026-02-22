@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Redirecionando...</title>
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0d1b2a;color:#e0e0e0;font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh}
+.loader{text-align:center}
+.spinner{width:40px;height:40px;border:3px solid rgba(37,211,102,.2);border-top-color:#25D366;border-radius:50%;animation:spin .6s linear infinite;margin:0 auto 16px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.msg{font-size:14px;opacity:.7}
+.error{color:#FF3B30;font-size:14px;margin-top:12px;display:none}
+</style>
+</head>
+<body>
+<div class="loader">
+<div class="spinner" id="spinner"></div>
+<div class="msg" id="msg">Redirecionando...</div>
+<div class="error" id="error"></div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script src="config.js"></script>
+<script>
+(function() {
+  'use strict';
+
+  // Inicializa Firebase
+  firebase.initializeApp(FIREBASE_CONFIG);
+  const db = firebase.firestore();
+
+  // Pega parâmetros da URL
+  const params = new URLSearchParams(window.location.search);
+  const campaignSlug = params.get('c');
+  const utmSource = params.get('utm_source') || '';
+  const utmMedium = params.get('utm_medium') || '';
+  const utmCampaign = params.get('utm_campaign') || '';
+
+  if (!campaignSlug) {
+    showError('Link inválido. Parâmetro de campanha não encontrado.');
+    return;
+  }
+
+  // Anti-bot: verifica rate limit
+  const now = Date.now();
+  const clickKey = 'rl_clicks_' + campaignSlug;
+  const clickData = JSON.parse(localStorage.getItem(clickKey) || '{"clicks":[],"blocked":false}');
+
+  // Limpa clicks antigos (mais de 60s)
+  clickData.clicks = clickData.clicks.filter(function(t) { return now - t < 60000; });
+
+  if (clickData.clicks.length >= SYSTEM_CONFIG.maxClicksPerMinute) {
+    showError('Muitas tentativas. Aguarde um momento.');
+    return;
+  }
+
+  clickData.clicks.push(now);
+  localStorage.setItem(clickKey, JSON.stringify(clickData));
+
+  // Coleta dados do visitante (não-bloqueante)
+  var visitorData = {
+    userAgent: navigator.userAgent,
+    language: navigator.language || '',
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || '',
+    screenWidth: screen.width,
+    screenHeight: screen.height,
+    referrer: document.referrer || '',
+    utmSource: utmSource,
+    utmMedium: utmMedium,
+    utmCampaign: utmCampaign,
+    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+    device: getDeviceType(),
+    browser: getBrowser(),
+    os: getOS()
+  };
+
+  // Busca campanha e redireciona
+  rotate(campaignSlug, visitorData);
+
+  async function rotate(slug, visitor) {
+    try {
+      // 1. Busca campanha pelo slug
+      var campSnap = await db.collection('campaigns')
+        .where('slug', '==', slug)
+        .where('isActive', '==', true)
+        .limit(1)
+        .get();
+
+      if (campSnap.empty) {
+        showError('Campanha não encontrada ou inativa.');
+        return;
+      }
+
+      var campaign = campSnap.docs[0];
+      var campData = campaign.data();
+      var campaignId = campaign.id;
+
+      // 2. Busca links ativos e não cheios
+      var linksSnap = await db.collection('links')
+        .where('campaignId', '==', campaignId)
+        .where('isActive', '==', true)
+        .where('isFull', '==', false)
+        .get();
+
+      if (linksSnap.empty) {
+        // Todos os grupos estão cheios - registra evento
+        db.collection('alerts').add({
+          type: 'all_full',
+          campaignId: campaignId,
+          campaignName: campData.name,
+          timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+          read: false
+        });
+        showError('Todos os grupos estão cheios no momento. Tente novamente mais tarde.');
+        return;
+      }
+
+      var links = [];
+      linksSnap.forEach(function(doc) {
+        links.push({ id: doc.id, ...doc.data() });
+      });
+
+      // 3. Seleciona link baseado no modo de rotação
+      var selected = selectLink(links, campData.rotationMode, campaignId);
+
+      if (!selected) {
+        showError('Nenhum grupo disponível no momento.');
+        return;
+      }
+
+      // 4. Redireciona IMEDIATAMENTE (antes de registrar o click)
+      window.location.replace(selected.url);
+
+      // 5. Registra click e atualiza contagem (async, não bloqueia o redirect)
+      visitor.linkId = selected.id;
+      visitor.campaignId = campaignId;
+      visitor.linkName = selected.name || '';
+
+      // Incrementa clicks no link via transação
+      var linkRef = db.collection('links').doc(selected.id);
+      db.runTransaction(async function(transaction) {
+        var linkDoc = await transaction.get(linkRef);
+        if (!linkDoc.exists) return;
+
+        var data = linkDoc.data();
+        var newClicks = (data.currentClicks || 0) + 1;
+        var isFull = newClicks >= (data.maxVacancies || Infinity);
+
+        transaction.update(linkRef, {
+          currentClicks: newClicks,
+          isFull: isFull,
+          lastClickAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+
+        // Se ficou cheio, cria alerta
+        if (isFull) {
+          var alertRef = db.collection('alerts').doc();
+          transaction.set(alertRef, {
+            type: 'link_full',
+            campaignId: campaignId,
+            linkId: selected.id,
+            linkName: selected.name || '',
+            campaignName: campData.name || '',
+            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+            read: false
+          });
+        }
+
+        // Alerta de quase cheio
+        var threshold = campData.alertThreshold || SYSTEM_CONFIG.alertThreshold;
+        var fillPercent = (newClicks / (data.maxVacancies || 1)) * 100;
+        if (fillPercent >= threshold && fillPercent - (1 / (data.maxVacancies || 1) * 100) < threshold) {
+          var nearAlertRef = db.collection('alerts').doc();
+          transaction.set(nearAlertRef, {
+            type: 'link_near_full',
+            campaignId: campaignId,
+            linkId: selected.id,
+            linkName: selected.name || '',
+            campaignName: campData.name || '',
+            percent: Math.round(fillPercent),
+            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+            read: false
+          });
+        }
+      });
+
+      // Registra click separadamente (dados do visitante)
+      db.collection('clicks').add(visitor);
+
+      // Tenta pegar geolocalização (async, best-effort)
+      fetchGeo(visitor);
+
+    } catch (err) {
+      console.error('Erro no rotacionador:', err);
+      showError('Erro ao processar redirecionamento. Tente novamente.');
+    }
+  }
+
+  function selectLink(links, mode, campaignId) {
+    if (links.length === 0) return null;
+    if (links.length === 1) return links[0];
+
+    switch (mode) {
+      case 'sequential': return selectSequential(links, campaignId);
+      case 'weighted': return selectWeighted(links);
+      case 'least-filled': return selectLeastFilled(links);
+      case 'random':
+      default: return selectRandom(links);
+    }
+  }
+
+  function selectRandom(links) {
+    return links[Math.floor(Math.random() * links.length)];
+  }
+
+  function selectSequential(links, campaignId) {
+    // Usa localStorage para manter o índice entre visitas
+    var key = 'rl_seq_' + campaignId;
+    var idx = parseInt(localStorage.getItem(key) || '0', 10);
+    if (idx >= links.length) idx = 0;
+    localStorage.setItem(key, String(idx + 1));
+
+    // Ordena por 'order' se disponível
+    links.sort(function(a, b) { return (a.order || 0) - (b.order || 0); });
+    return links[idx];
+  }
+
+  function selectWeighted(links) {
+    var totalWeight = links.reduce(function(sum, l) { return sum + (l.weight || 1); }, 0);
+    var random = Math.random() * totalWeight;
+    var cumulative = 0;
+
+    for (var i = 0; i < links.length; i++) {
+      cumulative += (links[i].weight || 1);
+      if (random <= cumulative) return links[i];
+    }
+    return links[links.length - 1];
+  }
+
+  function selectLeastFilled(links) {
+    // Seleciona o link com menor percentual de preenchimento
+    links.sort(function(a, b) {
+      var fillA = (a.currentClicks || 0) / (a.maxVacancies || 1);
+      var fillB = (b.currentClicks || 0) / (b.maxVacancies || 1);
+      return fillA - fillB;
+    });
+
+    // Entre os que têm o mesmo nível de preenchimento, escolhe aleatoriamente
+    var minFill = (links[0].currentClicks || 0) / (links[0].maxVacancies || 1);
+    var sameLevel = links.filter(function(l) {
+      return Math.abs(((l.currentClicks || 0) / (l.maxVacancies || 1)) - minFill) < 0.01;
+    });
+
+    return sameLevel[Math.floor(Math.random() * sameLevel.length)];
+  }
+
+  async function fetchGeo(visitor) {
+    try {
+      var resp = await fetch(SYSTEM_CONFIG.geoApiUrl);
+      if (resp.ok) {
+        var geo = await resp.json();
+        // Atualiza o click com dados de geo
+        var clickSnap = await db.collection('clicks')
+          .where('linkId', '==', visitor.linkId)
+          .where('timestamp', '==', visitor.timestamp)
+          .limit(1)
+          .get();
+
+        // Se não encontrou pelo timestamp (pode não ter sido escrito ainda),
+        // usa uma abordagem alternativa - adiciona os dados de geo diretamente
+        if (!clickSnap.empty) {
+          clickSnap.docs[0].ref.update({
+            country: geo.country_name || '',
+            countryCode: geo.country_code || '',
+            region: geo.region || '',
+            city: geo.city || '',
+            ip: geo.ip ? geo.ip.replace(/\d+$/, 'xxx') : '' // Anonimiza parcialmente
+          });
+        }
+      }
+    } catch (e) {
+      // Geo é best-effort, não bloqueia nada
+    }
+  }
+
+  function getDeviceType() {
+    var ua = navigator.userAgent;
+    if (/tablet|ipad|playbook|silk/i.test(ua)) return 'Tablet';
+    if (/mobile|iphone|ipod|android|blackberry|opera mini|iemobile/i.test(ua)) return 'Mobile';
+    return 'Desktop';
+  }
+
+  function getBrowser() {
+    var ua = navigator.userAgent;
+    if (ua.indexOf('Firefox') > -1) return 'Firefox';
+    if (ua.indexOf('SamsungBrowser') > -1) return 'Samsung';
+    if (ua.indexOf('Opera') > -1 || ua.indexOf('OPR') > -1) return 'Opera';
+    if (ua.indexOf('Edg') > -1) return 'Edge';
+    if (ua.indexOf('Chrome') > -1) return 'Chrome';
+    if (ua.indexOf('Safari') > -1) return 'Safari';
+    return 'Outro';
+  }
+
+  function getOS() {
+    var ua = navigator.userAgent;
+    if (ua.indexOf('Windows') > -1) return 'Windows';
+    if (ua.indexOf('Mac') > -1) return 'macOS';
+    if (ua.indexOf('Linux') > -1) return 'Linux';
+    if (ua.indexOf('Android') > -1) return 'Android';
+    if (/iPhone|iPad|iPod/.test(ua)) return 'iOS';
+    return 'Outro';
+  }
+
+  function showError(msg) {
+    var el = document.getElementById('error');
+    el.textContent = msg;
+    el.style.display = 'block';
+    document.getElementById('spinner').style.display = 'none';
+    document.getElementById('msg').style.display = 'none';
+  }
+
+})();
+</script>
+</body>
+</html>
