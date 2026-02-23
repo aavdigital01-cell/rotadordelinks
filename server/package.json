@@ -1,0 +1,20 @@
+{
+  "name": "linkrotator-server",
+  "version": "1.0.0",
+  "description": "Backend para LinkRotator Pro - Meta Ads API + WhatsApp Monitor",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "firebase-admin": "^12.0.0",
+    "node-fetch": "^2.7.0",
+    "qrcode": "^1.5.3",
+    "qrcode-terminal": "^0.12.0",
+    "whatsapp-web.js": "^1.23.0"
+  }
+}

@@ -25,6 +25,10 @@ const FIREBASE_CONFIG = {
 // CONFIGURAÇÕES DO SISTEMA
 // ============================================
 const SYSTEM_CONFIG = {
+  // URL do servidor backend (Meta API + WhatsApp Monitor)
+  // Mude para a URL do seu VPS quando configurar
+  serverUrl: "http://localhost:3000",
+
   // API gratuita para geolocalização (limite: 45 req/min)
   geoApiUrl: "https://ipapi.co/json/",
 
@@ -35,7 +39,7 @@ const SYSTEM_CONFIG = {
   maxClicksPerMinute: 10,
 
   // Versão do sistema
-  version: "1.0.0",
+  version: "2.0.0",
 
   // Nome do sistema
   appName: "LinkRotator Pro"

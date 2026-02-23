@@ -760,6 +760,14 @@ select.form-control {
       <i class="fas fa-link"></i> Links
     </div>
 
+    <div class="nav-section">Integrações</div>
+    <div class="nav-item" data-view="metaads" onclick="navigateTo('metaads')">
+      <i class="fab fa-facebook"></i> Meta Ads
+    </div>
+    <div class="nav-item" data-view="whatsapp" onclick="navigateTo('whatsapp')">
+      <i class="fab fa-whatsapp"></i> WhatsApp Monitor
+    </div>
+
     <div class="nav-section">Análise</div>
     <div class="nav-item" data-view="analytics" onclick="navigateTo('analytics')">
       <i class="fas fa-chart-bar"></i> Analytics
@@ -953,6 +961,220 @@ select.form-control {
               <tr><td colspan="8" class="empty-state"><i class="fas fa-link"></i><h3>Nenhum link</h3><p>Adicione links de grupos WhatsApp</p></td></tr>
             </tbody>
           </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== META ADS VIEW ===== -->
+    <div class="view" id="view-metaads">
+      <div id="metaServerOffline" style="display:none">
+        <div class="card">
+          <div class="card-body" style="text-align:center;padding:48px">
+            <i class="fab fa-facebook" style="font-size:48px;color:var(--info);opacity:.4;margin-bottom:16px"></i>
+            <h3 style="margin-bottom:8px">Servidor Backend Necessário</h3>
+            <p style="font-size:13px;color:var(--text-secondary);max-width:400px;margin:0 auto">Para usar a integração com Meta Ads, o servidor backend precisa estar rodando. Veja as instruções no arquivo <code>server/SETUP-SERVER.md</code></p>
+          </div>
+        </div>
+      </div>
+
+      <div id="metaContent">
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-header">
+              <div class="stat-icon blue"><i class="fas fa-dollar-sign"></i></div>
+              <span class="stat-label">Gasto Hoje</span>
+            </div>
+            <div class="stat-value" id="metaSpendToday">R$ 0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-header">
+              <div class="stat-icon green"><i class="fas fa-eye"></i></div>
+              <span class="stat-label">Impressões</span>
+            </div>
+            <div class="stat-value" id="metaImpressions">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-header">
+              <div class="stat-icon purple"><i class="fas fa-mouse-pointer"></i></div>
+              <span class="stat-label">Clicks (Meta)</span>
+            </div>
+            <div class="stat-value" id="metaClicks">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-header">
+              <div class="stat-icon yellow"><i class="fas fa-coins"></i></div>
+              <span class="stat-label">Custo por Lead Real</span>
+            </div>
+            <div class="stat-value" id="metaCostPerLead">R$ 0</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title"><i class="fab fa-facebook" style="color:var(--info);margin-right:6px"></i>Campanhas Meta Ads</span>
+            <div style="display:flex;gap:8px">
+              <select class="form-control" id="metaDateRange" onchange="loadMetaCampaigns()" style="width:150px;padding:6px 10px;font-size:12px">
+                <option value="today">Hoje</option>
+                <option value="yesterday">Ontem</option>
+                <option value="last_7d" selected>Últimos 7 dias</option>
+                <option value="last_30d">Últimos 30 dias</option>
+                <option value="this_month">Este mês</option>
+              </select>
+              <button class="btn btn-secondary btn-sm" onclick="syncMeta()">
+                <i class="fas fa-sync"></i> Sincronizar
+              </button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Campanha</th>
+                  <th>Status</th>
+                  <th>Gasto</th>
+                  <th>Impressões</th>
+                  <th>Clicks</th>
+                  <th>CPC</th>
+                  <th>CPM</th>
+                  <th>CTR</th>
+                  <th>Conversões</th>
+                  <th>Custo/Result</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody id="metaCampaignsTable">
+                <tr><td colspan="11"><div class="empty-state"><p>Carregando campanhas...</p></div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Funil de Conversão</span>
+          </div>
+          <div class="card-body">
+            <div style="display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;padding:20px 0">
+              <div style="text-align:center;padding:16px 24px;background:var(--info-bg);border-radius:var(--radius);min-width:140px">
+                <div style="font-size:11px;color:var(--info);font-weight:600;margin-bottom:4px">IMPRESSÕES</div>
+                <div style="font-size:24px;font-weight:700" id="funnelImpressions">0</div>
+              </div>
+              <i class="fas fa-chevron-right" style="color:var(--text-muted)"></i>
+              <div style="text-align:center;padding:16px 24px;background:var(--purple-bg);border-radius:var(--radius);min-width:140px">
+                <div style="font-size:11px;color:var(--purple);font-weight:600;margin-bottom:4px">CLICKS (META)</div>
+                <div style="font-size:24px;font-weight:700" id="funnelMetaClicks">0</div>
+              </div>
+              <i class="fas fa-chevron-right" style="color:var(--text-muted)"></i>
+              <div style="text-align:center;padding:16px 24px;background:var(--accent-glow);border-radius:var(--radius);min-width:140px">
+                <div style="font-size:11px;color:var(--accent);font-weight:600;margin-bottom:4px">CLICKS (ROTADOR)</div>
+                <div style="font-size:24px;font-weight:700" id="funnelRotatorClicks">0</div>
+              </div>
+              <i class="fas fa-chevron-right" style="color:var(--text-muted)"></i>
+              <div style="text-align:center;padding:16px 24px;background:var(--warning-bg);border-radius:var(--radius);min-width:140px">
+                <div style="font-size:11px;color:var(--warning);font-weight:600;margin-bottom:4px">MEMBROS REAIS</div>
+                <div style="font-size:24px;font-weight:700" id="funnelRealMembers">0</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== WHATSAPP MONITOR VIEW ===== -->
+    <div class="view" id="view-whatsapp">
+      <div id="whatsappNotConnected" style="display:none">
+        <div class="card">
+          <div class="card-body" style="text-align:center;padding:48px">
+            <i class="fab fa-whatsapp" style="font-size:48px;color:var(--accent);opacity:.4;margin-bottom:16px"></i>
+            <h3 style="margin-bottom:8px">Conectar WhatsApp</h3>
+            <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px">Escaneie o QR Code abaixo com o WhatsApp do número que administra os grupos</p>
+            <div id="qrCodeContainer" style="margin:20px auto;max-width:256px">
+              <div class="empty-state"><p>Carregando QR Code...</p></div>
+            </div>
+            <button class="btn btn-primary" onclick="refreshQR()"><i class="fas fa-sync"></i> Atualizar QR Code</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="whatsappConnected">
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-header">
+              <div class="stat-icon green"><i class="fab fa-whatsapp"></i></div>
+              <span class="stat-label">Status</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;margin-top:8px">
+              <div id="whatsappStatusDot" style="width:10px;height:10px;border-radius:50%;background:var(--accent)"></div>
+              <span id="whatsappStatusText" style="font-size:14px;font-weight:600">Conectado</span>
+            </div>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:4px" id="whatsappPhone"></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-header">
+              <div class="stat-icon blue"><i class="fas fa-users"></i></div>
+              <span class="stat-label">Total Membros Reais</span>
+            </div>
+            <div class="stat-value" id="whatsappTotalMembers">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-header">
+              <div class="stat-icon purple"><i class="fas fa-user-plus"></i></div>
+              <span class="stat-label">Entradas Hoje</span>
+            </div>
+            <div class="stat-value" id="whatsappJoinsToday">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-header">
+              <div class="stat-icon red"><i class="fas fa-user-minus"></i></div>
+              <span class="stat-label">Saídas Hoje</span>
+            </div>
+            <div class="stat-value" id="whatsappLeavesToday">0</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title"><i class="fab fa-whatsapp" style="color:var(--accent);margin-right:6px"></i>Grupos Monitorados</span>
+            <button class="btn btn-secondary btn-sm" onclick="loadWhatsAppGroups()"><i class="fas fa-sync"></i> Atualizar</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Grupo</th>
+                  <th>Membros Reais</th>
+                  <th>Link Vinculado</th>
+                  <th>Clicks vs Membros</th>
+                  <th>Taxa de Retenção</th>
+                  <th>Última Atualização</th>
+                </tr>
+              </thead>
+              <tbody id="whatsappGroupsTable">
+                <tr><td colspan="6"><div class="empty-state"><p>Carregando grupos...</p></div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Eventos Recentes (Entradas/Saídas)</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Data/Hora</th>
+                  <th>Grupo</th>
+                  <th>Ação</th>
+                  <th>Membro</th>
+                </tr>
+              </thead>
+              <tbody id="memberEventsTable">
+                <tr><td colspan="4"><div class="empty-state"><p>Carregando eventos...</p></div></td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
@@ -1452,6 +1674,8 @@ select.form-control {
       dashboard: 'Dashboard',
       campaigns: 'Campanhas',
       links: 'Links',
+      metaads: 'Meta Ads',
+      whatsapp: 'WhatsApp Monitor',
       analytics: 'Analytics',
       leads: 'Leads',
       alerts: 'Alertas',
@@ -1461,6 +1685,8 @@ select.form-control {
     document.getElementById('pageTitle').textContent = titles[viewName] || viewName;
 
     // Carrega dados específicos da view
+    if (viewName === 'metaads') loadMetaCampaigns();
+    if (viewName === 'whatsapp') loadWhatsAppData();
     if (viewName === 'analytics') loadAnalytics();
     if (viewName === 'leads') { leadsData = []; lastLeadDoc = null; loadLeads(); }
     if (viewName === 'users') loadUsers();
@@ -2434,6 +2660,383 @@ select.form-control {
       showToast('Erro ao salvar: ' + err.message, 'error');
     }
   };
+
+  // ===== SERVIDOR API HELPER =====
+  async function serverFetch(endpoint) {
+    var token = await auth.currentUser.getIdToken();
+    var resp = await fetch(SYSTEM_CONFIG.serverUrl + endpoint, {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    if (!resp.ok) {
+      var err = await resp.json().catch(function() { return { error: 'Erro de conexão' }; });
+      throw new Error(err.error || 'Erro ' + resp.status);
+    }
+    return resp.json();
+  }
+
+  async function serverPost(endpoint, body) {
+    var token = await auth.currentUser.getIdToken();
+    var resp = await fetch(SYSTEM_CONFIG.serverUrl + endpoint, {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (!resp.ok) {
+      var err = await resp.json().catch(function() { return { error: 'Erro de conexão' }; });
+      throw new Error(err.error || 'Erro ' + resp.status);
+    }
+    return resp.json();
+  }
+
+  async function checkServerOnline() {
+    try {
+      await serverFetch('/api/whatsapp/status');
+      return true;
+    } catch(e) {
+      return false;
+    }
+  }
+
+  // ===== META ADS =====
+  window.loadMetaCampaigns = async function() {
+    try {
+      var online = await checkServerOnline();
+      if (!online) {
+        document.getElementById('metaServerOffline').style.display = 'block';
+        document.getElementById('metaContent').style.display = 'none';
+        // Carrega dados do Firestore (cache)
+        loadMetaFromFirestore();
+        return;
+      }
+      document.getElementById('metaServerOffline').style.display = 'none';
+      document.getElementById('metaContent').style.display = 'block';
+
+      var dateRange = document.getElementById('metaDateRange').value;
+      var [campaigns, accountInsights] = await Promise.all([
+        serverFetch('/api/meta/campaigns'),
+        serverFetch('/api/meta/account/insights?date_range=' + dateRange)
+      ]);
+
+      // Atualiza stats gerais
+      if (accountInsights && accountInsights.data && accountInsights.data[0]) {
+        var ai = accountInsights.data[0];
+        document.getElementById('metaSpendToday').textContent = 'R$ ' + parseFloat(ai.spend || 0).toFixed(2);
+        document.getElementById('metaImpressions').textContent = parseInt(ai.impressions || 0).toLocaleString();
+        document.getElementById('metaClicks').textContent = parseInt(ai.clicks || 0).toLocaleString();
+        document.getElementById('funnelImpressions').textContent = parseInt(ai.impressions || 0).toLocaleString();
+        document.getElementById('funnelMetaClicks').textContent = parseInt(ai.clicks || 0).toLocaleString();
+      }
+
+      // Funil: clicks do rotador
+      var totalRotatorClicks = links.reduce(function(sum, l) { return sum + (l.currentClicks || 0); }, 0);
+      document.getElementById('funnelRotatorClicks').textContent = totalRotatorClicks.toLocaleString();
+
+      // Funil: membros reais do WhatsApp
+      var membersSnap = await db.collection('group_members').get();
+      var totalRealMembers = 0;
+      membersSnap.forEach(function(doc) { totalRealMembers += (doc.data().currentMembers || 0); });
+      document.getElementById('funnelRealMembers').textContent = totalRealMembers.toLocaleString();
+
+      // Custo por lead real
+      var spend = accountInsights && accountInsights.data && accountInsights.data[0] ? parseFloat(accountInsights.data[0].spend || 0) : 0;
+      var costPerRealLead = totalRealMembers > 0 ? (spend / totalRealMembers) : 0;
+      document.getElementById('metaCostPerLead').textContent = 'R$ ' + costPerRealLead.toFixed(2);
+
+      // Tabela de campanhas
+      renderMetaCampaigns(campaigns, dateRange);
+
+    } catch (err) {
+      console.error('Erro Meta Ads:', err);
+      loadMetaFromFirestore();
+    }
+  };
+
+  async function loadMetaFromFirestore() {
+    try {
+      var snap = await db.collection('meta_campaigns').get();
+      if (snap.empty) return;
+
+      document.getElementById('metaServerOffline').style.display = 'none';
+      document.getElementById('metaContent').style.display = 'block';
+
+      var totalSpend = 0, totalImpressions = 0, totalClicks = 0;
+      var tbody = document.getElementById('metaCampaignsTable');
+      var html = '';
+
+      snap.forEach(function(doc) {
+        var c = doc.data();
+        totalSpend += (c.spend || 0);
+        totalImpressions += (c.impressions || 0);
+        totalClicks += (c.clicks || 0);
+
+        var statusBadge = c.status === 'ACTIVE' ? '<span class="badge badge-success">Ativo</span>' :
+                          '<span class="badge badge-warning">' + (c.status || 'N/A') + '</span>';
+
+        html += '<tr>' +
+          '<td><strong>' + escHtml(c.name || 'N/A') + '</strong></td>' +
+          '<td>' + statusBadge + '</td>' +
+          '<td>R$ ' + (c.spend || 0).toFixed(2) + '</td>' +
+          '<td>' + (c.impressions || 0).toLocaleString() + '</td>' +
+          '<td>' + (c.clicks || 0).toLocaleString() + '</td>' +
+          '<td>R$ ' + (c.cpc || 0).toFixed(2) + '</td>' +
+          '<td>R$ ' + (c.cpm || 0).toFixed(2) + '</td>' +
+          '<td>' + (c.ctr || 0).toFixed(2) + '%</td>' +
+          '<td>' + (c.conversions || 0) + '</td>' +
+          '<td>R$ ' + (c.costPerResult || 0).toFixed(2) + '</td>' +
+          '<td><span style="font-size:11px;color:var(--text-muted)">Cache</span></td>' +
+          '</tr>';
+      });
+
+      tbody.innerHTML = html || '<tr><td colspan="11"><div class="empty-state"><p>Nenhuma campanha</p></div></td></tr>';
+      document.getElementById('metaSpendToday').textContent = 'R$ ' + totalSpend.toFixed(2);
+      document.getElementById('metaImpressions').textContent = totalImpressions.toLocaleString();
+      document.getElementById('metaClicks').textContent = totalClicks.toLocaleString();
+    } catch(e) {}
+  }
+
+  async function renderMetaCampaigns(campaigns, dateRange) {
+    var tbody = document.getElementById('metaCampaignsTable');
+    if (!campaigns || !campaigns.data || campaigns.data.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="11"><div class="empty-state"><p>Nenhuma campanha encontrada</p></div></td></tr>';
+      return;
+    }
+
+    var html = '';
+    for (var camp of campaigns.data) {
+      try {
+        var insights = await serverFetch('/api/meta/campaigns/' + camp.id + '/insights?date_range=' + dateRange);
+        var d = insights && insights.data && insights.data[0] ? insights.data[0] : {};
+
+        var status = camp.effective_status || camp.status || 'N/A';
+        var statusBadge = status === 'ACTIVE' ? '<span class="badge badge-success">Ativo</span>' :
+                          status === 'PAUSED' ? '<span class="badge badge-warning">Pausado</span>' :
+                          '<span class="badge badge-info">' + status + '</span>';
+
+        var conversions = 0;
+        var costPerResult = 0;
+        if (d.actions) {
+          var conv = d.actions.find(function(a) { return a.action_type === 'lead' || a.action_type.includes('lead'); });
+          if (conv) conversions = parseInt(conv.value);
+        }
+        if (d.cost_per_action_type) {
+          var cpr = d.cost_per_action_type.find(function(a) { return a.action_type === 'lead' || a.action_type.includes('lead'); });
+          if (cpr) costPerResult = parseFloat(cpr.value);
+        }
+
+        html += '<tr>' +
+          '<td><strong>' + escHtml(camp.name) + '</strong><br><span style="font-size:10px;color:var(--text-muted)">' + camp.id + '</span></td>' +
+          '<td>' + statusBadge + '</td>' +
+          '<td>R$ ' + parseFloat(d.spend || 0).toFixed(2) + '</td>' +
+          '<td>' + parseInt(d.impressions || 0).toLocaleString() + '</td>' +
+          '<td>' + parseInt(d.clicks || 0).toLocaleString() + '</td>' +
+          '<td>R$ ' + parseFloat(d.cpc || 0).toFixed(2) + '</td>' +
+          '<td>R$ ' + parseFloat(d.cpm || 0).toFixed(2) + '</td>' +
+          '<td>' + parseFloat(d.ctr || 0).toFixed(2) + '%</td>' +
+          '<td>' + conversions + '</td>' +
+          '<td>R$ ' + costPerResult.toFixed(2) + '</td>' +
+          '<td style="white-space:nowrap">' +
+          (status === 'ACTIVE' ?
+            '<button class="btn btn-warning btn-sm btn-icon" onclick="metaPauseCampaign(\'' + camp.id + '\')" title="Pausar"><i class="fas fa-pause"></i></button>' :
+            '<button class="btn btn-primary btn-sm btn-icon" onclick="metaActivateCampaign(\'' + camp.id + '\')" title="Ativar"><i class="fas fa-play"></i></button>'
+          ) + '</td></tr>';
+      } catch(e) {
+        html += '<tr><td>' + escHtml(camp.name) + '</td><td colspan="10" style="color:var(--text-muted);font-size:12px">Erro ao carregar insights</td></tr>';
+      }
+    }
+    tbody.innerHTML = html;
+  }
+
+  window.metaPauseCampaign = async function(id) {
+    try {
+      await serverPost('/api/meta/campaigns/' + id + '/status', { status: 'PAUSED' });
+      showToast('Campanha pausada no Meta!', 'success');
+      loadMetaCampaigns();
+    } catch(err) { showToast('Erro: ' + err.message, 'error'); }
+  };
+
+  window.metaActivateCampaign = async function(id) {
+    try {
+      await serverPost('/api/meta/campaigns/' + id + '/status', { status: 'ACTIVE' });
+      showToast('Campanha ativada no Meta!', 'success');
+      loadMetaCampaigns();
+    } catch(err) { showToast('Erro: ' + err.message, 'error'); }
+  };
+
+  window.syncMeta = async function() {
+    try {
+      await serverPost('/api/meta/sync', {});
+      showToast('Dados sincronizados!', 'success');
+      loadMetaCampaigns();
+    } catch(err) { showToast('Erro: ' + err.message, 'error'); }
+  };
+
+  // ===== WHATSAPP MONITOR =====
+  window.loadWhatsAppData = async function() {
+    try {
+      var online = await checkServerOnline();
+      if (!online) {
+        document.getElementById('whatsappNotConnected').style.display = 'block';
+        document.getElementById('whatsappConnected').style.display = 'none';
+        loadWhatsAppFromFirestore();
+        return;
+      }
+
+      var status = await serverFetch('/api/whatsapp/status');
+      if (!status.connected) {
+        document.getElementById('whatsappNotConnected').style.display = 'block';
+        document.getElementById('whatsappConnected').style.display = 'none';
+        loadQRCode();
+        return;
+      }
+
+      document.getElementById('whatsappNotConnected').style.display = 'none';
+      document.getElementById('whatsappConnected').style.display = 'block';
+      document.getElementById('whatsappPhone').textContent = 'Número: +' + (status.phone || 'N/A');
+
+      await Promise.all([loadWhatsAppGroups(), loadMemberEvents()]);
+    } catch(err) {
+      loadWhatsAppFromFirestore();
+    }
+  };
+
+  async function loadWhatsAppFromFirestore() {
+    try {
+      var snap = await db.collection('group_members').get();
+      if (snap.empty) return;
+
+      document.getElementById('whatsappNotConnected').style.display = 'none';
+      document.getElementById('whatsappConnected').style.display = 'block';
+      document.getElementById('whatsappStatusText').textContent = 'Dados em cache';
+      document.getElementById('whatsappStatusDot').style.background = 'var(--warning)';
+
+      var totalMembers = 0;
+      var tbody = document.getElementById('whatsappGroupsTable');
+      var html = '';
+
+      snap.forEach(function(doc) {
+        var g = doc.data();
+        totalMembers += (g.currentMembers || 0);
+        var lastUpdate = g.lastScanned ? new Date(g.lastScanned.seconds * 1000).toLocaleString('pt-BR') : 'N/A';
+
+        html += '<tr>' +
+          '<td><strong>' + escHtml(g.groupName || 'N/A') + '</strong></td>' +
+          '<td style="font-size:18px;font-weight:700">' + (g.currentMembers || 0) + '</td>' +
+          '<td><span style="font-size:11px;color:var(--text-muted)">-</span></td>' +
+          '<td>-</td><td>-</td>' +
+          '<td style="font-size:11px;color:var(--text-muted)">' + lastUpdate + '</td>' +
+          '</tr>';
+      });
+
+      tbody.innerHTML = html;
+      document.getElementById('whatsappTotalMembers').textContent = totalMembers.toLocaleString();
+
+      // Carrega eventos
+      loadMemberEvents();
+    } catch(e) {}
+  }
+
+  window.loadWhatsAppGroups = async function() {
+    try {
+      var groups = await serverFetch('/api/whatsapp/groups');
+      var tbody = document.getElementById('whatsappGroupsTable');
+      var totalMembers = 0;
+      var html = '';
+
+      groups.forEach(function(g) {
+        var members = g.participants || g.currentMembers || 0;
+        totalMembers += members;
+
+        // Procura link vinculado
+        var linkedLink = links.find(function(l) { return l.whatsappGroupId === g.id; });
+        var linkedName = linkedLink ? linkedLink.name : '-';
+        var clicks = linkedLink ? (linkedLink.currentClicks || 0) : 0;
+        var retention = clicks > 0 ? Math.round((members / clicks) * 100) : 0;
+        var retentionColor = retention >= 70 ? 'var(--accent)' : retention >= 40 ? 'var(--warning)' : 'var(--danger)';
+        var lastUpdate = g.lastScanned ? new Date(g.lastScanned.seconds * 1000).toLocaleString('pt-BR') : 'Agora';
+
+        html += '<tr>' +
+          '<td><strong>' + escHtml(g.name || g.groupName || 'N/A') + '</strong></td>' +
+          '<td style="font-size:18px;font-weight:700">' + members + '</td>' +
+          '<td>' + (linkedLink ? '<span class="badge badge-success">' + escHtml(linkedName) + '</span>' : '<span style="font-size:11px;color:var(--text-muted)">Não vinculado</span>') + '</td>' +
+          '<td>' + (linkedLink ? clicks + ' → ' + members : '-') + '</td>' +
+          '<td>' + (linkedLink ? '<span style="color:' + retentionColor + ';font-weight:600">' + retention + '%</span>' : '-') + '</td>' +
+          '<td style="font-size:11px;color:var(--text-muted)">' + lastUpdate + '</td>' +
+          '</tr>';
+      });
+
+      tbody.innerHTML = html || '<tr><td colspan="6"><div class="empty-state"><p>Nenhum grupo</p></div></td></tr>';
+      document.getElementById('whatsappTotalMembers').textContent = totalMembers.toLocaleString();
+    } catch(err) {
+      console.error('Erro ao carregar grupos:', err);
+    }
+  };
+
+  async function loadQRCode() {
+    try {
+      var data = await serverFetch('/api/whatsapp/qr');
+      var container = document.getElementById('qrCodeContainer');
+      if (data.qr) {
+        container.innerHTML = '<img src="https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=' + encodeURIComponent(data.qr) + '" style="width:256px;height:256px;border-radius:8px">';
+      } else if (data.status === 'connected') {
+        container.innerHTML = '<p style="color:var(--accent)"><i class="fas fa-check-circle"></i> Conectado!</p>';
+        setTimeout(loadWhatsAppData, 1000);
+      } else {
+        container.innerHTML = '<p>Aguardando QR Code... <button class="btn btn-secondary btn-sm" onclick="refreshQR()">Tentar novamente</button></p>';
+      }
+    } catch(e) {
+      document.getElementById('qrCodeContainer').innerHTML = '<p style="color:var(--text-muted)">Servidor offline</p>';
+    }
+  }
+
+  window.refreshQR = loadQRCode;
+
+  async function loadMemberEvents() {
+    try {
+      var today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      var snap = await db.collection('member_events')
+        .orderBy('timestamp', 'desc')
+        .limit(50)
+        .get();
+
+      var tbody = document.getElementById('memberEventsTable');
+      var html = '';
+      var joinsToday = 0;
+      var leavesToday = 0;
+
+      snap.forEach(function(doc) {
+        var e = doc.data();
+        var time = e.timestamp ? new Date(e.timestamp.seconds * 1000) : new Date();
+        var timeStr = time.toLocaleString('pt-BR');
+
+        if (time >= today) {
+          if (e.action === 'join') joinsToday++;
+          if (e.action === 'leave') leavesToday++;
+        }
+
+        // Busca nome do grupo
+        var groupName = e.groupName || e.whatsappGroupId || 'N/A';
+
+        var actionBadge = e.action === 'join' ?
+          '<span class="badge badge-success"><i class="fas fa-user-plus"></i> Entrou</span>' :
+          '<span class="badge badge-danger"><i class="fas fa-user-minus"></i> Saiu</span>';
+
+        html += '<tr>' +
+          '<td style="font-size:12px">' + timeStr + '</td>' +
+          '<td>' + escHtml(groupName) + '</td>' +
+          '<td>' + actionBadge + '</td>' +
+          '<td style="font-size:12px;color:var(--text-muted)">***' + (e.phonePartial || '????') + '</td>' +
+          '</tr>';
+      });
+
+      tbody.innerHTML = html || '<tr><td colspan="4"><div class="empty-state"><p>Nenhum evento ainda</p></div></td></tr>';
+      document.getElementById('whatsappJoinsToday').textContent = joinsToday;
+      document.getElementById('whatsappLeavesToday').textContent = leavesToday;
+    } catch(err) {
+      console.error('Erro eventos:', err);
+    }
+  }
 
   // ===== EXPORTS =====
   window.exportCSV = function() {
