@@ -2180,31 +2180,32 @@ select.form-control {
     if (!select) return;
     select.innerHTML = '<option value="">Nenhum (nao vincular)</option>';
     try {
-      // Try Firestore first
-      var snap = await db.collection('group_members').orderBy('groupName').get();
-      if (snap.empty) {
-        // Fallback to server API
-        var online = await checkServerOnline();
-        if (online) {
-          var groups = await serverFetch('/api/whatsapp/groups');
-          if (groups && groups.length) {
-            groups.forEach(function(g) {
-              var opt = document.createElement('option');
-              opt.value = g.id;
-              opt.textContent = (g.name || g.groupName) + ' (' + (g.participants || g.currentMembers || 0) + ' membros)';
-              select.appendChild(opt);
-            });
-          }
+      // Use server API (admin SDK, no index needed)
+      var online = await checkServerOnline();
+      if (online) {
+        var groups = await serverFetch('/api/whatsapp/groups');
+        if (groups && groups.length) {
+          groups.sort(function(a,b) { return ((a.name||a.groupName)||'').localeCompare((b.name||b.groupName)||''); });
+          groups.forEach(function(g) {
+            var opt = document.createElement('option');
+            opt.value = g.id;
+            opt.textContent = (g.name || g.groupName) + ' (' + (g.participants || g.currentMembers || 0) + ' membros)';
+            select.appendChild(opt);
+          });
+          return;
         }
-      } else {
-        snap.forEach(function(doc) {
-          var d = doc.data();
-          var opt = document.createElement('option');
-          opt.value = doc.id;
-          opt.textContent = (d.groupName || 'Grupo') + ' (' + (d.currentMembers || 0) + ' membros)';
-          select.appendChild(opt);
-        });
       }
+      // Fallback: Firestore without orderBy
+      var snap = await db.collection('group_members').get();
+      var groups2 = [];
+      snap.forEach(function(doc) { groups2.push({ id: doc.id, ...doc.data() }); });
+      groups2.sort(function(a,b) { return (a.groupName||'').localeCompare(b.groupName||''); });
+      groups2.forEach(function(d) {
+        var opt = document.createElement('option');
+        opt.value = d.id;
+        opt.textContent = (d.groupName || 'Grupo') + ' (' + (d.currentMembers || 0) + ' membros)';
+        select.appendChild(opt);
+      });
     } catch(e) { console.error('Erro ao carregar grupos:', e); }
   }
 
@@ -2343,25 +2344,22 @@ select.form-control {
       document.getElementById('statWhatsappMembers').textContent = totalMembers.toLocaleString();
     } catch(e) {}
 
-    // Member events today
+    // Member events today - use server API (no Firestore index needed)
     try {
-      var today = new Date();
-      today.setHours(0,0,0,0);
-      var evSnap = await db.collection('member_events').where('timestamp', '>=', today).orderBy('timestamp', 'desc').get();
-      var joins = 0, leaves = 0;
-      var eventsHtml = '';
-      evSnap.forEach(function(doc) {
-        var d = doc.data();
-        if (d.action === 'join') joins++;
-        if (d.action === 'leave') leaves++;
-        var time = d.timestamp ? d.timestamp.toDate().toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'}) : '-';
-        var groupName = d.whatsappGroupId ? d.whatsappGroupId.substring(0,15) + '...' : '-';
-        eventsHtml += '<tr><td>' + time + '</td><td style="max-width:150px;overflow:hidden;text-overflow:ellipsis">' + escHtml(groupName) + '</td><td>' + (d.action === 'join' ? '<span style="color:var(--accent)"><i class="fas fa-arrow-up"></i> Entrou</span>' : '<span style="color:var(--danger)"><i class="fas fa-arrow-down"></i> Saiu</span>') + '</td><td>***' + escHtml(d.phonePartial || '') + '</td></tr>';
-      });
-      document.getElementById('statJoinsToday').textContent = joins;
-      document.getElementById('statLeavesToday').textContent = leaves;
-      var evTable = document.getElementById('dashMemberEvents');
-      if (evTable) evTable.innerHTML = eventsHtml || '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);padding:20px">Nenhum evento hoje</td></tr>';
+      var evData = await serverFetch('/api/member-events/today');
+      if (evData) {
+        document.getElementById('statJoinsToday').textContent = evData.joins || 0;
+        document.getElementById('statLeavesToday').textContent = evData.leaves || 0;
+        var eventsHtml = '';
+        var evList = (evData.events || []).slice(0, 20);
+        evList.forEach(function(d) {
+          var time = d.timestamp && d.timestamp._seconds ? new Date(d.timestamp._seconds * 1000).toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'}) : '-';
+          var groupName = d.whatsappGroupId ? d.whatsappGroupId.substring(0,20) : '-';
+          eventsHtml += '<tr><td>' + time + '</td><td style="max-width:150px;overflow:hidden;text-overflow:ellipsis">' + escHtml(groupName) + '</td><td>' + (d.action === 'join' ? '<span style="color:var(--accent)"><i class="fas fa-arrow-up"></i> Entrou</span>' : '<span style="color:var(--danger)"><i class="fas fa-arrow-down"></i> Saiu</span>') + '</td><td>***' + escHtml(d.phonePartial || '') + '</td></tr>';
+        });
+        var evTable = document.getElementById('dashMemberEvents');
+        if (evTable) evTable.innerHTML = eventsHtml || '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);padding:20px">Nenhum evento hoje</td></tr>';
+      }
     } catch(e) { console.error('Erro eventos:', e); }
 
     // Meta Ads data
@@ -3522,43 +3520,25 @@ select.form-control {
 
   async function loadMemberEvents() {
     try {
-      var today = new Date();
-      today.setHours(0, 0, 0, 0);
-
-      var snap = await db.collection('member_events')
-        .orderBy('timestamp', 'desc')
-        .limit(50)
-        .get();
-
+      // Use server API to avoid Firestore index issues
+      var evData = await serverFetch('/api/member-events/today');
       var tbody = document.getElementById('memberEventsTable');
       var html = '';
-      var joinsToday = 0;
-      var leavesToday = 0;
+      var joinsToday = 0, leavesToday = 0;
 
-      snap.forEach(function(doc) {
-        var e = doc.data();
-        var time = e.timestamp ? new Date(e.timestamp.seconds * 1000) : new Date();
-        var timeStr = time.toLocaleString('pt-BR');
-
-        if (time >= today) {
-          if (e.action === 'join') joinsToday++;
-          if (e.action === 'leave') leavesToday++;
-        }
-
-        // Busca nome do grupo
-        var groupName = e.groupName || e.whatsappGroupId || 'N/A';
-
-        var actionBadge = e.action === 'join' ?
-          '<span class="badge badge-success"><i class="fas fa-user-plus"></i> Entrou</span>' :
-          '<span class="badge badge-danger"><i class="fas fa-user-minus"></i> Saiu</span>';
-
-        html += '<tr>' +
-          '<td style="font-size:12px">' + timeStr + '</td>' +
-          '<td>' + escHtml(groupName) + '</td>' +
-          '<td>' + actionBadge + '</td>' +
-          '<td style="font-size:12px;color:var(--text-muted)">***' + (e.phonePartial || '????') + '</td>' +
-          '</tr>';
-      });
+      if (evData && evData.events) {
+        joinsToday = evData.joins || 0;
+        leavesToday = evData.leaves || 0;
+        evData.events.forEach(function(e) {
+          var time = e.timestamp && e.timestamp._seconds ? new Date(e.timestamp._seconds * 1000) : new Date();
+          var timeStr = time.toLocaleString('pt-BR');
+          var groupName = e.groupName || e.whatsappGroupId || 'N/A';
+          var actionBadge = e.action === 'join' ?
+            '<span class="badge badge-success"><i class="fas fa-user-plus"></i> Entrou</span>' :
+            '<span class="badge badge-danger"><i class="fas fa-user-minus"></i> Saiu</span>';
+          html += '<tr><td style="font-size:12px">' + timeStr + '</td><td>' + escHtml(groupName) + '</td><td>' + actionBadge + '</td><td style="font-size:12px;color:var(--text-muted)">***' + (e.phonePartial || '????') + '</td></tr>';
+        });
+      }
 
       tbody.innerHTML = html || '<tr><td colspan="4"><div class="empty-state"><p>Nenhum evento ainda</p></div></td></tr>';
       document.getElementById('whatsappJoinsToday').textContent = joinsToday;
