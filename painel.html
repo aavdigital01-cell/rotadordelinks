@@ -825,49 +825,62 @@ select.form-control {
 
     <!-- ===== DASHBOARD VIEW ===== -->
     <div class="view active" id="view-dashboard">
-      <div class="stats-grid" style="grid-template-columns:repeat(6,1fr)">
+      <div class="stats-grid" style="grid-template-columns:repeat(4,1fr)">
         <div class="stat-card">
           <div class="stat-header">
-            <div class="stat-icon green"><i class="fas fa-mouse-pointer"></i></div>
-            <span class="stat-label">Total de Clicks</span>
+            <div class="stat-icon blue"><i class="fas fa-mouse-pointer"></i></div>
+            <span class="stat-label">Clicks Meta</span>
           </div>
-          <div class="stat-value" id="statTotalClicks">0</div>
-          <div class="stat-change up" id="statClicksChange"></div>
+          <div class="stat-value" id="statMetaClicks">0</div>
         </div>
         <div class="stat-card">
           <div class="stat-header">
-            <div class="stat-icon blue"><i class="fas fa-bullhorn"></i></div>
-            <span class="stat-label">Campanhas Ativas</span>
-          </div>
-          <div class="stat-value" id="statActiveCampaigns">0</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-header">
-            <div class="stat-icon purple"><i class="fas fa-link"></i></div>
-            <span class="stat-label">Links Ativos</span>
-          </div>
-          <div class="stat-value" id="statActiveLinks">0</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-header">
-            <div class="stat-icon green"><i class="fab fa-whatsapp"></i></div>
-            <span class="stat-label">Membros WhatsApp</span>
+            <div class="stat-icon green"><i class="fas fa-users"></i></div>
+            <span class="stat-label">Membros Reais</span>
           </div>
           <div class="stat-value" id="statWhatsappMembers">0</div>
         </div>
         <div class="stat-card">
           <div class="stat-header">
-            <div class="stat-icon blue"><i class="fas fa-user-plus"></i></div>
+            <div class="stat-icon green"><i class="fas fa-user-plus"></i></div>
             <span class="stat-label">Entradas Hoje</span>
           </div>
           <div class="stat-value" id="statJoinsToday">0</div>
         </div>
         <div class="stat-card">
           <div class="stat-header">
-            <div class="stat-icon red"><i class="fas fa-ad"></i></div>
-            <span class="stat-label">Meta Ads Gasto</span>
+            <div class="stat-icon red"><i class="fas fa-user-minus"></i></div>
+            <span class="stat-label">Saidas Hoje</span>
+          </div>
+          <div class="stat-value" id="statLeavesToday">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon yellow"><i class="fas fa-dollar-sign"></i></div>
+            <span class="stat-label">Custo Meta Hoje</span>
           </div>
           <div class="stat-value" id="statMetaSpend">R$ 0.00</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon purple"><i class="fas fa-chart-line"></i></div>
+            <span class="stat-label">Custo por Lead Meta</span>
+          </div>
+          <div class="stat-value" id="statCostPerLeadMeta">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon blue"><i class="fas fa-bullseye"></i></div>
+            <span class="stat-label">Custo por Lead Real</span>
+          </div>
+          <div class="stat-value" id="statCostPerLeadReal">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon yellow"><i class="fas fa-bullhorn"></i></div>
+            <span class="stat-label">Campanhas Ativas</span>
+          </div>
+          <div class="stat-value" id="statActiveCampaigns">0</div>
         </div>
       </div>
 
@@ -1217,7 +1230,7 @@ select.form-control {
 
     <!-- ===== ANALYTICS VIEW ===== -->
     <div class="view" id="view-analytics">
-      <div class="stats-grid" style="margin-bottom:16px">
+      <div class="stats-grid" style="margin-bottom:16px;grid-template-columns:repeat(4,1fr)">
         <div class="stat-card">
           <div class="stat-header">
             <div class="stat-icon green"><i class="fas fa-mouse-pointer"></i></div>
@@ -1235,15 +1248,50 @@ select.form-control {
         <div class="stat-card">
           <div class="stat-header">
             <div class="stat-icon purple"><i class="fas fa-calendar"></i></div>
-            <span class="stat-label">Clicks este Mês</span>
+            <span class="stat-label">Clicks este Mes</span>
           </div>
           <div class="stat-value" id="statClicksMonth">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon green"><i class="fas fa-users"></i></div>
+            <span class="stat-label">Total Membros Grupos</span>
+          </div>
+          <div class="stat-value" id="analyticsMembers">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon green"><i class="fas fa-user-check"></i></div>
+            <span class="stat-label">Taxa de Retencao</span>
+          </div>
+          <div class="stat-value" id="analyticsRetention">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon red"><i class="fas fa-user-slash"></i></div>
+            <span class="stat-label">Taxa de Evasao</span>
+          </div>
+          <div class="stat-value" id="analyticsEvasion">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon blue"><i class="fas fa-clock"></i></div>
+            <span class="stat-label">Tempo Medio no Grupo</span>
+          </div>
+          <div class="stat-value" id="analyticsAvgTime">-</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon purple"><i class="fas fa-exchange-alt"></i></div>
+            <span class="stat-label">Entradas vs Saidas (30d)</span>
+          </div>
+          <div class="stat-value" id="analyticsNetGrowth">-</div>
         </div>
       </div>
 
       <div class="card">
         <div class="card-header">
-          <span class="card-title">Clicks por Dia (Últimos 30 dias)</span>
+          <span class="card-title">Clicks por Dia (Ultimos 30 dias)</span>
           <button class="btn btn-secondary btn-sm" onclick="exportCSV()">
             <i class="fas fa-download"></i> Exportar CSV
           </button>
@@ -1253,9 +1301,18 @@ select.form-control {
         </div>
       </div>
 
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Entradas vs Saidas por Dia (Ultimos 30 dias)</span>
+        </div>
+        <div class="card-body">
+          <div class="chart-container"><canvas id="joinsVsLeavesChart"></canvas></div>
+        </div>
+      </div>
+
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
         <div class="card">
-          <div class="card-header"><span class="card-title">Top Países</span></div>
+          <div class="card-header"><span class="card-title">Top Paises</span></div>
           <div class="card-body">
             <div class="chart-container"><canvas id="countriesChart"></canvas></div>
           </div>
@@ -1748,7 +1805,7 @@ select.form-control {
   let leadsData = [];
 
   // Charts
-  let clicksChart, devicesChart, dailyClicksChart, countriesChart, browsersChart;
+  let clicksChart, devicesChart, dailyClicksChart, countriesChart, browsersChart, joinsVsLeavesChart;
 
   // Verifica autenticação
   auth.onAuthStateChanged(async function(user) {
@@ -1894,7 +1951,7 @@ select.form-control {
     Chart.defaults.color = textColor;
     Chart.defaults.borderColor = borderColor;
     // Re-render charts if they exist
-    [clicksChart, devicesChart, dailyClicksChart, countriesChart, browsersChart].forEach(function(c) {
+    [clicksChart, devicesChart, dailyClicksChart, countriesChart, browsersChart, joinsVsLeavesChart].forEach(function(c) {
       if (c) c.update();
     });
   }
@@ -2121,16 +2178,33 @@ select.form-control {
   async function loadWhatsappGroupsDropdown() {
     var select = document.getElementById('linkWhatsappGroup');
     if (!select) return;
-    select.innerHTML = '<option value="">Nenhum (não vincular)</option>';
+    select.innerHTML = '<option value="">Nenhum (nao vincular)</option>';
     try {
+      // Try Firestore first
       var snap = await db.collection('group_members').orderBy('groupName').get();
-      snap.forEach(function(doc) {
-        var d = doc.data();
-        var opt = document.createElement('option');
-        opt.value = doc.id;
-        opt.textContent = d.groupName + ' (' + (d.currentMembers || 0) + ' membros)';
-        select.appendChild(opt);
-      });
+      if (snap.empty) {
+        // Fallback to server API
+        var online = await checkServerOnline();
+        if (online) {
+          var groups = await serverFetch('/api/whatsapp/groups');
+          if (groups && groups.length) {
+            groups.forEach(function(g) {
+              var opt = document.createElement('option');
+              opt.value = g.id;
+              opt.textContent = (g.name || g.groupName) + ' (' + (g.participants || g.currentMembers || 0) + ' membros)';
+              select.appendChild(opt);
+            });
+          }
+        }
+      } else {
+        snap.forEach(function(doc) {
+          var d = doc.data();
+          var opt = document.createElement('option');
+          opt.value = doc.id;
+          opt.textContent = (d.groupName || 'Grupo') + ' (' + (d.currentMembers || 0) + ' membros)';
+          select.appendChild(opt);
+        });
+      }
     } catch(e) { console.error('Erro ao carregar grupos:', e); }
   }
 
@@ -2148,7 +2222,7 @@ select.form-control {
     openModal('linkModal');
   };
 
-  window.editLink = function(id) {
+  window.editLink = async function(id) {
     var l = links.find(function(x) { return x.id === id; });
     if (!l) return;
     document.getElementById('linkEditId').value = id;
@@ -2159,6 +2233,10 @@ select.form-control {
     document.getElementById('linkCurrentClicks').value = l.currentClicks || 0;
     document.getElementById('linkCampaign').value = l.campaignId || '';
     document.getElementById('linkModalTitle').textContent = 'Editar Link';
+    if (l.whatsappGroupId) {
+      await loadWhatsappGroupsDropdown();
+      document.getElementById('linkWhatsappGroup').value = l.whatsappGroupId;
+    }
     openModal('linkModal');
   };
 
@@ -2252,15 +2330,12 @@ select.form-control {
   }
 
   async function updateDashboardStats() {
-    var activeCampaigns = campaigns.filter(function(c) { return c.isActive !== false; }).length;
-    var activeLinks = links.filter(function(l) { return l.isActive && !l.isFull; }).length;
-    var totalClicks = links.reduce(function(sum, l) { return sum + (l.currentClicks || 0); }, 0);
-
-    document.getElementById('statTotalClicks').textContent = totalClicks.toLocaleString();
+    // Basic stats from Firestore
+    var activeCampaigns = campaigns.filter(function(c) { return c.active; }).length;
+    var activeLinks = links.filter(function(l) { return l.active; }).length;
     document.getElementById('statActiveCampaigns').textContent = activeCampaigns;
-    document.getElementById('statActiveLinks').textContent = activeLinks;
 
-    // WhatsApp stats
+    // WhatsApp members
     try {
       var gmSnap = await db.collection('group_members').get();
       var totalMembers = 0;
@@ -2272,28 +2347,47 @@ select.form-control {
     try {
       var today = new Date();
       today.setHours(0,0,0,0);
-      var evSnap = await db.collection('member_events').where('timestamp', '>=', today).orderBy('timestamp', 'desc').limit(20).get();
+      var evSnap = await db.collection('member_events').where('timestamp', '>=', today).orderBy('timestamp', 'desc').get();
       var joins = 0, leaves = 0;
       var eventsHtml = '';
       evSnap.forEach(function(doc) {
         var d = doc.data();
         if (d.action === 'join') joins++;
         if (d.action === 'leave') leaves++;
-        var time = d.timestamp ? d.timestamp.toDate().toLocaleTimeString('pt-BR') : '-';
-        eventsHtml += '<tr><td>' + time + '</td><td>' + escHtml(d.whatsappGroupId || '').substring(0,20) + '</td><td>' + (d.action === 'join' ? '<span style="color:var(--accent)">Entrou</span>' : '<span style="color:var(--danger)">Saiu</span>') + '</td><td>***' + escHtml(d.phonePartial || '') + '</td></tr>';
+        var time = d.timestamp ? d.timestamp.toDate().toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'}) : '-';
+        var groupName = d.whatsappGroupId ? d.whatsappGroupId.substring(0,15) + '...' : '-';
+        eventsHtml += '<tr><td>' + time + '</td><td style="max-width:150px;overflow:hidden;text-overflow:ellipsis">' + escHtml(groupName) + '</td><td>' + (d.action === 'join' ? '<span style="color:var(--accent)"><i class="fas fa-arrow-up"></i> Entrou</span>' : '<span style="color:var(--danger)"><i class="fas fa-arrow-down"></i> Saiu</span>') + '</td><td>***' + escHtml(d.phonePartial || '') + '</td></tr>';
       });
       document.getElementById('statJoinsToday').textContent = joins;
+      document.getElementById('statLeavesToday').textContent = leaves;
       var evTable = document.getElementById('dashMemberEvents');
-      if (evTable) evTable.innerHTML = eventsHtml || '<tr><td colspan="4" style="text-align:center;color:var(--text-muted)">Nenhum evento hoje</td></tr>';
+      if (evTable) evTable.innerHTML = eventsHtml || '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);padding:20px">Nenhum evento hoje</td></tr>';
     } catch(e) { console.error('Erro eventos:', e); }
 
-    // Meta spend
+    // Meta Ads data
     try {
       var metaSnap = await db.collection('meta_campaigns').get();
-      var totalSpend = 0;
-      metaSnap.forEach(function(doc) { totalSpend += (doc.data().spend || 0); });
+      var totalSpend = 0, totalClicks = 0, totalConversions = 0;
+      metaSnap.forEach(function(doc) {
+        var d = doc.data();
+        totalSpend += (d.spend || 0);
+        totalClicks += (d.clicks || 0);
+        totalConversions += (d.conversions || 0);
+      });
+      document.getElementById('statMetaClicks').textContent = totalClicks.toLocaleString();
       document.getElementById('statMetaSpend').textContent = 'R$ ' + totalSpend.toFixed(2);
-    } catch(e) {}
+
+      // Custo por lead Meta (spend / conversions)
+      var costPerLeadMeta = totalConversions > 0 ? (totalSpend / totalConversions) : 0;
+      document.getElementById('statCostPerLeadMeta').textContent = costPerLeadMeta > 0 ? 'R$ ' + costPerLeadMeta.toFixed(2) : '-';
+
+      // Custo por lead real (spend / (joins - leaves))
+      var joinsToday = parseInt(document.getElementById('statJoinsToday').textContent) || 0;
+      var leavesToday = parseInt(document.getElementById('statLeavesToday').textContent) || 0;
+      var realLeads = joinsToday - leavesToday;
+      var costPerRealLead = realLeads > 0 ? (totalSpend / realLeads) : 0;
+      document.getElementById('statCostPerLeadReal').textContent = costPerRealLead > 0 ? 'R$ ' + costPerRealLead.toFixed(2) : '-';
+    } catch(e) { console.error('Erro meta:', e); }
   }
 
   async function loadRecentClicks() {
@@ -2456,6 +2550,129 @@ select.form-control {
       document.getElementById('statClicksToday').textContent = clicksToday.toLocaleString();
       document.getElementById('statClicksWeek').textContent = clicksWeek.toLocaleString();
       document.getElementById('statClicksMonth').textContent = clicksMonth.toLocaleString();
+
+      // Total members across groups
+      try {
+        var gmSnap = await db.collection('group_members').get();
+        var totalAnalyticsMembers = 0;
+        gmSnap.forEach(function(doc) { totalAnalyticsMembers += (doc.data().currentMembers || 0); });
+        document.getElementById('analyticsMembers').textContent = totalAnalyticsMembers.toLocaleString();
+      } catch(e2) {}
+
+      // Member events for retention/evasion and joins vs leaves chart
+      try {
+        var evSnap = await db.collection('member_events')
+          .where('timestamp', '>=', thirtyDaysAgo)
+          .orderBy('timestamp', 'desc')
+          .get();
+
+        var totalJoins = 0, totalLeaves = 0;
+        var dailyJoins = {};
+        var dailyLeaves = {};
+        var joinTimestamps = {};
+        var leaveTimestamps = {};
+
+        evSnap.forEach(function(doc) {
+          var ev = doc.data();
+          if (!ev.timestamp) return;
+          var evDate = ev.timestamp.toDate ? ev.timestamp.toDate() : new Date(ev.timestamp.seconds * 1000);
+          var evDayKey = evDate.toISOString().split('T')[0];
+          var phone = ev.phonePartial || ev.phone || 'unknown';
+
+          if (ev.action === 'join') {
+            totalJoins++;
+            dailyJoins[evDayKey] = (dailyJoins[evDayKey] || 0) + 1;
+            if (!joinTimestamps[phone]) joinTimestamps[phone] = evDate;
+          }
+          if (ev.action === 'leave') {
+            totalLeaves++;
+            dailyLeaves[evDayKey] = (dailyLeaves[evDayKey] || 0) + 1;
+            if (!leaveTimestamps[phone]) leaveTimestamps[phone] = evDate;
+          }
+        });
+
+        // Retention rate: (joins - leaves) / joins
+        var retained = totalJoins - totalLeaves;
+        var retentionRate = totalJoins > 0 ? Math.round((retained / totalJoins) * 100) : 0;
+        document.getElementById('analyticsRetention').textContent = retentionRate > 0 ? retentionRate + '%' : '-';
+
+        // Evasion rate: leaves / joins
+        var evasionRate = totalJoins > 0 ? Math.round((totalLeaves / totalJoins) * 100) : 0;
+        document.getElementById('analyticsEvasion').textContent = evasionRate > 0 ? evasionRate + '%' : '-';
+
+        // Net growth
+        var netGrowth = totalJoins - totalLeaves;
+        document.getElementById('analyticsNetGrowth').textContent = (netGrowth >= 0 ? '+' : '') + netGrowth;
+
+        // Average time in group (approximate from join/leave pairs)
+        var totalDuration = 0, pairCount = 0;
+        Object.keys(leaveTimestamps).forEach(function(phone) {
+          if (joinTimestamps[phone]) {
+            var diff = leaveTimestamps[phone].getTime() - joinTimestamps[phone].getTime();
+            if (diff > 0) {
+              totalDuration += diff;
+              pairCount++;
+            }
+          }
+        });
+        if (pairCount > 0) {
+          var avgMs = totalDuration / pairCount;
+          var avgHours = Math.round(avgMs / (1000 * 60 * 60));
+          if (avgHours < 24) {
+            document.getElementById('analyticsAvgTime').textContent = avgHours + 'h';
+          } else {
+            document.getElementById('analyticsAvgTime').textContent = Math.round(avgHours / 24) + 'd';
+          }
+        } else {
+          document.getElementById('analyticsAvgTime').textContent = '-';
+        }
+
+        // Joins vs Leaves per day chart
+        var jlDays = [];
+        var jlJoinValues = [];
+        var jlLeaveValues = [];
+        for (var j = 29; j >= 0; j--) {
+          var jd = new Date(now);
+          jd.setDate(jd.getDate() - j);
+          var jKey = jd.toISOString().split('T')[0];
+          jlDays.push(jd.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }));
+          jlJoinValues.push(dailyJoins[jKey] || 0);
+          jlLeaveValues.push(dailyLeaves[jKey] || 0);
+        }
+
+        var ctxJL = document.getElementById('joinsVsLeavesChart').getContext('2d');
+        if (joinsVsLeavesChart) joinsVsLeavesChart.destroy();
+        joinsVsLeavesChart = new Chart(ctxJL, {
+          type: 'bar',
+          data: {
+            labels: jlDays,
+            datasets: [
+              {
+                label: 'Entradas',
+                data: jlJoinValues,
+                backgroundColor: 'rgba(37,211,102,0.6)',
+                borderColor: '#25D366',
+                borderWidth: 1,
+                borderRadius: 3
+              },
+              {
+                label: 'Saidas',
+                data: jlLeaveValues,
+                backgroundColor: 'rgba(255,59,48,0.6)',
+                borderColor: '#FF3B30',
+                borderWidth: 1,
+                borderRadius: 3
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { position: 'top' } },
+            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+          }
+        });
+      } catch(e3) { console.error('Erro eventos analytics:', e3); }
 
       // Daily clicks chart
       var days = [];
@@ -3219,14 +3436,23 @@ select.form-control {
 
       snap.forEach(function(doc) {
         var g = doc.data();
-        totalMembers += (g.currentMembers || 0);
+        var members = g.currentMembers || 0;
+        totalMembers += members;
         var lastUpdate = g.lastScanned ? new Date(g.lastScanned.seconds * 1000).toLocaleString('pt-BR') : 'N/A';
+
+        // Cross-reference with links collection
+        var linkedLink = links.find(function(l) { return l.whatsappGroupId === doc.id; });
+        var linkedName = linkedLink ? linkedLink.name : '-';
+        var clicks = linkedLink ? (linkedLink.currentClicks || 0) : 0;
+        var retention = clicks > 0 ? Math.round((members / clicks) * 100) : 0;
+        var retentionColor = retention >= 70 ? 'var(--accent)' : retention >= 40 ? 'var(--warning)' : 'var(--danger)';
 
         html += '<tr>' +
           '<td><strong>' + escHtml(g.groupName || 'N/A') + '</strong></td>' +
-          '<td style="font-size:18px;font-weight:700">' + (g.currentMembers || 0) + '</td>' +
-          '<td><span style="font-size:11px;color:var(--text-muted)">-</span></td>' +
-          '<td>-</td><td>-</td>' +
+          '<td style="font-size:18px;font-weight:700">' + members + '</td>' +
+          '<td>' + (linkedLink ? '<span class="badge badge-success">' + escHtml(linkedName) + '</span>' : '<span style="font-size:11px;color:var(--text-muted)">Nao vinculado</span>') + '</td>' +
+          '<td>' + (linkedLink ? clicks + ' &rarr; ' + members : '-') + '</td>' +
+          '<td>' + (linkedLink ? '<span style="color:' + retentionColor + ';font-weight:600">' + retention + '%</span>' : '-') + '</td>' +
           '<td style="font-size:11px;color:var(--text-muted)">' + lastUpdate + '</td>' +
           '</tr>';
       });

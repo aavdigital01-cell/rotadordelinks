@@ -252,9 +252,9 @@ app.get('/api/member-events/today', authMiddleware, async function(req, res) {
 
     snapshot.forEach(function(doc) {
       var data = doc.data();
-      if (data.type === 'join') {
+      if (data.action === 'join') {
         joins++;
-      } else if (data.type === 'leave') {
+      } else if (data.action === 'leave') {
         leaves++;
       }
       events.push({ id: doc.id, ...data });
