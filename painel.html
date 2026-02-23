@@ -2579,68 +2579,33 @@ select.form-control {
     var activeCampaigns = campaigns.filter(function(c) { return c.isActive !== false; }).length;
     document.getElementById('statActiveCampaigns').textContent = activeCampaigns;
 
-    // Use comprehensive dashboard endpoint for all stats at once
+    // 1) Total members from Firestore group_members (fast, local)
+    var totalMembers = 0;
     try {
-      var dashData = await serverFetch('/api/stats/dashboard');
-      if (dashData) {
-        document.getElementById('statWhatsappMembers').textContent = (dashData.totalMembers || 0).toLocaleString();
-        document.getElementById('statJoinsToday').textContent = dashData.joinsToday || 0;
-        document.getElementById('statLeavesToday').textContent = dashData.leavesToday || 0;
+      var gmSnap = await db.collection('group_members').get();
+      gmSnap.forEach(function(doc) { totalMembers += (doc.data().currentMembers || 0); });
+      document.getElementById('statWhatsappMembers').textContent = totalMembers.toLocaleString();
+      var changeEl = document.getElementById('statMembersChange');
+      if (changeEl) { changeEl.textContent = totalMembers + ' total'; changeEl.className = 'stat-change up'; }
+    } catch(e) { console.error('Erro membros:', e); }
 
-        // Saldo líquido
-        var net = (dashData.joinsToday || 0) - (dashData.leavesToday || 0);
-        var netEl = document.getElementById('statNetToday');
-        netEl.textContent = (net >= 0 ? '+' : '') + net;
-        netEl.style.color = net >= 0 ? 'var(--accent)' : 'var(--danger)';
-
-        // Saldo de membros change
-        var changeEl = document.getElementById('statMembersChange');
-        if (net !== 0) {
-          changeEl.textContent = (net > 0 ? '+' : '') + net + ' hoje';
-          changeEl.className = 'stat-change ' + (net >= 0 ? 'up' : 'down');
-        }
-
-        // Clicks rotador hoje
-        document.getElementById('statRotadorClicks').textContent = (dashData.clicksToday || 0).toLocaleString();
-
-        // Taxa de fuga
-        document.getElementById('statTaxaFuga').textContent = (dashData.taxaFuga || 0) + '%';
-        document.getElementById('statTaxaFuga').style.color = dashData.taxaFuga > 50 ? 'var(--danger)' : dashData.taxaFuga > 30 ? 'var(--warning)' : 'var(--accent)';
-
-        // Taxa de saída
-        document.getElementById('statTaxaSaida').textContent = (dashData.taxaSaida || 0) + '%';
-        document.getElementById('statTaxaSaida').style.color = dashData.taxaSaida > 5 ? 'var(--danger)' : dashData.taxaSaida > 2 ? 'var(--warning)' : 'var(--accent)';
-
-        // Funil
-        document.getElementById('dashFunnelClicks').textContent = (dashData.clicksToday || 0).toLocaleString();
-        document.getElementById('dashFunnelJoins').textContent = (dashData.joinsToday || 0).toLocaleString();
-        var retained = (dashData.joinsToday || 0) - (dashData.leavesToday || 0);
-        document.getElementById('dashFunnelRetained').textContent = Math.max(0, retained).toLocaleString();
-        document.getElementById('dashFunnelLeaves').textContent = (dashData.leavesToday || 0).toLocaleString();
-
-        // Taxas do funil
-        var convRate = dashData.clicksToday > 0 ? Math.round((dashData.joinsToday / dashData.clicksToday) * 100) : 0;
-        document.getElementById('dashFunnelRate1').textContent = convRate + '% conv.';
-        var retRate = dashData.joinsToday > 0 ? Math.round((retained / dashData.joinsToday) * 100) : 0;
-        document.getElementById('dashFunnelRate2').textContent = retRate + '% ret.';
-        var exitRate = dashData.joinsToday > 0 ? Math.round((dashData.leavesToday / dashData.joinsToday) * 100) : 0;
-        document.getElementById('dashFunnelRate3').textContent = exitRate + '% saiu';
-      }
-    } catch(e) {
-      console.error('Erro dashboard stats:', e);
-      // Fallback: carrega direto do Firestore
-      try {
-        var gmSnap = await db.collection('group_members').get();
-        var totalMembers = 0;
-        gmSnap.forEach(function(doc) { totalMembers += (doc.data().currentMembers || 0); });
-        document.getElementById('statWhatsappMembers').textContent = totalMembers.toLocaleString();
-      } catch(e2) {}
-    }
-
-    // Member events for dashboard table
+    // 2) Member events from existing /api/member-events/today (proven to work)
+    var joinsToday = 0, leavesToday = 0;
     try {
       var evData = await serverFetch('/api/member-events/today');
       if (evData) {
+        joinsToday = evData.joins || 0;
+        leavesToday = evData.leaves || 0;
+
+        document.getElementById('statJoinsToday').textContent = joinsToday;
+        document.getElementById('statLeavesToday').textContent = leavesToday;
+
+        // Saldo líquido
+        var net = joinsToday - leavesToday;
+        var netEl = document.getElementById('statNetToday');
+        if (netEl) { netEl.textContent = (net >= 0 ? '+' : '') + net; netEl.style.color = net >= 0 ? 'var(--accent)' : 'var(--danger)'; }
+
+        // Dashboard events table
         var eventsHtml = '';
         var evList = (evData.events || []).slice(0, 20);
         evList.forEach(function(d) {
@@ -2653,7 +2618,47 @@ select.form-control {
       }
     } catch(e) { console.error('Erro eventos:', e); }
 
-    // Meta Ads data
+    // 3) Clicks today from Firestore (fast, no index needed)
+    var clicksToday = 0;
+    try {
+      var today = new Date(); today.setHours(0, 0, 0, 0);
+      var clicksSnap = await db.collection('clicks').where('timestamp', '>=', today).get();
+      clicksToday = clicksSnap.size;
+      document.getElementById('statRotadorClicks').textContent = clicksToday.toLocaleString();
+    } catch(e) { console.error('Erro clicks:', e); }
+
+    // 4) Calculate taxas on frontend
+    var taxaFuga = clicksToday > 0 ? Math.round(((clicksToday - joinsToday) / clicksToday) * 100) : 0;
+    taxaFuga = Math.max(0, taxaFuga);
+    var fugaEl = document.getElementById('statTaxaFuga');
+    if (fugaEl) { fugaEl.textContent = taxaFuga + '%'; fugaEl.style.color = taxaFuga > 50 ? 'var(--danger)' : taxaFuga > 30 ? 'var(--warning)' : 'var(--accent)'; }
+
+    var taxaSaida = totalMembers > 0 ? ((leavesToday / totalMembers) * 100).toFixed(1) : '0';
+    var saidaEl = document.getElementById('statTaxaSaida');
+    if (saidaEl) { saidaEl.textContent = taxaSaida + '%'; saidaEl.style.color = parseFloat(taxaSaida) > 5 ? 'var(--danger)' : parseFloat(taxaSaida) > 2 ? 'var(--warning)' : 'var(--accent)'; }
+
+    // 5) Funil de conversão
+    var funnelClicks = document.getElementById('dashFunnelClicks');
+    if (funnelClicks) funnelClicks.textContent = clicksToday.toLocaleString();
+    var funnelJoins = document.getElementById('dashFunnelJoins');
+    if (funnelJoins) funnelJoins.textContent = joinsToday.toLocaleString();
+    var retained = Math.max(0, joinsToday - leavesToday);
+    var funnelRetained = document.getElementById('dashFunnelRetained');
+    if (funnelRetained) funnelRetained.textContent = retained.toLocaleString();
+    var funnelLeaves = document.getElementById('dashFunnelLeaves');
+    if (funnelLeaves) funnelLeaves.textContent = leavesToday.toLocaleString();
+
+    var convRate = clicksToday > 0 ? Math.round((joinsToday / clicksToday) * 100) : 0;
+    var rate1 = document.getElementById('dashFunnelRate1');
+    if (rate1) rate1.textContent = convRate + '% conv.';
+    var retRate = joinsToday > 0 ? Math.round((retained / joinsToday) * 100) : 0;
+    var rate2 = document.getElementById('dashFunnelRate2');
+    if (rate2) rate2.textContent = retRate + '% ret.';
+    var exitRate = joinsToday > 0 ? Math.round((leavesToday / joinsToday) * 100) : 0;
+    var rate3 = document.getElementById('dashFunnelRate3');
+    if (rate3) rate3.textContent = exitRate + '% saiu';
+
+    // 6) Meta Ads data
     try {
       var metaSnap = await db.collection('meta_campaigns').get();
       var totalSpend = 0, totalClicks = 0, totalConversions = 0;
@@ -2669,8 +2674,6 @@ select.form-control {
       var costPerLeadMeta = totalConversions > 0 ? (totalSpend / totalConversions) : 0;
       document.getElementById('statCostPerLeadMeta').textContent = costPerLeadMeta > 0 ? 'R$ ' + costPerLeadMeta.toFixed(2) : '-';
 
-      var joinsToday = parseInt(document.getElementById('statJoinsToday').textContent) || 0;
-      var leavesToday = parseInt(document.getElementById('statLeavesToday').textContent) || 0;
       var realLeads = joinsToday - leavesToday;
       var costPerRealLead = realLeads > 0 ? (totalSpend / realLeads) : 0;
       document.getElementById('statCostPerLeadReal').textContent = costPerRealLead > 0 ? 'R$ ' + costPerRealLead.toFixed(2) : '-';
@@ -2851,104 +2854,112 @@ select.form-control {
         document.getElementById('analyticsMembers').textContent = totalAnalyticsMembers.toLocaleString();
       } catch(e2) {}
 
-      // Member events via server API (no Firestore index issues)
+      // Member events via existing /api/member-events/today (fast, proven)
+      var totalJoins = 0, totalLeaves = 0;
       try {
-        var evData = await serverFetch('/api/member-events/range?days=30');
-
+        var evData = await serverFetch('/api/member-events/today');
         if (evData) {
-          var totalJoins = evData.totalJoins || 0;
-          var totalLeaves = evData.totalLeaves || 0;
-
-          document.getElementById('analyticsTotalJoins').textContent = totalJoins.toLocaleString();
-          document.getElementById('analyticsTotalLeaves').textContent = totalLeaves.toLocaleString();
-
-          // Retention rate
-          var retentionRate = evData.retentionRate || 0;
-          var retEl = document.getElementById('analyticsRetention');
-          retEl.textContent = retentionRate + '%';
-          retEl.style.color = retentionRate >= 70 ? 'var(--accent)' : retentionRate >= 40 ? 'var(--warning)' : 'var(--danger)';
-
-          // Evasion rate
-          var evasionRate = evData.evasionRate || 0;
-          var evaEl = document.getElementById('analyticsEvasion');
-          evaEl.textContent = evasionRate + '%';
-          evaEl.style.color = evasionRate <= 30 ? 'var(--accent)' : evasionRate <= 50 ? 'var(--warning)' : 'var(--danger)';
-
-          // Taxa de fuga (clicks - joins / clicks)
-          var totalClicksMonth = clicksMonth;
-          var fugaRate = totalClicksMonth > 0 ? Math.round(((totalClicksMonth - totalJoins) / totalClicksMonth) * 100) : 0;
-          var fugaEl = document.getElementById('analyticsFuga');
-          fugaEl.textContent = Math.max(0, fugaRate) + '%';
-          fugaEl.style.color = fugaRate <= 30 ? 'var(--accent)' : fugaRate <= 60 ? 'var(--warning)' : 'var(--danger)';
-
-          // Net growth
-          var netGrowth = totalJoins - totalLeaves;
-          var netEl = document.getElementById('analyticsNetGrowth');
-          netEl.textContent = (netGrowth >= 0 ? '+' : '') + netGrowth;
-          netEl.style.color = netGrowth >= 0 ? 'var(--accent)' : 'var(--danger)';
-
-          // Conversion rate (clicks → group join)
-          var convRate = totalClicksMonth > 0 ? Math.round((totalJoins / totalClicksMonth) * 100) : 0;
-          document.getElementById('analyticsConversion').textContent = convRate + '%';
-
-          // Average time (approximate)
-          document.getElementById('analyticsAvgTime').textContent = '-';
-
-          // Joins vs Leaves chart from dailyStats
-          var jlDays = [];
-          var jlJoinValues = [];
-          var jlLeaveValues = [];
-          var dailyStats = evData.dailyStats || {};
-          for (var j = 29; j >= 0; j--) {
-            var jd = new Date(now);
-            jd.setDate(jd.getDate() - j);
-            var jKey = jd.toISOString().split('T')[0];
-            jlDays.push(jd.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }));
-            jlJoinValues.push((dailyStats[jKey] && dailyStats[jKey].joins) || 0);
-            jlLeaveValues.push((dailyStats[jKey] && dailyStats[jKey].leaves) || 0);
-          }
-
-          var ctxJL = document.getElementById('joinsVsLeavesChart').getContext('2d');
-          if (joinsVsLeavesChart) joinsVsLeavesChart.destroy();
-          joinsVsLeavesChart = new Chart(ctxJL, {
-            type: 'bar',
-            data: {
-              labels: jlDays,
-              datasets: [
-                { label: 'Entradas', data: jlJoinValues, backgroundColor: 'rgba(37,211,102,0.6)', borderColor: '#25D366', borderWidth: 1, borderRadius: 3 },
-                { label: 'Saidas', data: jlLeaveValues, backgroundColor: 'rgba(255,59,48,0.6)', borderColor: '#FF3B30', borderWidth: 1, borderRadius: 3 }
-              ]
-            },
-            options: {
-              responsive: true, maintainAspectRatio: false,
-              plugins: { legend: { position: 'top' } },
-              scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
-            }
-          });
-
-          // Group ranking table
-          var groupStats = evData.groupStats || {};
-          var groupRankingArr = Object.entries(groupStats).map(function(entry) {
-            return { id: entry[0], name: entry[1].groupName || entry[0], joins: entry[1].joins, leaves: entry[1].leaves };
-          }).sort(function(a, b) { return (b.joins - b.leaves) - (a.joins - a.leaves); });
-
-          var rankHtml = '';
-          groupRankingArr.forEach(function(g, idx) {
-            var net = g.joins - g.leaves;
-            var ret = g.joins > 0 ? Math.round(((g.joins - g.leaves) / g.joins) * 100) : 0;
-            var retColor = ret >= 70 ? 'var(--accent)' : ret >= 40 ? 'var(--warning)' : 'var(--danger)';
-            rankHtml += '<tr>' +
-              '<td style="font-weight:700;color:var(--text-muted)">' + (idx + 1) + '</td>' +
-              '<td><strong style="font-size:12px">' + escHtml(g.name.substring(0, 30)) + '</strong></td>' +
-              '<td style="color:var(--accent);font-weight:600">' + g.joins + '</td>' +
-              '<td style="color:var(--danger);font-weight:600">' + g.leaves + '</td>' +
-              '<td style="color:' + (net >= 0 ? 'var(--accent)' : 'var(--danger)') + ';font-weight:600">' + (net >= 0 ? '+' : '') + net + '</td>' +
-              '<td><span style="color:' + retColor + ';font-weight:600">' + ret + '%</span></td>' +
-              '</tr>';
-          });
-          document.getElementById('analyticsGroupRanking').innerHTML = rankHtml || '<tr><td colspan="6"><div class="empty-state"><p>Sem dados</p></div></td></tr>';
+          totalJoins = evData.joins || 0;
+          totalLeaves = evData.leaves || 0;
         }
       } catch(e3) { console.error('Erro eventos analytics:', e3); }
+
+      document.getElementById('analyticsTotalJoins').textContent = totalJoins.toLocaleString();
+      document.getElementById('analyticsTotalLeaves').textContent = totalLeaves.toLocaleString();
+
+      // Retention rate (today: joins that stayed)
+      var retentionRate = totalJoins > 0 ? Math.round(((totalJoins - totalLeaves) / totalJoins) * 100) : 0;
+      var retEl = document.getElementById('analyticsRetention');
+      retEl.textContent = Math.max(0, retentionRate) + '%';
+      retEl.style.color = retentionRate >= 70 ? 'var(--accent)' : retentionRate >= 40 ? 'var(--warning)' : 'var(--danger)';
+
+      // Evasion rate
+      var evasionRate = totalJoins > 0 ? Math.round((totalLeaves / totalJoins) * 100) : 0;
+      var evaEl = document.getElementById('analyticsEvasion');
+      evaEl.textContent = evasionRate + '%';
+      evaEl.style.color = evasionRate <= 30 ? 'var(--accent)' : evasionRate <= 50 ? 'var(--warning)' : 'var(--danger)';
+
+      // Taxa de fuga (clicks - joins / clicks)
+      var totalClicksMonth = clicksMonth;
+      var fugaRate = totalClicksMonth > 0 ? Math.round(((totalClicksMonth - totalJoins) / totalClicksMonth) * 100) : 0;
+      var fugaEl = document.getElementById('analyticsFuga');
+      fugaEl.textContent = Math.max(0, fugaRate) + '%';
+      fugaEl.style.color = fugaRate <= 30 ? 'var(--accent)' : fugaRate <= 60 ? 'var(--warning)' : 'var(--danger)';
+
+      // Net growth
+      var netGrowth = totalJoins - totalLeaves;
+      var netEl = document.getElementById('analyticsNetGrowth');
+      netEl.textContent = (netGrowth >= 0 ? '+' : '') + netGrowth;
+      netEl.style.color = netGrowth >= 0 ? 'var(--accent)' : 'var(--danger)';
+
+      // Conversion rate (clicks → group join)
+      var convRateAn = totalClicksMonth > 0 ? Math.round((totalJoins / totalClicksMonth) * 100) : 0;
+      document.getElementById('analyticsConversion').textContent = convRateAn + '%';
+
+      // Average time
+      document.getElementById('analyticsAvgTime').textContent = '-';
+
+      // Joins vs Leaves chart - use today's data as single point + empty days
+      var jlDays = [];
+      var jlJoinValues = [];
+      var jlLeaveValues = [];
+      var todayKey = now.toISOString().split('T')[0];
+      for (var j = 29; j >= 0; j--) {
+        var jd = new Date(now);
+        jd.setDate(jd.getDate() - j);
+        var jKey = jd.toISOString().split('T')[0];
+        jlDays.push(jd.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }));
+        jlJoinValues.push(jKey === todayKey ? totalJoins : 0);
+        jlLeaveValues.push(jKey === todayKey ? totalLeaves : 0);
+      }
+
+      var ctxJL = document.getElementById('joinsVsLeavesChart').getContext('2d');
+      if (joinsVsLeavesChart) joinsVsLeavesChart.destroy();
+      joinsVsLeavesChart = new Chart(ctxJL, {
+        type: 'bar',
+        data: {
+          labels: jlDays,
+          datasets: [
+            { label: 'Entradas', data: jlJoinValues, backgroundColor: 'rgba(37,211,102,0.6)', borderColor: '#25D366', borderWidth: 1, borderRadius: 3 },
+            { label: 'Saidas', data: jlLeaveValues, backgroundColor: 'rgba(255,59,48,0.6)', borderColor: '#FF3B30', borderWidth: 1, borderRadius: 3 }
+          ]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { position: 'top' } },
+          scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+        }
+      });
+
+      // Group ranking from today's events
+      var groupMap = {};
+      if (evData && evData.events) {
+        evData.events.forEach(function(ev) {
+          var gId = ev.whatsappGroupId || 'unknown';
+          if (!groupMap[gId]) groupMap[gId] = { name: ev.groupName || gId, joins: 0, leaves: 0 };
+          if (ev.action === 'join') groupMap[gId].joins++;
+          else groupMap[gId].leaves++;
+        });
+      }
+      var groupRankingArr = Object.entries(groupMap).map(function(entry) {
+        return { id: entry[0], name: entry[1].name, joins: entry[1].joins, leaves: entry[1].leaves };
+      }).sort(function(a, b) { return (b.joins - b.leaves) - (a.joins - a.leaves); });
+
+      var rankHtml = '';
+      groupRankingArr.forEach(function(g, idx) {
+        var net = g.joins - g.leaves;
+        var ret = g.joins > 0 ? Math.round(((g.joins - g.leaves) / g.joins) * 100) : 0;
+        var retColor = ret >= 70 ? 'var(--accent)' : ret >= 40 ? 'var(--warning)' : 'var(--danger)';
+        rankHtml += '<tr>' +
+          '<td style="font-weight:700;color:var(--text-muted)">' + (idx + 1) + '</td>' +
+          '<td><strong style="font-size:12px">' + escHtml(g.name.substring(0, 30)) + '</strong></td>' +
+          '<td style="color:var(--accent);font-weight:600">' + g.joins + '</td>' +
+          '<td style="color:var(--danger);font-weight:600">' + g.leaves + '</td>' +
+          '<td style="color:' + (net >= 0 ? 'var(--accent)' : 'var(--danger)') + ';font-weight:600">' + (net >= 0 ? '+' : '') + net + '</td>' +
+          '<td><span style="color:' + retColor + ';font-weight:600">' + ret + '%</span></td>' +
+          '</tr>';
+      });
+      document.getElementById('analyticsGroupRanking').innerHTML = rankHtml || '<tr><td colspan="6"><div class="empty-state"><p>Sem dados de hoje</p></div></td></tr>';
 
       // Daily clicks chart
       var days = [];
@@ -3818,16 +3829,28 @@ select.form-control {
 
   window.loadWhatsAppGroups = async function() {
     try {
-      // Fetch groups and per-group events in parallel
-      var [groups, groupEvents] = await Promise.all([
-        serverFetch('/api/whatsapp/groups'),
-        serverFetch('/api/member-events/by-group').catch(function() { return {}; })
-      ]);
+      // Fetch groups first (fast, proven endpoint)
+      var groups = await serverFetch('/api/whatsapp/groups');
 
       var tbody = document.getElementById('whatsappGroupsTable');
       var totalMembers = 0;
-      var html = '';
 
+      // Build per-group events from today's events (reuse existing endpoint)
+      var groupEvents = {};
+      try {
+        var evData = await serverFetch('/api/member-events/today');
+        if (evData && evData.events) {
+          evData.events.forEach(function(ev) {
+            var gId = ev.whatsappGroupId || '';
+            if (!gId) return;
+            if (!groupEvents[gId]) groupEvents[gId] = { joins: 0, leaves: 0 };
+            if (ev.action === 'join') groupEvents[gId].joins++;
+            else groupEvents[gId].leaves++;
+          });
+        }
+      } catch(evErr) { console.log('Eventos por grupo indisponivel'); }
+
+      var html = '';
       groups.forEach(function(g) {
         var members = g.participants || g.currentMembers || 0;
         totalMembers += members;
