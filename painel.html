@@ -1388,10 +1388,12 @@ select.form-control {
     // Aplica permissões de acordo com a role
     applyPermissions();
 
-    // Atualiza último login
-    db.collection('users').doc(user.uid).update({
+    // Atualiza último login (set+merge cria o doc se não existir)
+    db.collection('users').doc(user.uid).set({
+      email: user.email || '',
+      displayName: user.displayName || '',
       lastLogin: firebase.firestore.FieldValue.serverTimestamp()
-    }).catch(function() {});
+    }, { merge: true }).catch(function() {});
 
     init();
   });
