@@ -2579,55 +2579,67 @@ select.form-control {
     var activeCampaigns = campaigns.filter(function(c) { return c.isActive !== false; }).length;
     document.getElementById('statActiveCampaigns').textContent = activeCampaigns;
 
-    // 1) Total members from Firestore group_members (fast, local)
+    // Run ALL data fetches in PARALLEL for speed
     var totalMembers = 0;
-    try {
-      var gmSnap = await db.collection('group_members').get();
-      gmSnap.forEach(function(doc) { totalMembers += (doc.data().currentMembers || 0); });
+    var joinsToday = 0, leavesToday = 0;
+    var clicksToday = 0;
+    var evData = null;
+
+    var results = await Promise.allSettled([
+      // 1) Members via server API (proven to work - same as WhatsApp Monitor)
+      serverFetch('/api/whatsapp/groups'),
+      // 2) Member events via existing endpoint
+      serverFetch('/api/member-events/today'),
+      // 3) Clicks today from Firestore
+      (function() {
+        var today = new Date(); today.setHours(0, 0, 0, 0);
+        return db.collection('clicks').where('timestamp', '>=', today).get();
+      })(),
+      // 4) Meta campaigns from Firestore
+      db.collection('meta_campaigns').get()
+    ]);
+
+    // Process 1) Total members
+    if (results[0].status === 'fulfilled' && results[0].value) {
+      var groups = results[0].value;
+      groups.forEach(function(g) { totalMembers += (g.participants || g.currentMembers || 0); });
       document.getElementById('statWhatsappMembers').textContent = totalMembers.toLocaleString();
       var changeEl = document.getElementById('statMembersChange');
       if (changeEl) { changeEl.textContent = totalMembers + ' total'; changeEl.className = 'stat-change up'; }
-    } catch(e) { console.error('Erro membros:', e); }
+    }
 
-    // 2) Member events from existing /api/member-events/today (proven to work)
-    var joinsToday = 0, leavesToday = 0;
-    try {
-      var evData = await serverFetch('/api/member-events/today');
-      if (evData) {
-        joinsToday = evData.joins || 0;
-        leavesToday = evData.leaves || 0;
+    // Process 2) Member events
+    if (results[1].status === 'fulfilled' && results[1].value) {
+      evData = results[1].value;
+      joinsToday = evData.joins || 0;
+      leavesToday = evData.leaves || 0;
 
-        document.getElementById('statJoinsToday').textContent = joinsToday;
-        document.getElementById('statLeavesToday').textContent = leavesToday;
+      document.getElementById('statJoinsToday').textContent = joinsToday;
+      document.getElementById('statLeavesToday').textContent = leavesToday;
 
-        // Saldo líquido
-        var net = joinsToday - leavesToday;
-        var netEl = document.getElementById('statNetToday');
-        if (netEl) { netEl.textContent = (net >= 0 ? '+' : '') + net; netEl.style.color = net >= 0 ? 'var(--accent)' : 'var(--danger)'; }
+      var net = joinsToday - leavesToday;
+      var netEl = document.getElementById('statNetToday');
+      if (netEl) { netEl.textContent = (net >= 0 ? '+' : '') + net; netEl.style.color = net >= 0 ? 'var(--accent)' : 'var(--danger)'; }
 
-        // Dashboard events table
-        var eventsHtml = '';
-        var evList = (evData.events || []).slice(0, 20);
-        evList.forEach(function(d) {
-          var time = d.timestamp && d.timestamp._seconds ? new Date(d.timestamp._seconds * 1000).toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'}) : '-';
-          var groupName = d.groupName || (d.whatsappGroupId ? d.whatsappGroupId.substring(0,25) : '-');
-          eventsHtml += '<tr><td>' + time + '</td><td style="max-width:150px;overflow:hidden;text-overflow:ellipsis">' + escHtml(groupName) + '</td><td>' + (d.action === 'join' ? '<span style="color:var(--accent)"><i class="fas fa-arrow-up"></i> Entrou</span>' : '<span style="color:var(--danger)"><i class="fas fa-arrow-down"></i> Saiu</span>') + '</td><td>***' + escHtml(d.phonePartial || '') + '</td></tr>';
-        });
-        var evTable = document.getElementById('dashMemberEvents');
-        if (evTable) evTable.innerHTML = eventsHtml || '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);padding:20px">Nenhum evento hoje</td></tr>';
-      }
-    } catch(e) { console.error('Erro eventos:', e); }
+      // Dashboard events table
+      var eventsHtml = '';
+      var evList = (evData.events || []).slice(0, 20);
+      evList.forEach(function(d) {
+        var time = d.timestamp && d.timestamp._seconds ? new Date(d.timestamp._seconds * 1000).toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'}) : '-';
+        var groupName = d.groupName || (d.whatsappGroupId ? d.whatsappGroupId.substring(0,25) : '-');
+        eventsHtml += '<tr><td>' + time + '</td><td style="max-width:150px;overflow:hidden;text-overflow:ellipsis">' + escHtml(groupName) + '</td><td>' + (d.action === 'join' ? '<span style="color:var(--accent)"><i class="fas fa-arrow-up"></i> Entrou</span>' : '<span style="color:var(--danger)"><i class="fas fa-arrow-down"></i> Saiu</span>') + '</td><td>***' + escHtml(d.phonePartial || '') + '</td></tr>';
+      });
+      var evTable = document.getElementById('dashMemberEvents');
+      if (evTable) evTable.innerHTML = eventsHtml || '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);padding:20px">Nenhum evento hoje</td></tr>';
+    }
 
-    // 3) Clicks today from Firestore (fast, no index needed)
-    var clicksToday = 0;
-    try {
-      var today = new Date(); today.setHours(0, 0, 0, 0);
-      var clicksSnap = await db.collection('clicks').where('timestamp', '>=', today).get();
-      clicksToday = clicksSnap.size;
+    // Process 3) Clicks
+    if (results[2].status === 'fulfilled' && results[2].value) {
+      clicksToday = results[2].value.size;
       document.getElementById('statRotadorClicks').textContent = clicksToday.toLocaleString();
-    } catch(e) { console.error('Erro clicks:', e); }
+    }
 
-    // 4) Calculate taxas on frontend
+    // Calculate taxas
     var taxaFuga = clicksToday > 0 ? Math.round(((clicksToday - joinsToday) / clicksToday) * 100) : 0;
     taxaFuga = Math.max(0, taxaFuga);
     var fugaEl = document.getElementById('statTaxaFuga');
@@ -2637,7 +2649,7 @@ select.form-control {
     var saidaEl = document.getElementById('statTaxaSaida');
     if (saidaEl) { saidaEl.textContent = taxaSaida + '%'; saidaEl.style.color = parseFloat(taxaSaida) > 5 ? 'var(--danger)' : parseFloat(taxaSaida) > 2 ? 'var(--warning)' : 'var(--accent)'; }
 
-    // 5) Funil de conversão
+    // Funil de conversão
     var funnelClicks = document.getElementById('dashFunnelClicks');
     if (funnelClicks) funnelClicks.textContent = clicksToday.toLocaleString();
     var funnelJoins = document.getElementById('dashFunnelJoins');
@@ -2658,11 +2670,10 @@ select.form-control {
     var rate3 = document.getElementById('dashFunnelRate3');
     if (rate3) rate3.textContent = exitRate + '% saiu';
 
-    // 6) Meta Ads data
-    try {
-      var metaSnap = await db.collection('meta_campaigns').get();
+    // Process 4) Meta Ads
+    if (results[3].status === 'fulfilled' && results[3].value) {
       var totalSpend = 0, totalClicks = 0, totalConversions = 0;
-      metaSnap.forEach(function(doc) {
+      results[3].value.forEach(function(doc) {
         var d = doc.data();
         totalSpend += (d.spend || 0);
         totalClicks += (d.clicks || 0);
@@ -2677,7 +2688,7 @@ select.form-control {
       var realLeads = joinsToday - leavesToday;
       var costPerRealLead = realLeads > 0 ? (totalSpend / realLeads) : 0;
       document.getElementById('statCostPerLeadReal').textContent = costPerRealLead > 0 ? 'R$ ' + costPerRealLead.toFixed(2) : '-';
-    } catch(e) { console.error('Erro meta:', e); }
+    }
   }
 
   async function loadRecentClicks() {
@@ -2846,11 +2857,11 @@ select.form-control {
       document.getElementById('statClicksWeek').textContent = clicksWeek.toLocaleString();
       document.getElementById('statClicksMonth').textContent = clicksMonth.toLocaleString();
 
-      // Total members
+      // Total members via server API (proven to work)
       try {
-        var gmSnap = await db.collection('group_members').get();
+        var groupsData = await serverFetch('/api/whatsapp/groups');
         var totalAnalyticsMembers = 0;
-        gmSnap.forEach(function(doc) { totalAnalyticsMembers += (doc.data().currentMembers || 0); });
+        if (groupsData) groupsData.forEach(function(g) { totalAnalyticsMembers += (g.participants || g.currentMembers || 0); });
         document.getElementById('analyticsMembers').textContent = totalAnalyticsMembers.toLocaleString();
       } catch(e2) {}
 

@@ -246,12 +246,21 @@ function getQR() {
   return currentQR;
 }
 
+var groupsCache = { data: null, timestamp: 0 };
+var GROUPS_CACHE_TTL = 60000; // 60 seconds cache
+
 async function getGroups() {
+  // Return cache if fresh
+  if (groupsCache.data && (Date.now() - groupsCache.timestamp) < GROUPS_CACHE_TTL) {
+    return groupsCache.data;
+  }
+
   if (!client || !connectionStatus.ready) {
     // Retorna dados do Firestore se WhatsApp não está conectado
     var snap = await db.collection('group_members').get();
     var groups = [];
     snap.forEach(function(doc) { groups.push({ id: doc.id, ...doc.data() }); });
+    groupsCache = { data: groups, timestamp: Date.now() };
     return groups;
   }
 
@@ -259,7 +268,7 @@ async function getGroups() {
     var chats = await client.getChats();
     var groups = chats.filter(function(c) { return c.isGroup; });
 
-    return groups.map(function(g) {
+    var result = groups.map(function(g) {
       return {
         id: g.id._serialized,
         name: g.name,
@@ -267,8 +276,30 @@ async function getGroups() {
         isReadOnly: g.isReadOnly
       };
     });
+
+    // Cache the result
+    groupsCache = { data: result, timestamp: Date.now() };
+
+    // Also update Firestore group_members in background
+    result.forEach(function(g) {
+      db.collection('group_members').doc(g.id).set({
+        groupName: g.name,
+        currentMembers: g.participants,
+        lastScanned: require('firebase-admin').firestore.FieldValue.serverTimestamp()
+      }, { merge: true }).catch(function() {});
+    });
+
+    return result;
   } catch (err) {
-    throw new Error('Erro ao listar grupos: ' + err.message);
+    // On error, try Firestore fallback
+    try {
+      var snap = await db.collection('group_members').get();
+      var groups = [];
+      snap.forEach(function(doc) { groups.push({ id: doc.id, ...doc.data() }); });
+      return groups;
+    } catch(e2) {
+      throw new Error('Erro ao listar grupos: ' + err.message);
+    }
   }
 }
 
