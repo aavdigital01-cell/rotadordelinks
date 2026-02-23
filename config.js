@@ -27,7 +27,7 @@ const FIREBASE_CONFIG = {
 const SYSTEM_CONFIG = {
   // URL do servidor backend (Meta API + WhatsApp Monitor)
   // Mude para a URL do seu VPS quando configurar
-  serverUrl: "http://72.60.254.203:3000",
+  serverUrl: "https://api.promosdetododia.com.br",
 
   // API gratuita para geolocalização (limite: 45 req/min)
   geoApiUrl: "https://ipapi.co/json/",
