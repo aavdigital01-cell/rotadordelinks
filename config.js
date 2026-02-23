@@ -13,12 +13,12 @@
 // ============================================
 
 const FIREBASE_CONFIG = {
-  apiKey: "COLE_SUA_API_KEY_AQUI",
-  authDomain: "SEU_PROJETO.firebaseapp.com",
-  projectId: "SEU_PROJETO_ID",
-  storageBucket: "SEU_PROJETO.appspot.com",
-  messagingSenderId: "SEU_SENDER_ID",
-  appId: "SEU_APP_ID"
+  apiKey: "AIzaSyDykCbXTvSAn8SawlQbXxJA6zAuQhSjZq4",
+  authDomain: "linkrotator-2bae9.firebaseapp.com",
+  projectId: "linkrotator-2bae9",
+  storageBucket: "linkrotator-2bae9.firebasestorage.app",
+  messagingSenderId: "948801458032",
+  appId: "1:948801458032:web:ca78d46ff23c71e280c9b5"
 };
 
 // ============================================
