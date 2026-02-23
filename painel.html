@@ -1185,6 +1185,57 @@ select.form-control {
         <label>Limiar de Alerta (%)</label>
         <input type="number" class="form-control" id="campaignAlertThreshold" value="90" min="50" max="100" style="width:120px">
       </div>
+
+      <div style="border-top:1px solid var(--border);margin-top:16px;padding-top:16px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--accent)"><i class="fas fa-chart-pie" style="margin-right:6px"></i>Pixels de Rastreamento</div>
+
+        <div class="form-group">
+          <label>Facebook Pixel ID</label>
+          <input type="text" class="form-control" id="campaignFbPixel" placeholder="Ex: 123456789012345">
+          <div class="form-hint">Encontre em: Facebook Events Manager → Fontes de dados → Pixel</div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Evento Facebook</label>
+            <select class="form-control" id="campaignFbEvent">
+              <option value="Lead">Lead (recomendado)</option>
+              <option value="CompleteRegistration">CompleteRegistration</option>
+              <option value="Contact">Contact</option>
+              <option value="ViewContent">ViewContent</option>
+              <option value="InitiateCheckout">InitiateCheckout</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Evento TikTok</label>
+            <select class="form-control" id="campaignTtEvent">
+              <option value="SubmitForm">SubmitForm (recomendado)</option>
+              <option value="CompleteRegistration">CompleteRegistration</option>
+              <option value="Contact">Contact</option>
+              <option value="ClickButton">ClickButton</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>TikTok Pixel ID</label>
+          <input type="text" class="form-control" id="campaignTtPixel" placeholder="Ex: CXXXXXXXXXXXXXXXXX">
+          <div class="form-hint">Encontre em: TikTok Ads → Assets → Events → Web Events</div>
+        </div>
+        <div class="form-group">
+          <label>Google Tag Manager ID</label>
+          <input type="text" class="form-control" id="campaignGtmId" placeholder="Ex: GTM-XXXXXXX">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Google Ads ID</label>
+            <input type="text" class="form-control" id="campaignGadsId" placeholder="Ex: AW-123456789">
+          </div>
+          <div class="form-group">
+            <label>Conversion Label</label>
+            <input type="text" class="form-control" id="campaignGadsLabel" placeholder="Ex: AbC-D_efG-h">
+            <div class="form-hint">Encontre em: Google Ads → Conversões</div>
+          </div>
+        </div>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-secondary" onclick="closeModal('campaignModal')">Cancelar</button>
@@ -1468,6 +1519,13 @@ select.form-control {
     document.getElementById('campaignSlug').value = '';
     document.getElementById('campaignRotation').value = 'random';
     document.getElementById('campaignAlertThreshold').value = '90';
+    document.getElementById('campaignFbPixel').value = '';
+    document.getElementById('campaignFbEvent').value = 'Lead';
+    document.getElementById('campaignTtPixel').value = '';
+    document.getElementById('campaignTtEvent').value = 'SubmitForm';
+    document.getElementById('campaignGtmId').value = '';
+    document.getElementById('campaignGadsId').value = '';
+    document.getElementById('campaignGadsLabel').value = '';
     document.getElementById('campaignModalTitle').textContent = 'Nova Campanha';
     openModal('campaignModal');
   };
@@ -1480,6 +1538,13 @@ select.form-control {
     document.getElementById('campaignSlug').value = c.slug || '';
     document.getElementById('campaignRotation').value = c.rotationMode || 'random';
     document.getElementById('campaignAlertThreshold').value = c.alertThreshold || 90;
+    document.getElementById('campaignFbPixel').value = c.fbPixelId || '';
+    document.getElementById('campaignFbEvent').value = c.fbEventName || 'Lead';
+    document.getElementById('campaignTtPixel').value = c.ttPixelId || '';
+    document.getElementById('campaignTtEvent').value = c.ttEventName || 'SubmitForm';
+    document.getElementById('campaignGtmId').value = c.gtmId || '';
+    document.getElementById('campaignGadsId').value = c.gadsId || '';
+    document.getElementById('campaignGadsLabel').value = c.gadsConversionLabel || '';
     document.getElementById('campaignModalTitle').textContent = 'Editar Campanha';
     openModal('campaignModal');
   };
@@ -1510,6 +1575,14 @@ select.form-control {
         rotationMode: rotationMode,
         alertThreshold: alertThreshold,
         isActive: true,
+        fbPixelId: document.getElementById('campaignFbPixel').value.trim(),
+        fbEventName: document.getElementById('campaignFbEvent').value,
+        ttPixelId: document.getElementById('campaignTtPixel').value.trim(),
+        ttEventName: document.getElementById('campaignTtEvent').value,
+        gtmId: document.getElementById('campaignGtmId').value.trim(),
+        gtmEventName: 'whatsapp_click',
+        gadsId: document.getElementById('campaignGadsId').value.trim(),
+        gadsConversionLabel: document.getElementById('campaignGadsLabel').value.trim(),
         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
       };
 
@@ -1581,7 +1654,8 @@ select.form-control {
       var campName = camp ? camp.name : 'N/A';
       var fill = l.maxVacancies ? ((l.currentClicks || 0) / l.maxVacancies * 100) : 0;
       var fillColor = fill >= 90 ? 'var(--danger)' : fill >= 70 ? 'var(--warning)' : 'var(--accent)';
-      var statusBadge = l.isFull ? '<span class="badge badge-danger">Cheio</span>' :
+      var statusBadge = l.deactivatedReason ? '<span class="badge badge-danger" title="' + escHtml(l.deactivatedReason) + '"><i class="fas fa-unlink"></i> Banido</span>' :
+                        l.isFull ? '<span class="badge badge-danger">Cheio</span>' :
                         l.isActive ? '<span class="badge badge-success">Ativo</span>' :
                         '<span class="badge badge-warning">Inativo</span>';
 
@@ -1694,8 +1768,15 @@ select.form-control {
   window.toggleLinkStatus = async function(id) {
     var l = links.find(function(x) { return x.id === id; });
     if (!l) return;
-    await db.collection('links').doc(id).update({ isActive: !l.isActive });
-    showToast('Status atualizado', 'success');
+    var updateData = { isActive: !l.isActive };
+    // Se estiver reativando um link banido, limpa os dados de saúde
+    if (!l.isActive) {
+      updateData.healthCheckFailures = 0;
+      updateData.deactivatedReason = firebase.firestore.FieldValue.delete();
+      updateData.deactivatedAt = firebase.firestore.FieldValue.delete();
+    }
+    await db.collection('links').doc(id).update(updateData);
+    showToast(!l.isActive ? 'Link reativado!' : 'Link desativado', 'success');
   };
 
   window.deleteLink = function(id) {
@@ -2076,6 +2157,11 @@ select.form-control {
       var icon, title, color;
 
       switch (a.type) {
+        case 'link_broken':
+          icon = 'fa-unlink';
+          color = 'var(--danger)';
+          title = 'Link Banido/Expirado: ' + (a.linkName || 'N/A');
+          break;
         case 'link_full':
           icon = 'fa-ban';
           color = 'var(--danger)';
