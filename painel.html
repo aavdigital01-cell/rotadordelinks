@@ -1071,9 +1071,22 @@ select.form-control {
 
     <!-- ===== USERS VIEW ===== -->
     <div class="view" id="view-users">
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-body" style="display:flex;align-items:center;gap:12px;padding:14px 20px;background:var(--accent-dim);border-radius:var(--radius)">
+          <i class="fas fa-crown" style="color:var(--warning);font-size:18px"></i>
+          <div>
+            <div style="font-size:13px;font-weight:600">Hierarquia de Permissões</div>
+            <div style="font-size:12px;color:var(--text-secondary)">
+              <strong style="color:var(--warning)">Super Admin</strong> - Controle total + gerenciar usuários |
+              <strong style="color:var(--accent)">Admin</strong> - Criar/editar campanhas e links |
+              <strong style="color:var(--info)">Viewer</strong> - Apenas visualizar dados
+            </div>
+          </div>
+        </div>
+      </div>
       <div class="card">
         <div class="card-header">
-          <span class="card-title">Usuários Administradores</span>
+          <span class="card-title">Usuários</span>
         </div>
         <div class="table-wrap">
           <table>
@@ -1084,6 +1097,7 @@ select.form-control {
                 <th>Role</th>
                 <th>Criado em</th>
                 <th>Último login</th>
+                <th>Ações</th>
               </tr>
             </thead>
             <tbody id="usersTable">
@@ -1133,6 +1147,18 @@ select.form-control {
             <i class="fas fa-download"></i> Exportar todos os dados (JSON)
           </button>
           <div class="form-hint" style="margin-top:8px">Faz backup de campanhas, links e configurações</div>
+        </div>
+      </div>
+
+      <div class="card" id="promoteCard" style="display:none">
+        <div class="card-header">
+          <span class="card-title" style="color:var(--warning)"><i class="fas fa-crown" style="margin-right:6px"></i>Promoção a Super Admin</span>
+        </div>
+        <div class="card-body">
+          <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">Se você é o dono desta conta e ninguém é Super Admin ainda, clique abaixo para se tornar Super Admin.</p>
+          <button class="btn btn-primary" onclick="promoteSelfToSuperAdmin()" style="background:var(--warning);color:#000">
+            <i class="fas fa-crown"></i> Tornar-me Super Admin
+          </button>
         </div>
       </div>
     </div>
@@ -1324,6 +1350,7 @@ select.form-control {
   const db = firebase.firestore();
 
   let currentUser = null;
+  let currentUserRole = 'admin';
   let campaigns = [];
   let links = [];
   let allClicks = [];
@@ -1337,7 +1364,7 @@ select.form-control {
   let clicksChart, devicesChart, dailyClicksChart, countriesChart, browsersChart;
 
   // Verifica autenticação
-  auth.onAuthStateChanged(function(user) {
+  auth.onAuthStateChanged(async function(user) {
     if (!user) {
       window.location.href = 'index.html';
       return;
@@ -1345,6 +1372,21 @@ select.form-control {
     currentUser = user;
     document.getElementById('userName').textContent = user.displayName || user.email;
     document.getElementById('userAvatar').textContent = (user.displayName || user.email).charAt(0).toUpperCase();
+
+    // Carrega role do usuário
+    try {
+      var userDoc = await db.collection('users').doc(user.uid).get();
+      if (userDoc.exists) {
+        currentUserRole = userDoc.data().role || 'admin';
+      }
+    } catch(e) {}
+
+    // Mostra role no sidebar
+    var roleLabels = { superadmin: 'Super Admin', admin: 'Administrador', viewer: 'Visualizador' };
+    document.getElementById('userRole').textContent = roleLabels[currentUserRole] || currentUserRole;
+
+    // Aplica permissões de acordo com a role
+    applyPermissions();
 
     // Atualiza último login
     db.collection('users').doc(user.uid).update({
@@ -1363,6 +1405,7 @@ select.form-control {
     ]);
 
     loadDashboard();
+    checkPromoteEligibility();
     hideLoading();
 
     // Listeners real-time para alertas
@@ -2239,22 +2282,125 @@ select.form-control {
 
       snap.forEach(function(doc) {
         var u = doc.data();
+        var uid = doc.id;
         var created = u.createdAt ? new Date(u.createdAt.seconds * 1000).toLocaleDateString('pt-BR') : 'N/A';
         var lastLogin = u.lastLogin ? new Date(u.lastLogin.seconds * 1000).toLocaleString('pt-BR') : 'N/A';
+        var role = u.role || 'admin';
+        var isMe = uid === currentUser.uid;
+
+        var roleBadge = '';
+        switch(role) {
+          case 'superadmin':
+            roleBadge = '<span class="badge badge-warning"><i class="fas fa-crown" style="margin-right:3px"></i>Super Admin</span>';
+            break;
+          case 'admin':
+            roleBadge = '<span class="badge badge-success">Admin</span>';
+            break;
+          case 'viewer':
+            roleBadge = '<span class="badge badge-info">Viewer</span>';
+            break;
+          default:
+            roleBadge = '<span class="badge badge-info">' + escHtml(role) + '</span>';
+        }
+
+        var actions = '';
+        if (isSuperAdmin() && !isMe) {
+          actions = '<select class="form-control" style="width:130px;padding:5px 8px;font-size:11px;display:inline-block" onchange="changeUserRole(\'' + uid + '\', this.value)">' +
+            '<option value="superadmin"' + (role === 'superadmin' ? ' selected' : '') + '>Super Admin</option>' +
+            '<option value="admin"' + (role === 'admin' ? ' selected' : '') + '>Admin</option>' +
+            '<option value="viewer"' + (role === 'viewer' ? ' selected' : '') + '>Viewer</option>' +
+            '</select>';
+        } else if (isMe) {
+          actions = '<span style="font-size:11px;color:var(--text-muted)">Você</span>';
+        } else {
+          actions = '<span style="font-size:11px;color:var(--text-muted)">-</span>';
+        }
 
         html += '<tr>' +
           '<td><strong>' + escHtml(u.displayName || 'N/A') + '</strong></td>' +
           '<td>' + escHtml(u.email || 'N/A') + '</td>' +
-          '<td><span class="badge badge-info">' + escHtml(u.role || 'admin') + '</span></td>' +
+          '<td>' + roleBadge + '</td>' +
           '<td>' + created + '</td>' +
           '<td style="font-size:12px;color:var(--text-muted)">' + lastLogin + '</td>' +
+          '<td>' + actions + '</td>' +
           '</tr>';
       });
 
-      tbody.innerHTML = html || '<tr><td colspan="5"><div class="empty-state"><p>Nenhum usuário</p></div></td></tr>';
+      tbody.innerHTML = html || '<tr><td colspan="6"><div class="empty-state"><p>Nenhum usuário</p></div></td></tr>';
     } catch (err) {
       console.error('Erro ao carregar usuários:', err);
     }
+  }
+
+  window.changeUserRole = async function(uid, newRole) {
+    if (!isSuperAdmin()) {
+      showToast('Apenas Super Admin pode alterar permissões', 'error');
+      return;
+    }
+    try {
+      await db.collection('users').doc(uid).update({ role: newRole });
+      showToast('Permissão atualizada para ' + newRole, 'success');
+      loadUsers();
+    } catch (err) {
+      showToast('Erro ao atualizar: ' + err.message, 'error');
+    }
+  };
+
+  // ===== PERMISSÕES =====
+  // Verifica se deve mostrar botão de promoção
+  async function checkPromoteEligibility() {
+    try {
+      var snap = await db.collection('users').where('role', '==', 'superadmin').limit(1).get();
+      var promoteCard = document.getElementById('promoteCard');
+      if (snap.empty && currentUserRole !== 'superadmin') {
+        // Ninguém é superadmin ainda - mostra botão
+        promoteCard.style.display = 'block';
+      } else {
+        promoteCard.style.display = 'none';
+      }
+    } catch(e) {}
+  }
+
+  window.promoteSelfToSuperAdmin = async function() {
+    try {
+      // Verifica se já existe superadmin
+      var snap = await db.collection('users').where('role', '==', 'superadmin').limit(1).get();
+      if (!snap.empty) {
+        showToast('Já existe um Super Admin', 'error');
+        return;
+      }
+      await db.collection('users').doc(currentUser.uid).update({ role: 'superadmin' });
+      currentUserRole = 'superadmin';
+      document.getElementById('userRole').textContent = 'Super Admin';
+      document.getElementById('promoteCard').style.display = 'none';
+      applyPermissions();
+      showToast('Você agora é Super Admin!', 'success');
+    } catch (err) {
+      showToast('Erro: ' + err.message, 'error');
+    }
+  };
+
+  function applyPermissions() {
+    // Elementos que só superadmin pode ver
+    var superAdminElements = document.querySelectorAll('[data-view="users"]');
+
+    if (currentUserRole === 'superadmin') {
+      // Super admin vê tudo
+      superAdminElements.forEach(function(el) { el.style.display = ''; });
+    } else if (currentUserRole === 'viewer') {
+      // Viewer não pode criar/editar/deletar
+      superAdminElements.forEach(function(el) { el.style.display = 'none'; });
+      // Esconde todos os botões de ação
+      document.querySelectorAll('.btn-primary, .btn-danger').forEach(function(btn) {
+        if (btn.closest('#view-settings') || btn.closest('.modal-footer')) return;
+        btn.style.display = 'none';
+      });
+    }
+    // Admin normal pode tudo exceto gerenciar users
+  }
+
+  function isSuperAdmin() {
+    return currentUserRole === 'superadmin';
   }
 
   // ===== SETTINGS =====

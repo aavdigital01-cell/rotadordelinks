@@ -509,11 +509,15 @@ body::after {
       var cred = await auth.createUserWithEmailAndPassword(email, password);
       await cred.user.updateProfile({ displayName: name });
 
+      // Verifica se é o primeiro usuário (será Super Admin)
+      var usersSnap = await db.collection('users').limit(1).get();
+      var isFirstUser = usersSnap.empty;
+
       // Salva dados do usuário no Firestore
       await db.collection('users').doc(cred.user.uid).set({
         email: email,
         displayName: name,
-        role: 'admin',
+        role: isFirstUser ? 'superadmin' : 'admin',
         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
         lastLogin: firebase.firestore.FieldValue.serverTimestamp()
       });
