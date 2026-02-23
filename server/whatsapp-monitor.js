@@ -318,10 +318,30 @@ setInterval(function() {
   }
 }, 15 * 60 * 1000);
 
+async function restart() {
+  console.log('[WHATSAPP] Reiniciando cliente...');
+  connectionStatus.connected = false;
+  connectionStatus.ready = false;
+  connectionStatus.error = null;
+  currentQR = null;
+
+  if (client) {
+    try {
+      await client.destroy();
+    } catch (err) {
+      console.error('[WHATSAPP] Erro ao destruir cliente:', err.message);
+    }
+    client = null;
+  }
+
+  initialize(db);
+}
+
 module.exports = {
   initialize: initialize,
   getStatus: getStatus,
   getQR: getQR,
   getGroups: getGroups,
-  getGroupMembers: getGroupMembers
+  getGroupMembers: getGroupMembers,
+  restart: restart
 };

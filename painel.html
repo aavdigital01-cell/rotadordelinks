@@ -825,7 +825,7 @@ select.form-control {
 
     <!-- ===== DASHBOARD VIEW ===== -->
     <div class="view active" id="view-dashboard">
-      <div class="stats-grid">
+      <div class="stats-grid" style="grid-template-columns:repeat(6,1fr)">
         <div class="stat-card">
           <div class="stat-header">
             <div class="stat-icon green"><i class="fas fa-mouse-pointer"></i></div>
@@ -850,10 +850,24 @@ select.form-control {
         </div>
         <div class="stat-card">
           <div class="stat-header">
-            <div class="stat-icon red"><i class="fas fa-ban"></i></div>
-            <span class="stat-label">Links Cheios</span>
+            <div class="stat-icon green"><i class="fab fa-whatsapp"></i></div>
+            <span class="stat-label">Membros WhatsApp</span>
           </div>
-          <div class="stat-value" id="statFullLinks">0</div>
+          <div class="stat-value" id="statWhatsappMembers">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon blue"><i class="fas fa-user-plus"></i></div>
+            <span class="stat-label">Entradas Hoje</span>
+          </div>
+          <div class="stat-value" id="statJoinsToday">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon red"><i class="fas fa-ad"></i></div>
+            <span class="stat-label">Meta Ads Gasto</span>
+          </div>
+          <div class="stat-value" id="statMetaSpend">R$ 0.00</div>
         </div>
       </div>
 
@@ -876,25 +890,47 @@ select.form-control {
         </div>
       </div>
 
-      <div class="card">
-        <div class="card-header">
-          <span class="card-title">Últimos Clicks</span>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Últimos Clicks</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Link</th>
+                  <th>Campanha</th>
+                  <th>Dispositivo</th>
+                  <th>Local</th>
+                  <th>Horário</th>
+                </tr>
+              </thead>
+              <tbody id="recentClicksTable">
+                <tr><td colspan="5" class="empty-state"><p>Carregando...</p></td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Link</th>
-                <th>Campanha</th>
-                <th>Dispositivo</th>
-                <th>Local</th>
-                <th>Horário</th>
-              </tr>
-            </thead>
-            <tbody id="recentClicksTable">
-              <tr><td colspan="5" class="empty-state"><p>Carregando...</p></td></tr>
-            </tbody>
-          </table>
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Eventos de Membros (Hoje)</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Horário</th>
+                  <th>Grupo</th>
+                  <th>Ação</th>
+                  <th>Telefone</th>
+                </tr>
+              </thead>
+              <tbody id="dashMemberEvents">
+                <tr><td colspan="4" style="text-align:center;color:var(--text-muted)">Carregando...</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
@@ -1332,46 +1368,169 @@ select.form-control {
 
     <!-- ===== SETTINGS VIEW ===== -->
     <div class="view" id="view-settings">
+
+      <!-- Card 1: Meta Ads API Configuration -->
       <div class="card">
         <div class="card-header">
-          <span class="card-title">Configurações Gerais</span>
+          <span class="card-title"><i class="fab fa-meta" style="margin-right:8px;color:var(--info)"></i>Configuração Meta Ads API</span>
+          <span id="metaConfigStatus" style="font-size:12px;color:var(--text-secondary)"><i class="fas fa-circle" style="font-size:8px;color:var(--text-muted)"></i> Não configurado</span>
         </div>
         <div class="card-body">
           <div class="form-group">
-            <label>Limiar de Alerta (%)</label>
-            <input type="number" class="form-control" id="settingAlertThreshold" value="90" min="50" max="100" style="width:200px">
-            <div class="form-hint">Percentual de preenchimento para disparar alerta de "quase cheio"</div>
+            <label>Meta Access Token</label>
+            <input type="text" class="form-control" id="settingMetaToken" placeholder="Cole seu token de acesso aqui">
+            <div class="form-hint">Token de longa duração gerado no Meta Business Suite</div>
           </div>
           <div class="form-group">
-            <label>Notificações no Navegador</label>
-            <div class="toggle" id="settingBrowserNotif" onclick="toggleSetting(this)"></div>
-            <div class="form-hint">Receber notificações push no navegador</div>
+            <label>Ad Account ID</label>
+            <input type="text" class="form-control" id="settingMetaAccountId" placeholder="act_123456789">
+            <div class="form-hint">ID da conta de anúncios (começa com act_)</div>
           </div>
-          <div class="form-group">
-            <label>Som de Alerta</label>
-            <div class="toggle" id="settingSoundAlert" onclick="toggleSetting(this)"></div>
-            <div class="form-hint">Tocar som quando um grupo estiver cheio</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+            <div class="form-group">
+              <label>App ID</label>
+              <input type="text" class="form-control" id="settingMetaAppId" placeholder="ID do aplicativo Meta">
+            </div>
+            <div class="form-group">
+              <label>App Secret</label>
+              <input type="password" class="form-control" id="settingMetaAppSecret" placeholder="Chave secreta do app">
+            </div>
           </div>
-          <div style="margin-top:24px">
-            <button class="btn btn-primary" onclick="saveSettings()">
-              <i class="fas fa-save"></i> Salvar Configurações
+          <div style="margin-top:16px">
+            <button class="btn btn-primary" onclick="saveMetaConfig()">
+              <i class="fas fa-plug"></i> Salvar e Conectar
             </button>
           </div>
         </div>
       </div>
 
+      <!-- Card 2: WhatsApp Monitor -->
       <div class="card">
         <div class="card-header">
-          <span class="card-title">Dados</span>
+          <span class="card-title"><i class="fab fa-whatsapp" style="margin-right:8px;color:var(--accent)"></i>WhatsApp Monitor</span>
+          <span id="settingsWhatsappStatus" style="font-size:12px"><span style="color:var(--text-muted)"><i class="fas fa-circle" style="font-size:8px"></i> Verificando...</span></span>
         </div>
         <div class="card-body">
-          <button class="btn btn-secondary" onclick="exportAllData()">
-            <i class="fas fa-download"></i> Exportar todos os dados (JSON)
+          <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px">
+            O monitor WhatsApp permite rastrear membros dos grupos automaticamente. Ao reconectar, um novo QR Code será gerado no terminal do VPS.
+          </p>
+          <button class="btn btn-secondary" onclick="restartWhatsapp()">
+            <i class="fas fa-sync-alt"></i> Reconectar WhatsApp
           </button>
-          <div class="form-hint" style="margin-top:8px">Faz backup de campanhas, links e configurações</div>
+          <div class="form-hint" style="margin-top:10px">
+            <i class="fas fa-info-circle" style="margin-right:4px;color:var(--info)"></i>
+            Após clicar, verifique o terminal do servidor para escanear o QR Code com seu celular.
+          </div>
         </div>
       </div>
 
+      <!-- Card 3: Configuração de Alertas -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title"><i class="fas fa-bell" style="margin-right:8px;color:var(--warning)"></i>Configuração de Alertas</span>
+        </div>
+        <div class="card-body">
+          <p style="font-size:13px;color:var(--text-secondary);margin-bottom:20px">Escolha quais eventos devem gerar alertas no painel.</p>
+
+          <div style="display:flex;flex-direction:column;gap:14px;margin-bottom:24px">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--bg-hover);border-radius:var(--radius-sm)">
+              <div>
+                <div style="font-size:13px;font-weight:500">Novo membro entrou</div>
+                <div style="font-size:11px;color:var(--text-secondary)">Alerta quando alguém entra em um grupo monitorado</div>
+              </div>
+              <label style="position:relative;display:inline-block;width:40px;height:22px;flex-shrink:0">
+                <input type="checkbox" id="alertMemberJoin" checked style="opacity:0;width:0;height:0">
+                <span style="position:absolute;cursor:pointer;inset:0;background:var(--border);border-radius:11px;transition:var(--transition)" onclick="this.previousElementSibling.checked=!this.previousElementSibling.checked;this.style.background=this.previousElementSibling.checked?'var(--accent)':'var(--border)';this.querySelector('span').style.left=this.previousElementSibling.checked?'20px':'2px'"><span style="position:absolute;width:18px;height:18px;background:#fff;border-radius:50%;top:2px;left:20px;transition:var(--transition)"></span></span>
+              </label>
+            </div>
+
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--bg-hover);border-radius:var(--radius-sm)">
+              <div>
+                <div style="font-size:13px;font-weight:500">Membro saiu</div>
+                <div style="font-size:11px;color:var(--text-secondary)">Alerta quando alguém sai de um grupo monitorado</div>
+              </div>
+              <label style="position:relative;display:inline-block;width:40px;height:22px;flex-shrink:0">
+                <input type="checkbox" id="alertMemberLeave" style="opacity:0;width:0;height:0">
+                <span style="position:absolute;cursor:pointer;inset:0;background:var(--border);border-radius:11px;transition:var(--transition)" onclick="this.previousElementSibling.checked=!this.previousElementSibling.checked;this.style.background=this.previousElementSibling.checked?'var(--accent)':'var(--border)';this.querySelector('span').style.left=this.previousElementSibling.checked?'20px':'2px'"><span style="position:absolute;width:18px;height:18px;background:#fff;border-radius:50%;top:2px;left:2px;transition:var(--transition)"></span></span>
+              </label>
+            </div>
+
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--bg-hover);border-radius:var(--radius-sm)">
+              <div>
+                <div style="font-size:13px;font-weight:500">Link com vagas quase cheias</div>
+                <div style="font-size:11px;color:var(--text-secondary)">Alerta quando um link atinge o limiar de preenchimento</div>
+              </div>
+              <label style="position:relative;display:inline-block;width:40px;height:22px;flex-shrink:0">
+                <input type="checkbox" id="alertLinkAlmostFull" checked style="opacity:0;width:0;height:0">
+                <span style="position:absolute;cursor:pointer;inset:0;background:var(--accent);border-radius:11px;transition:var(--transition)" onclick="this.previousElementSibling.checked=!this.previousElementSibling.checked;this.style.background=this.previousElementSibling.checked?'var(--accent)':'var(--border)';this.querySelector('span').style.left=this.previousElementSibling.checked?'20px':'2px'"><span style="position:absolute;width:18px;height:18px;background:#fff;border-radius:50%;top:2px;left:20px;transition:var(--transition)"></span></span>
+              </label>
+            </div>
+
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--bg-hover);border-radius:var(--radius-sm)">
+              <div>
+                <div style="font-size:13px;font-weight:500">Link detectado como quebrado</div>
+                <div style="font-size:11px;color:var(--text-secondary)">Alerta quando um link de grupo está inválido ou expirado</div>
+              </div>
+              <label style="position:relative;display:inline-block;width:40px;height:22px;flex-shrink:0">
+                <input type="checkbox" id="alertBrokenLink" checked style="opacity:0;width:0;height:0">
+                <span style="position:absolute;cursor:pointer;inset:0;background:var(--accent);border-radius:11px;transition:var(--transition)" onclick="this.previousElementSibling.checked=!this.previousElementSibling.checked;this.style.background=this.previousElementSibling.checked?'var(--accent)':'var(--border)';this.querySelector('span').style.left=this.previousElementSibling.checked?'20px':'2px'"><span style="position:absolute;width:18px;height:18px;background:#fff;border-radius:50%;top:2px;left:20px;transition:var(--transition)"></span></span>
+              </label>
+            </div>
+
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:var(--bg-hover);border-radius:var(--radius-sm)">
+              <div>
+                <div style="font-size:13px;font-weight:500">Grupo WhatsApp quase cheio</div>
+                <div style="font-size:11px;color:var(--text-secondary)">Alerta quando um grupo está próximo do limite de membros</div>
+              </div>
+              <label style="position:relative;display:inline-block;width:40px;height:22px;flex-shrink:0">
+                <input type="checkbox" id="alertGroupFull" style="opacity:0;width:0;height:0">
+                <span style="position:absolute;cursor:pointer;inset:0;background:var(--border);border-radius:11px;transition:var(--transition)" onclick="this.previousElementSibling.checked=!this.previousElementSibling.checked;this.style.background=this.previousElementSibling.checked?'var(--accent)':'var(--border)';this.querySelector('span').style.left=this.previousElementSibling.checked?'20px':'2px'"><span style="position:absolute;width:18px;height:18px;background:#fff;border-radius:50%;top:2px;left:2px;transition:var(--transition)"></span></span>
+              </label>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+            <div class="form-group">
+              <label>Limiar de Alerta (%)</label>
+              <input type="range" id="settingAlertThreshold" min="50" max="100" value="90" style="width:100%;accent-color:var(--accent)" oninput="document.getElementById('thresholdValue').textContent=this.value+'%'">
+              <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-secondary);margin-top:4px">
+                <span>50%</span>
+                <span id="thresholdValue" style="font-weight:600;color:var(--accent)">90%</span>
+                <span>100%</span>
+              </div>
+              <div class="form-hint">Percentual de preenchimento para disparar alerta de "quase cheio"</div>
+            </div>
+            <div class="form-group">
+              <label>Notificações no Navegador</label>
+              <label style="position:relative;display:inline-block;width:40px;height:22px;margin-top:4px">
+                <input type="checkbox" id="settingBrowserNotif" style="opacity:0;width:0;height:0">
+                <span style="position:absolute;cursor:pointer;inset:0;background:var(--border);border-radius:11px;transition:var(--transition)" onclick="this.previousElementSibling.checked=!this.previousElementSibling.checked;this.style.background=this.previousElementSibling.checked?'var(--accent)':'var(--border)';this.querySelector('span').style.left=this.previousElementSibling.checked?'20px':'2px'"><span style="position:absolute;width:18px;height:18px;background:#fff;border-radius:50%;top:2px;left:2px;transition:var(--transition)"></span></span>
+              </label>
+              <div class="form-hint">Receber notificações push quando alertas forem disparados</div>
+            </div>
+          </div>
+
+          <button class="btn btn-primary" onclick="saveAlertConfig()">
+            <i class="fas fa-save"></i> Salvar Alertas
+          </button>
+        </div>
+      </div>
+
+      <!-- Card 4: Geral + Export -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title"><i class="fas fa-database" style="margin-right:8px;color:var(--purple)"></i>Geral &amp; Exportação</span>
+        </div>
+        <div class="card-body">
+          <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px">Exporte todos os dados do sistema incluindo campanhas, links, leads e configurações.</p>
+          <button class="btn btn-secondary" onclick="exportAllData()">
+            <i class="fas fa-download"></i> Exportar todos os dados (JSON)
+          </button>
+          <div class="form-hint" style="margin-top:8px">Faz backup completo de campanhas, links, leads e configurações</div>
+        </div>
+      </div>
+
+      <!-- Promote to Super Admin (hidden by default) -->
       <div class="card" id="promoteCard" style="display:none">
         <div class="card-header">
           <span class="card-title" style="color:var(--warning)"><i class="fas fa-crown" style="margin-right:6px"></i>Promoção a Super Admin</span>
@@ -1515,6 +1674,12 @@ select.form-control {
         <label>URL do WhatsApp</label>
         <input type="url" class="form-control" id="linkUrl" placeholder="https://chat.whatsapp.com/...">
         <div class="form-hint">Link de convite do grupo WhatsApp</div>
+      </div>
+      <div class="form-group">
+        <label>Vincular ao Grupo WhatsApp</label>
+        <select class="form-control" id="linkWhatsappGroup">
+          <option value="">Nenhum (não vincular)</option>
+        </select>
       </div>
       <div class="form-row">
         <div class="form-group">
@@ -1690,6 +1855,7 @@ select.form-control {
     if (viewName === 'analytics') loadAnalytics();
     if (viewName === 'leads') { leadsData = []; lastLeadDoc = null; loadLeads(); }
     if (viewName === 'users') loadUsers();
+    if (viewName === 'settings') loadSettingsData();
 
     // Fecha sidebar no mobile
     document.getElementById('sidebar').classList.remove('open');
@@ -1952,6 +2118,22 @@ select.form-control {
     tbody.innerHTML = html;
   }
 
+  async function loadWhatsappGroupsDropdown() {
+    var select = document.getElementById('linkWhatsappGroup');
+    if (!select) return;
+    select.innerHTML = '<option value="">Nenhum (não vincular)</option>';
+    try {
+      var snap = await db.collection('group_members').orderBy('groupName').get();
+      snap.forEach(function(doc) {
+        var d = doc.data();
+        var opt = document.createElement('option');
+        opt.value = doc.id;
+        opt.textContent = d.groupName + ' (' + (d.currentMembers || 0) + ' membros)';
+        select.appendChild(opt);
+      });
+    } catch(e) { console.error('Erro ao carregar grupos:', e); }
+  }
+
   window.openLinkModal = function() {
     document.getElementById('linkEditId').value = '';
     document.getElementById('linkName').value = '';
@@ -1960,7 +2142,9 @@ select.form-control {
     document.getElementById('linkWeight').value = '1';
     document.getElementById('linkCurrentClicks').value = '0';
     document.getElementById('linkCampaign').value = '';
+    document.getElementById('linkWhatsappGroup').value = '';
     document.getElementById('linkModalTitle').textContent = 'Novo Link';
+    loadWhatsappGroupsDropdown();
     openModal('linkModal');
   };
 
@@ -2007,6 +2191,7 @@ select.form-control {
         currentClicks: currentClicks,
         isActive: true,
         isFull: maxVacancies > 0 && currentClicks >= maxVacancies,
+        whatsappGroupId: document.getElementById('linkWhatsappGroup').value,
         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
       };
 
@@ -2066,16 +2251,49 @@ select.form-control {
     initDashboardCharts();
   }
 
-  function updateDashboardStats() {
+  async function updateDashboardStats() {
     var activeCampaigns = campaigns.filter(function(c) { return c.isActive !== false; }).length;
     var activeLinks = links.filter(function(l) { return l.isActive && !l.isFull; }).length;
-    var fullLinks = links.filter(function(l) { return l.isFull; }).length;
     var totalClicks = links.reduce(function(sum, l) { return sum + (l.currentClicks || 0); }, 0);
 
     document.getElementById('statTotalClicks').textContent = totalClicks.toLocaleString();
     document.getElementById('statActiveCampaigns').textContent = activeCampaigns;
     document.getElementById('statActiveLinks').textContent = activeLinks;
-    document.getElementById('statFullLinks').textContent = fullLinks;
+
+    // WhatsApp stats
+    try {
+      var gmSnap = await db.collection('group_members').get();
+      var totalMembers = 0;
+      gmSnap.forEach(function(doc) { totalMembers += (doc.data().currentMembers || 0); });
+      document.getElementById('statWhatsappMembers').textContent = totalMembers.toLocaleString();
+    } catch(e) {}
+
+    // Member events today
+    try {
+      var today = new Date();
+      today.setHours(0,0,0,0);
+      var evSnap = await db.collection('member_events').where('timestamp', '>=', today).orderBy('timestamp', 'desc').limit(20).get();
+      var joins = 0, leaves = 0;
+      var eventsHtml = '';
+      evSnap.forEach(function(doc) {
+        var d = doc.data();
+        if (d.action === 'join') joins++;
+        if (d.action === 'leave') leaves++;
+        var time = d.timestamp ? d.timestamp.toDate().toLocaleTimeString('pt-BR') : '-';
+        eventsHtml += '<tr><td>' + time + '</td><td>' + escHtml(d.whatsappGroupId || '').substring(0,20) + '</td><td>' + (d.action === 'join' ? '<span style="color:var(--accent)">Entrou</span>' : '<span style="color:var(--danger)">Saiu</span>') + '</td><td>***' + escHtml(d.phonePartial || '') + '</td></tr>';
+      });
+      document.getElementById('statJoinsToday').textContent = joins;
+      var evTable = document.getElementById('dashMemberEvents');
+      if (evTable) evTable.innerHTML = eventsHtml || '<tr><td colspan="4" style="text-align:center;color:var(--text-muted)">Nenhum evento hoje</td></tr>';
+    } catch(e) { console.error('Erro eventos:', e); }
+
+    // Meta spend
+    try {
+      var metaSnap = await db.collection('meta_campaigns').get();
+      var totalSpend = 0;
+      metaSnap.forEach(function(doc) { totalSpend += (doc.data().spend || 0); });
+      document.getElementById('statMetaSpend').textContent = 'R$ ' + totalSpend.toFixed(2);
+    } catch(e) {}
   }
 
   async function loadRecentClicks() {
@@ -2658,6 +2876,92 @@ select.form-control {
       showToast('Configurações salvas!', 'success');
     } catch (err) {
       showToast('Erro ao salvar: ' + err.message, 'error');
+    }
+  };
+
+  // ===== META ADS CONFIG =====
+  window.saveMetaConfig = async function() {
+    var btn = document.querySelector('[onclick="saveMetaConfig()"]');
+    btn.disabled = true;
+    btn.textContent = 'Salvando...';
+    try {
+      var data = {
+        accessToken: document.getElementById('settingMetaToken').value,
+        adAccountId: document.getElementById('settingMetaAccountId').value,
+        appId: document.getElementById('settingMetaAppId').value,
+        appSecret: document.getElementById('settingMetaAppSecret').value
+      };
+      await serverPost('/api/settings/meta', data);
+      showToast('Meta Ads configurado com sucesso!', 'success');
+      document.getElementById('metaConfigStatus').innerHTML = '<span style="color:var(--accent)"><i class="fas fa-check-circle"></i> Conectado</span>';
+    } catch(e) {
+      showToast('Erro ao salvar: ' + e.message, 'error');
+    }
+    btn.disabled = false;
+    btn.textContent = 'Salvar e Conectar';
+  };
+
+  // ===== LOAD SETTINGS DATA =====
+  window.loadSettingsData = async function() {
+    try {
+      var data = await serverFetch('/api/settings');
+      if (data && data.meta) {
+        if (data.meta.accessToken) document.getElementById('settingMetaToken').value = data.meta.accessToken;
+        if (data.meta.adAccountId) document.getElementById('settingMetaAccountId').value = data.meta.adAccountId;
+        if (data.meta.appId) document.getElementById('settingMetaAppId').value = data.meta.appId;
+        if (data.meta.appSecret) document.getElementById('settingMetaAppSecret').value = data.meta.appSecret;
+        document.getElementById('metaConfigStatus').innerHTML = '<span style="color:var(--accent)"><i class="fas fa-check-circle"></i> Configurado</span>';
+      }
+      if (data && data.alerts) {
+        if (data.alerts.memberJoin !== undefined) document.getElementById('alertMemberJoin').checked = data.alerts.memberJoin;
+        if (data.alerts.memberLeave !== undefined) document.getElementById('alertMemberLeave').checked = data.alerts.memberLeave;
+        if (data.alerts.linkAlmostFull !== undefined) document.getElementById('alertLinkAlmostFull').checked = data.alerts.linkAlmostFull;
+        if (data.alerts.brokenLink !== undefined) document.getElementById('alertBrokenLink').checked = data.alerts.brokenLink;
+        if (data.alerts.groupFull !== undefined) document.getElementById('alertGroupFull').checked = data.alerts.groupFull;
+      }
+      // WhatsApp status
+      var wsData = await serverFetch('/api/whatsapp/status');
+      if (wsData && wsData.connected) {
+        document.getElementById('settingsWhatsappStatus').innerHTML = '<span style="color:var(--accent)"><i class="fas fa-circle" style="font-size:8px"></i> Conectado - ' + (wsData.phone || '') + '</span>';
+      } else {
+        document.getElementById('settingsWhatsappStatus').innerHTML = '<span style="color:var(--warning)"><i class="fas fa-circle" style="font-size:8px"></i> Desconectado</span>';
+      }
+    } catch(e) { console.error('Erro ao carregar configurações:', e); }
+  };
+
+  // ===== RESTART WHATSAPP =====
+  window.restartWhatsapp = async function() {
+    var btn = document.querySelector('[onclick="restartWhatsapp()"]');
+    btn.disabled = true;
+    btn.textContent = 'Reiniciando...';
+    try {
+      await serverPost('/api/whatsapp/restart', {});
+      showToast('WhatsApp reiniciado! Verifique o QR Code no terminal do VPS.', 'success');
+    } catch(e) {
+      showToast('Erro: ' + e.message, 'error');
+    }
+    btn.disabled = false;
+    btn.textContent = 'Reconectar WhatsApp';
+  };
+
+  // ===== SAVE ALERT CONFIG =====
+  window.saveAlertConfig = async function() {
+    try {
+      var data = {
+        alerts: {
+          memberJoin: document.getElementById('alertMemberJoin').checked,
+          memberLeave: document.getElementById('alertMemberLeave').checked,
+          linkAlmostFull: document.getElementById('alertLinkAlmostFull').checked,
+          brokenLink: document.getElementById('alertBrokenLink').checked,
+          groupFull: document.getElementById('alertGroupFull').checked
+        },
+        alertThreshold: parseInt(document.getElementById('settingAlertThreshold').value) || 90,
+        browserNotifications: document.getElementById('settingBrowserNotif').checked
+      };
+      await serverPost('/api/settings', data);
+      showToast('Configurações de alertas salvas!', 'success');
+    } catch(e) {
+      showToast('Erro ao salvar: ' + e.message, 'error');
     }
   };
 

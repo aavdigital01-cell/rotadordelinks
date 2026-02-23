@@ -171,6 +171,121 @@ app.post('/api/whatsapp/groups/:groupId/link', authMiddleware, async function(re
   }
 });
 
+// ===== SETTINGS =====
+
+// Buscar configurações gerais
+app.get('/api/settings', authMiddleware, async function(req, res) {
+  try {
+    var doc = await db.collection('settings').doc('general').get();
+    if (!doc.exists) {
+      return res.json({});
+    }
+    res.json(doc.data());
+  } catch (err) {
+    console.error('Erro ao buscar configurações:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Salvar configurações gerais
+app.post('/api/settings', authMiddleware, async function(req, res) {
+  try {
+    var settings = req.body;
+    settings.updatedAt = admin.firestore.FieldValue.serverTimestamp();
+    await db.collection('settings').doc('general').set(settings, { merge: true });
+    res.json({ success: true, message: 'Configurações salvas' });
+  } catch (err) {
+    console.error('Erro ao salvar configurações:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Salvar credenciais Meta API e hot-reload
+app.post('/api/settings/meta', authMiddleware, async function(req, res) {
+  try {
+    var metaCredentials = req.body;
+    metaCredentials.updatedAt = admin.firestore.FieldValue.serverTimestamp();
+    await db.collection('settings').doc('general').set({
+      meta: metaCredentials
+    }, { merge: true });
+
+    // Hot-reload: atualizar variáveis de ambiente
+    if (metaCredentials.accessToken) {
+      process.env.META_ACCESS_TOKEN = metaCredentials.accessToken;
+    }
+    if (metaCredentials.adAccountId) {
+      process.env.META_AD_ACCOUNT_ID = metaCredentials.adAccountId;
+    }
+    if (metaCredentials.appId) {
+      process.env.META_APP_ID = metaCredentials.appId;
+    }
+    if (metaCredentials.appSecret) {
+      process.env.META_APP_SECRET = metaCredentials.appSecret;
+    }
+
+    // Reiniciar sincronização com novas credenciais
+    console.log('[META] Credenciais atualizadas, reiniciando sincronização...');
+    syncMetaToFirestore();
+
+    res.json({ success: true, message: 'Credenciais Meta atualizadas e sincronização reiniciada' });
+  } catch (err) {
+    console.error('Erro ao salvar credenciais Meta:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ===== MEMBER EVENTS =====
+
+// Eventos de membros de hoje (entradas e saídas)
+app.get('/api/member-events/today', authMiddleware, async function(req, res) {
+  try {
+    var now = new Date();
+    var startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    var snapshot = await db.collection('member_events')
+      .where('timestamp', '>=', startOfDay)
+      .get();
+
+    var joins = 0;
+    var leaves = 0;
+    var events = [];
+
+    snapshot.forEach(function(doc) {
+      var data = doc.data();
+      if (data.type === 'join') {
+        joins++;
+      } else if (data.type === 'leave') {
+        leaves++;
+      }
+      events.push({ id: doc.id, ...data });
+    });
+
+    res.json({
+      joins: joins,
+      leaves: leaves,
+      net: joins - leaves,
+      total: events.length,
+      events: events
+    });
+  } catch (err) {
+    console.error('Erro ao buscar eventos de membros:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ===== WHATSAPP RESTART =====
+
+// Reiniciar conexão WhatsApp
+app.post('/api/whatsapp/restart', authMiddleware, async function(req, res) {
+  try {
+    await whatsappMonitor.restart();
+    res.json({ success: true, message: 'WhatsApp reiniciado' });
+  } catch (err) {
+    console.error('Erro ao reiniciar WhatsApp:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ===== STATS COMBINADOS =====
 app.get('/api/stats/overview', authMiddleware, async function(req, res) {
   try {
