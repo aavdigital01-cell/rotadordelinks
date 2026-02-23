@@ -273,6 +273,221 @@ app.get('/api/member-events/today', authMiddleware, async function(req, res) {
   }
 });
 
+// ===== MEMBER EVENTS PER GROUP =====
+
+// Eventos de membros por grupo (para WhatsApp Monitor detalhado)
+app.get('/api/member-events/by-group', authMiddleware, async function(req, res) {
+  try {
+    var now = new Date();
+    var startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    var snapshot = await db.collection('member_events')
+      .where('timestamp', '>=', startOfDay)
+      .get();
+
+    var groupStats = {};
+
+    snapshot.forEach(function(doc) {
+      var data = doc.data();
+      var groupId = data.whatsappGroupId || 'unknown';
+      if (!groupStats[groupId]) {
+        groupStats[groupId] = { joins: 0, leaves: 0, groupName: data.groupName || groupId };
+      }
+      if (data.action === 'join') {
+        groupStats[groupId].joins++;
+      } else if (data.action === 'leave') {
+        groupStats[groupId].leaves++;
+      }
+    });
+
+    res.json(groupStats);
+  } catch (err) {
+    console.error('Erro member-events/by-group:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Eventos de membros por período customizado
+app.get('/api/member-events/range', authMiddleware, async function(req, res) {
+  try {
+    var days = parseInt(req.query.days) || 7;
+    var startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+    startDate.setHours(0, 0, 0, 0);
+
+    var snapshot = await db.collection('member_events')
+      .where('timestamp', '>=', startDate)
+      .get();
+
+    var dailyStats = {};
+    var groupStats = {};
+    var totalJoins = 0, totalLeaves = 0;
+
+    snapshot.forEach(function(doc) {
+      var data = doc.data();
+      var ts = data.timestamp && data.timestamp.toDate ? data.timestamp.toDate() : new Date();
+      var dayKey = ts.toISOString().split('T')[0];
+      var groupId = data.whatsappGroupId || 'unknown';
+
+      if (!dailyStats[dayKey]) dailyStats[dayKey] = { joins: 0, leaves: 0 };
+      if (!groupStats[groupId]) groupStats[groupId] = { joins: 0, leaves: 0, groupName: data.groupName || groupId };
+
+      if (data.action === 'join') {
+        dailyStats[dayKey].joins++;
+        groupStats[groupId].joins++;
+        totalJoins++;
+      } else if (data.action === 'leave') {
+        dailyStats[dayKey].leaves++;
+        groupStats[groupId].leaves++;
+        totalLeaves++;
+      }
+    });
+
+    res.json({
+      totalJoins: totalJoins,
+      totalLeaves: totalLeaves,
+      net: totalJoins - totalLeaves,
+      retentionRate: totalJoins > 0 ? Math.round(((totalJoins - totalLeaves) / totalJoins) * 100) : 0,
+      evasionRate: totalJoins > 0 ? Math.round((totalLeaves / totalJoins) * 100) : 0,
+      dailyStats: dailyStats,
+      groupStats: groupStats
+    });
+  } catch (err) {
+    console.error('Erro member-events/range:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ===== COMPREHENSIVE DASHBOARD STATS =====
+app.get('/api/stats/dashboard', authMiddleware, async function(req, res) {
+  try {
+    var now = new Date();
+    var startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    // Parallel fetches
+    var [groupSnap, eventsSnap, clicksSnap] = await Promise.all([
+      db.collection('group_members').get(),
+      db.collection('member_events').where('timestamp', '>=', startOfDay).get(),
+      db.collection('clicks').where('timestamp', '>=', startOfDay).get()
+    ]);
+
+    // Total members
+    var totalMembers = 0;
+    var groupsData = [];
+    groupSnap.forEach(function(doc) {
+      var d = doc.data();
+      totalMembers += (d.currentMembers || 0);
+      groupsData.push({ id: doc.id, ...d });
+    });
+
+    // Events today
+    var joins = 0, leaves = 0;
+    eventsSnap.forEach(function(doc) {
+      var d = doc.data();
+      if (d.action === 'join') joins++;
+      else if (d.action === 'leave') leaves++;
+    });
+
+    // Clicks today (rotator)
+    var clicksToday = clicksSnap.size;
+
+    // Taxa de fuga: clicks no rotador - entradas no grupo / clicks * 100
+    var taxaFuga = clicksToday > 0 ? Math.round(((clicksToday - joins) / clicksToday) * 100) : 0;
+    // Taxa de saída: saídas / total membros * 100
+    var taxaSaida = totalMembers > 0 ? ((leaves / totalMembers) * 100).toFixed(1) : 0;
+
+    res.json({
+      totalMembers: totalMembers,
+      joinsToday: joins,
+      leavesToday: leaves,
+      clicksToday: clicksToday,
+      taxaFuga: Math.max(0, taxaFuga),
+      taxaSaida: parseFloat(taxaSaida),
+      saldoLiquido: joins - leaves,
+      groups: groupsData.length
+    });
+  } catch (err) {
+    console.error('Erro stats/dashboard:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ===== USER MANAGEMENT =====
+
+// Criar novo usuário (apenas superadmin)
+app.post('/api/users/create', authMiddleware, async function(req, res) {
+  try {
+    // Verifica se é superadmin
+    var callerDoc = await db.collection('users').doc(req.user.uid).get();
+    if (!callerDoc.exists || callerDoc.data().role !== 'superadmin') {
+      return res.status(403).json({ error: 'Apenas Super Admin pode criar usuários' });
+    }
+
+    var email = req.body.email;
+    var password = req.body.password;
+    var displayName = req.body.displayName || '';
+    var role = req.body.role || 'admin';
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email e senha são obrigatórios' });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Senha deve ter no mínimo 6 caracteres' });
+    }
+
+    // Cria usuário no Firebase Auth
+    var userRecord = await admin.auth().createUser({
+      email: email,
+      password: password,
+      displayName: displayName
+    });
+
+    // Cria documento do usuário no Firestore
+    await db.collection('users').doc(userRecord.uid).set({
+      email: email,
+      displayName: displayName,
+      role: role,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdBy: req.user.uid
+    });
+
+    res.json({
+      success: true,
+      message: 'Usuário criado com sucesso',
+      uid: userRecord.uid
+    });
+  } catch (err) {
+    console.error('Erro ao criar usuário:', err.message);
+    if (err.code === 'auth/email-already-exists') {
+      return res.status(400).json({ error: 'Este email já está cadastrado' });
+    }
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Deletar usuário (apenas superadmin)
+app.delete('/api/users/:uid', authMiddleware, async function(req, res) {
+  try {
+    var callerDoc = await db.collection('users').doc(req.user.uid).get();
+    if (!callerDoc.exists || callerDoc.data().role !== 'superadmin') {
+      return res.status(403).json({ error: 'Apenas Super Admin pode deletar usuários' });
+    }
+
+    if (req.params.uid === req.user.uid) {
+      return res.status(400).json({ error: 'Não é possível deletar seu próprio usuário' });
+    }
+
+    await admin.auth().deleteUser(req.params.uid);
+    await db.collection('users').doc(req.params.uid).delete();
+
+    res.json({ success: true, message: 'Usuário deletado' });
+  } catch (err) {
+    console.error('Erro ao deletar usuário:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ===== WHATSAPP RESTART =====
 
 // Reiniciar conexão WhatsApp

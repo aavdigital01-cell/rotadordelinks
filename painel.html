@@ -825,20 +825,15 @@ select.form-control {
 
     <!-- ===== DASHBOARD VIEW ===== -->
     <div class="view active" id="view-dashboard">
+      <!-- Row 1: KPIs Principais -->
       <div class="stats-grid" style="grid-template-columns:repeat(4,1fr)">
-        <div class="stat-card">
-          <div class="stat-header">
-            <div class="stat-icon blue"><i class="fas fa-mouse-pointer"></i></div>
-            <span class="stat-label">Clicks Meta</span>
-          </div>
-          <div class="stat-value" id="statMetaClicks">0</div>
-        </div>
         <div class="stat-card">
           <div class="stat-header">
             <div class="stat-icon green"><i class="fas fa-users"></i></div>
             <span class="stat-label">Membros Reais</span>
           </div>
           <div class="stat-value" id="statWhatsappMembers">0</div>
+          <div class="stat-change" id="statMembersChange"></div>
         </div>
         <div class="stat-card">
           <div class="stat-header">
@@ -854,6 +849,51 @@ select.form-control {
           </div>
           <div class="stat-value" id="statLeavesToday">0</div>
         </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon blue"><i class="fas fa-balance-scale"></i></div>
+            <span class="stat-label">Saldo Liquido Hoje</span>
+          </div>
+          <div class="stat-value" id="statNetToday">0</div>
+        </div>
+      </div>
+
+      <!-- Row 2: Taxas e Custos -->
+      <div class="stats-grid" style="grid-template-columns:repeat(4,1fr)">
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon purple"><i class="fas fa-running"></i></div>
+            <span class="stat-label">Taxa de Fuga</span>
+          </div>
+          <div class="stat-value" id="statTaxaFuga">0%</div>
+          <div class="stat-change" style="font-size:10px;color:var(--text-muted)">Clicks que nao entraram no grupo</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon red"><i class="fas fa-door-open"></i></div>
+            <span class="stat-label">Taxa de Saida</span>
+          </div>
+          <div class="stat-value" id="statTaxaSaida">0%</div>
+          <div class="stat-change" style="font-size:10px;color:var(--text-muted)">Saidas / Total membros</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon blue"><i class="fas fa-mouse-pointer"></i></div>
+            <span class="stat-label">Clicks Rotador Hoje</span>
+          </div>
+          <div class="stat-value" id="statRotadorClicks">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon blue"><i class="fas fa-ad"></i></div>
+            <span class="stat-label">Clicks Meta</span>
+          </div>
+          <div class="stat-value" id="statMetaClicks">0</div>
+        </div>
+      </div>
+
+      <!-- Row 3: Custos -->
+      <div class="stats-grid" style="grid-template-columns:repeat(4,1fr)">
         <div class="stat-card">
           <div class="stat-header">
             <div class="stat-icon yellow"><i class="fas fa-dollar-sign"></i></div>
@@ -881,6 +921,45 @@ select.form-control {
             <span class="stat-label">Campanhas Ativas</span>
           </div>
           <div class="stat-value" id="statActiveCampaigns">0</div>
+        </div>
+      </div>
+
+      <!-- Funil de Conversao Resumido -->
+      <div class="card" style="margin-bottom:24px">
+        <div class="card-header">
+          <span class="card-title"><i class="fas fa-filter" style="margin-right:6px;color:var(--accent)"></i>Funil de Conversao (Hoje)</span>
+        </div>
+        <div class="card-body">
+          <div style="display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;padding:10px 0">
+            <div style="text-align:center;padding:12px 20px;background:var(--info-bg);border-radius:var(--radius);min-width:120px">
+              <div style="font-size:10px;color:var(--info);font-weight:600;margin-bottom:2px">CLICKS ROTADOR</div>
+              <div style="font-size:22px;font-weight:700" id="dashFunnelClicks">0</div>
+            </div>
+            <div style="text-align:center">
+              <i class="fas fa-chevron-right" style="color:var(--text-muted)"></i>
+              <div style="font-size:10px;color:var(--text-muted)" id="dashFunnelRate1">-</div>
+            </div>
+            <div style="text-align:center;padding:12px 20px;background:var(--accent-glow);border-radius:var(--radius);min-width:120px">
+              <div style="font-size:10px;color:var(--accent);font-weight:600;margin-bottom:2px">ENTRADAS GRUPO</div>
+              <div style="font-size:22px;font-weight:700" id="dashFunnelJoins">0</div>
+            </div>
+            <div style="text-align:center">
+              <i class="fas fa-chevron-right" style="color:var(--text-muted)"></i>
+              <div style="font-size:10px;color:var(--text-muted)" id="dashFunnelRate2">-</div>
+            </div>
+            <div style="text-align:center;padding:12px 20px;background:var(--warning-bg);border-radius:var(--radius);min-width:120px">
+              <div style="font-size:10px;color:var(--warning);font-weight:600;margin-bottom:2px">PERMANECERAM</div>
+              <div style="font-size:22px;font-weight:700" id="dashFunnelRetained">0</div>
+            </div>
+            <div style="text-align:center">
+              <i class="fas fa-chevron-right" style="color:var(--text-muted)"></i>
+              <div style="font-size:10px;color:var(--danger)" id="dashFunnelRate3">-</div>
+            </div>
+            <div style="text-align:center;padding:12px 20px;background:var(--danger-bg);border-radius:var(--radius);min-width:120px">
+              <div style="font-size:10px;color:var(--danger);font-weight:600;margin-bottom:2px">SAIRAM</div>
+              <div style="font-size:22px;font-weight:700" id="dashFunnelLeaves">0</div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1001,9 +1080,11 @@ select.form-control {
                 <th>Campanha</th>
                 <th>Vagas</th>
                 <th>Clicks</th>
+                <th>Membros Reais</th>
+                <th>Taxa Fuga</th>
                 <th>Peso</th>
                 <th>Status</th>
-                <th>Ações</th>
+                <th>Acoes</th>
               </tr>
             </thead>
             <tbody id="linksTable">
@@ -1191,15 +1272,19 @@ select.form-control {
               <thead>
                 <tr>
                   <th>Grupo</th>
-                  <th>Membros Reais</th>
+                  <th>Membros</th>
                   <th>Link Vinculado</th>
+                  <th>Entradas Hoje</th>
+                  <th>Saidas Hoje</th>
+                  <th>Saldo</th>
                   <th>Clicks vs Membros</th>
-                  <th>Taxa de Retenção</th>
-                  <th>Última Atualização</th>
+                  <th>Taxa Retencao</th>
+                  <th>Taxa Saida</th>
+                  <th>Atualizado</th>
                 </tr>
               </thead>
               <tbody id="whatsappGroupsTable">
-                <tr><td colspan="6"><div class="empty-state"><p>Carregando grupos...</p></div></td></tr>
+                <tr><td colspan="10"><div class="empty-state"><p>Carregando grupos...</p></div></td></tr>
               </tbody>
             </table>
           </div>
@@ -1230,6 +1315,7 @@ select.form-control {
 
     <!-- ===== ANALYTICS VIEW ===== -->
     <div class="view" id="view-analytics">
+      <!-- Row 1: Clicks stats -->
       <div class="stats-grid" style="margin-bottom:16px;grid-template-columns:repeat(4,1fr)">
         <div class="stat-card">
           <div class="stat-header">
@@ -1259,19 +1345,33 @@ select.form-control {
           </div>
           <div class="stat-value" id="analyticsMembers">0</div>
         </div>
+      </div>
+
+      <!-- Row 2: Taxas e Percentuais -->
+      <div class="stats-grid" style="margin-bottom:16px;grid-template-columns:repeat(4,1fr)">
         <div class="stat-card">
           <div class="stat-header">
             <div class="stat-icon green"><i class="fas fa-user-check"></i></div>
-            <span class="stat-label">Taxa de Retencao</span>
+            <span class="stat-label">Taxa de Retencao (30d)</span>
           </div>
           <div class="stat-value" id="analyticsRetention">-</div>
+          <div style="font-size:10px;color:var(--text-muted);margin-top:2px">Quem entrou e ficou</div>
         </div>
         <div class="stat-card">
           <div class="stat-header">
             <div class="stat-icon red"><i class="fas fa-user-slash"></i></div>
-            <span class="stat-label">Taxa de Evasao</span>
+            <span class="stat-label">Taxa de Evasao (30d)</span>
           </div>
           <div class="stat-value" id="analyticsEvasion">-</div>
+          <div style="font-size:10px;color:var(--text-muted);margin-top:2px">Quem entrou e saiu</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon purple"><i class="fas fa-running"></i></div>
+            <span class="stat-label">Taxa de Fuga (30d)</span>
+          </div>
+          <div class="stat-value" id="analyticsFuga">-</div>
+          <div style="font-size:10px;color:var(--text-muted);margin-top:2px">Clicks que nao entraram</div>
         </div>
         <div class="stat-card">
           <div class="stat-header">
@@ -1280,15 +1380,42 @@ select.form-control {
           </div>
           <div class="stat-value" id="analyticsAvgTime">-</div>
         </div>
+      </div>
+
+      <!-- Row 3: Crescimento -->
+      <div class="stats-grid" style="margin-bottom:16px;grid-template-columns:repeat(4,1fr)">
         <div class="stat-card">
           <div class="stat-header">
-            <div class="stat-icon purple"><i class="fas fa-exchange-alt"></i></div>
-            <span class="stat-label">Entradas vs Saidas (30d)</span>
+            <div class="stat-icon green"><i class="fas fa-user-plus"></i></div>
+            <span class="stat-label">Entradas (30d)</span>
+          </div>
+          <div class="stat-value" id="analyticsTotalJoins">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon red"><i class="fas fa-user-minus"></i></div>
+            <span class="stat-label">Saidas (30d)</span>
+          </div>
+          <div class="stat-value" id="analyticsTotalLeaves">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon blue"><i class="fas fa-chart-line"></i></div>
+            <span class="stat-label">Crescimento Liquido (30d)</span>
           </div>
           <div class="stat-value" id="analyticsNetGrowth">-</div>
         </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon yellow"><i class="fas fa-percentage"></i></div>
+            <span class="stat-label">Conversao Click→Grupo</span>
+          </div>
+          <div class="stat-value" id="analyticsConversion">-</div>
+          <div style="font-size:10px;color:var(--text-muted);margin-top:2px">% dos clicks que viraram membro</div>
+        </div>
       </div>
 
+      <!-- Charts -->
       <div class="card">
         <div class="card-header">
           <span class="card-title">Clicks por Dia (Ultimos 30 dias)</span>
@@ -1307,6 +1434,40 @@ select.form-control {
         </div>
         <div class="card-body">
           <div class="chart-container"><canvas id="joinsVsLeavesChart"></canvas></div>
+        </div>
+      </div>
+
+      <!-- Peak hours heatmap -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title"><i class="fas fa-fire" style="color:var(--warning);margin-right:6px"></i>Horarios de Pico (Clicks por Hora - 7 dias)</span>
+        </div>
+        <div class="card-body">
+          <div class="chart-container"><canvas id="peakHoursChart"></canvas></div>
+        </div>
+      </div>
+
+      <!-- Per-group ranking -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title"><i class="fas fa-trophy" style="color:var(--warning);margin-right:6px"></i>Ranking de Grupos (30 dias)</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Grupo</th>
+                <th>Entradas</th>
+                <th>Saidas</th>
+                <th>Saldo</th>
+                <th>Retencao</th>
+              </tr>
+            </thead>
+            <tbody id="analyticsGroupRanking">
+              <tr><td colspan="6"><div class="empty-state"><p>Carregando...</p></div></td></tr>
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -1390,9 +1551,9 @@ select.form-control {
         <div class="card-body" style="display:flex;align-items:center;gap:12px;padding:14px 20px;background:var(--accent-dim);border-radius:var(--radius)">
           <i class="fas fa-crown" style="color:var(--warning);font-size:18px"></i>
           <div>
-            <div style="font-size:13px;font-weight:600">Hierarquia de Permissões</div>
+            <div style="font-size:13px;font-weight:600">Hierarquia de Permissoes</div>
             <div style="font-size:12px;color:var(--text-secondary)">
-              <strong style="color:var(--warning)">Super Admin</strong> - Controle total + gerenciar usuários |
+              <strong style="color:var(--warning)">Super Admin</strong> - Controle total + gerenciar usuarios |
               <strong style="color:var(--accent)">Admin</strong> - Criar/editar campanhas e links |
               <strong style="color:var(--info)">Viewer</strong> - Apenas visualizar dados
             </div>
@@ -1401,7 +1562,10 @@ select.form-control {
       </div>
       <div class="card">
         <div class="card-header">
-          <span class="card-title">Usuários</span>
+          <span class="card-title">Usuarios</span>
+          <button class="btn btn-primary" id="btnCreateUser" onclick="openCreateUserModal()" style="display:none">
+            <i class="fas fa-user-plus"></i> Criar Usuario
+          </button>
         </div>
         <div class="table-wrap">
           <table>
@@ -1763,6 +1927,42 @@ select.form-control {
   </div>
 </div>
 
+<!-- CREATE USER MODAL -->
+<div class="modal-overlay" id="createUserModal">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Criar Novo Usuario</span>
+      <button class="modal-close" onclick="closeModal('createUserModal')"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Nome</label>
+        <input type="text" class="form-control" id="newUserName" placeholder="Nome completo">
+      </div>
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" class="form-control" id="newUserEmail" placeholder="email@exemplo.com">
+      </div>
+      <div class="form-group">
+        <label>Senha</label>
+        <input type="password" class="form-control" id="newUserPassword" placeholder="Minimo 6 caracteres">
+      </div>
+      <div class="form-group">
+        <label>Permissao</label>
+        <select class="form-control" id="newUserRole">
+          <option value="admin">Admin - Criar/editar campanhas e links</option>
+          <option value="viewer">Viewer - Apenas visualizar dados</option>
+          <option value="superadmin">Super Admin - Controle total</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('createUserModal')">Cancelar</button>
+      <button class="btn btn-primary" onclick="createNewUser()"><i class="fas fa-user-plus"></i> Criar</button>
+    </div>
+  </div>
+</div>
+
 <!-- CONFIRM MODAL -->
 <div class="modal-overlay" id="confirmModal">
   <div class="modal" style="max-width:400px">
@@ -1805,7 +2005,7 @@ select.form-control {
   let leadsData = [];
 
   // Charts
-  let clicksChart, devicesChart, dailyClicksChart, countriesChart, browsersChart, joinsVsLeavesChart;
+  let clicksChart, devicesChart, dailyClicksChart, countriesChart, browsersChart, joinsVsLeavesChart, peakHoursChart;
 
   // Verifica autenticação
   auth.onAuthStateChanged(async function(user) {
@@ -1871,7 +2071,7 @@ select.form-control {
     var unsubLinks = db.collection('links').onSnapshot(function(snap) {
       links = [];
       snap.forEach(function(doc) { links.push({ id: doc.id, ...doc.data() }); });
-      renderLinksTable();
+      enrichLinksWithGroupData();
       updateDashboardStats();
     });
     unsubscribers.push(unsubLinks);
@@ -1951,7 +2151,7 @@ select.form-control {
     Chart.defaults.color = textColor;
     Chart.defaults.borderColor = borderColor;
     // Re-render charts if they exist
-    [clicksChart, devicesChart, dailyClicksChart, countriesChart, browsersChart, joinsVsLeavesChart].forEach(function(c) {
+    [clicksChart, devicesChart, dailyClicksChart, countriesChart, browsersChart, joinsVsLeavesChart, peakHoursChart].forEach(function(c) {
       if (c) c.update();
     });
   }
@@ -2138,7 +2338,7 @@ select.form-control {
     var filtered = filter ? links.filter(function(l) { return l.campaignId === filter; }) : links;
 
     if (filtered.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state"><i class="fas fa-link"></i><h3>Nenhum link</h3><p>Adicione links de grupos WhatsApp</p></div></td></tr>';
+      tbody.innerHTML = '<tr><td colspan="10"><div class="empty-state"><i class="fas fa-link"></i><h3>Nenhum link</h3><p>Adicione links de grupos WhatsApp</p></div></td></tr>';
       return;
     }
 
@@ -2153,16 +2353,30 @@ select.form-control {
                         l.isActive ? '<span class="badge badge-success">Ativo</span>' :
                         '<span class="badge badge-warning">Inativo</span>';
 
+      // Real members from whatsapp group (cached from group_members collection)
+      var realMembers = '-';
+      var fugaRate = '-';
+      if (l.whatsappGroupId && l._groupMembers !== undefined) {
+        realMembers = l._groupMembers;
+        var clicks = l.currentClicks || 0;
+        if (clicks > 0) {
+          var fuga = Math.round(((clicks - l._groupMembers) / clicks) * 100);
+          fugaRate = Math.max(0, fuga) + '%';
+        }
+      }
+
       html += '<tr>' +
         '<td><strong>' + escHtml(l.name || 'Sem nome') + '</strong></td>' +
         '<td><span class="link-url">' + escHtml(l.url || '') + '</span> <button class="copy-btn" onclick="copyToClipboard(\'' + escHtml(l.url || '') + '\')"><i class="fas fa-copy"></i></button></td>' +
         '<td><span class="badge badge-purple">' + escHtml(campName) + '</span></td>' +
-        '<td style="min-width:140px">' +
-        '<div style="display:flex;align-items:center;gap:8px"><span style="font-size:13px;font-weight:600">' + (l.currentClicks || 0) + '/' + (l.maxVacancies || '∞') + '</span></div>' +
+        '<td style="min-width:130px">' +
+        '<div style="display:flex;align-items:center;gap:8px"><span style="font-size:13px;font-weight:600">' + (l.currentClicks || 0) + '/' + (l.maxVacancies || '1000') + '</span></div>' +
         '<div class="progress-bar"><div class="progress-fill" style="width:' + Math.min(fill, 100) + '%;background:' + fillColor + '"></div></div>' +
         '<div class="progress-text">' + Math.round(fill) + '% preenchido</div>' +
         '</td>' +
         '<td>' + (l.currentClicks || 0).toLocaleString() + '</td>' +
+        '<td style="font-weight:600;color:' + (realMembers !== '-' ? 'var(--accent)' : 'var(--text-muted)') + '">' + realMembers + '</td>' +
+        '<td style="font-size:12px;color:var(--text-muted)">' + fugaRate + '</td>' +
         '<td>' + (l.weight || 1) + '</td>' +
         '<td>' + statusBadge + '</td>' +
         '<td style="white-space:nowrap">' +
@@ -2173,6 +2387,21 @@ select.form-control {
         '</td></tr>';
     });
     tbody.innerHTML = html;
+  }
+
+  // Enrich links with group member data for the table
+  async function enrichLinksWithGroupData() {
+    try {
+      var gmSnap = await db.collection('group_members').get();
+      var groupMap = {};
+      gmSnap.forEach(function(doc) { groupMap[doc.id] = doc.data().currentMembers || 0; });
+      links.forEach(function(l) {
+        if (l.whatsappGroupId && groupMap[l.whatsappGroupId] !== undefined) {
+          l._groupMembers = groupMap[l.whatsappGroupId];
+        }
+      });
+      renderLinksTable();
+    } catch(e) {}
   }
 
   async function loadWhatsappGroupsDropdown() {
@@ -2213,7 +2442,7 @@ select.form-control {
     document.getElementById('linkEditId').value = '';
     document.getElementById('linkName').value = '';
     document.getElementById('linkUrl').value = '';
-    document.getElementById('linkVacancies').value = '';
+    document.getElementById('linkVacancies').value = '1000';
     document.getElementById('linkWeight').value = '1';
     document.getElementById('linkCurrentClicks').value = '0';
     document.getElementById('linkCampaign').value = '';
@@ -2222,6 +2451,21 @@ select.form-control {
     loadWhatsappGroupsDropdown();
     openModal('linkModal');
   };
+
+  // Auto-sync: quando vincular grupo, preenche clicks com membros atuais
+  document.getElementById('linkWhatsappGroup').addEventListener('change', function() {
+    var selectedGroup = this.value;
+    if (!selectedGroup) return;
+    // Busca quantidade de membros do grupo selecionado
+    var optionText = this.options[this.selectedIndex].textContent;
+    var match = optionText.match(/\((\d+)\s*membros?\)/);
+    if (match) {
+      var memberCount = parseInt(match[1]);
+      document.getElementById('linkCurrentClicks').value = memberCount;
+      // Sempre 1000 vagas
+      document.getElementById('linkVacancies').value = '1000';
+    }
+  });
 
   window.editLink = async function(id) {
     var l = links.find(function(x) { return x.id === id; });
@@ -2331,30 +2575,77 @@ select.form-control {
   }
 
   async function updateDashboardStats() {
-    // Basic stats from Firestore
-    var activeCampaigns = campaigns.filter(function(c) { return c.active; }).length;
-    var activeLinks = links.filter(function(l) { return l.active; }).length;
+    // Active campaigns count
+    var activeCampaigns = campaigns.filter(function(c) { return c.isActive !== false; }).length;
     document.getElementById('statActiveCampaigns').textContent = activeCampaigns;
 
-    // WhatsApp members
+    // Use comprehensive dashboard endpoint for all stats at once
     try {
-      var gmSnap = await db.collection('group_members').get();
-      var totalMembers = 0;
-      gmSnap.forEach(function(doc) { totalMembers += (doc.data().currentMembers || 0); });
-      document.getElementById('statWhatsappMembers').textContent = totalMembers.toLocaleString();
-    } catch(e) {}
+      var dashData = await serverFetch('/api/stats/dashboard');
+      if (dashData) {
+        document.getElementById('statWhatsappMembers').textContent = (dashData.totalMembers || 0).toLocaleString();
+        document.getElementById('statJoinsToday').textContent = dashData.joinsToday || 0;
+        document.getElementById('statLeavesToday').textContent = dashData.leavesToday || 0;
 
-    // Member events today - use server API (no Firestore index needed)
+        // Saldo líquido
+        var net = (dashData.joinsToday || 0) - (dashData.leavesToday || 0);
+        var netEl = document.getElementById('statNetToday');
+        netEl.textContent = (net >= 0 ? '+' : '') + net;
+        netEl.style.color = net >= 0 ? 'var(--accent)' : 'var(--danger)';
+
+        // Saldo de membros change
+        var changeEl = document.getElementById('statMembersChange');
+        if (net !== 0) {
+          changeEl.textContent = (net > 0 ? '+' : '') + net + ' hoje';
+          changeEl.className = 'stat-change ' + (net >= 0 ? 'up' : 'down');
+        }
+
+        // Clicks rotador hoje
+        document.getElementById('statRotadorClicks').textContent = (dashData.clicksToday || 0).toLocaleString();
+
+        // Taxa de fuga
+        document.getElementById('statTaxaFuga').textContent = (dashData.taxaFuga || 0) + '%';
+        document.getElementById('statTaxaFuga').style.color = dashData.taxaFuga > 50 ? 'var(--danger)' : dashData.taxaFuga > 30 ? 'var(--warning)' : 'var(--accent)';
+
+        // Taxa de saída
+        document.getElementById('statTaxaSaida').textContent = (dashData.taxaSaida || 0) + '%';
+        document.getElementById('statTaxaSaida').style.color = dashData.taxaSaida > 5 ? 'var(--danger)' : dashData.taxaSaida > 2 ? 'var(--warning)' : 'var(--accent)';
+
+        // Funil
+        document.getElementById('dashFunnelClicks').textContent = (dashData.clicksToday || 0).toLocaleString();
+        document.getElementById('dashFunnelJoins').textContent = (dashData.joinsToday || 0).toLocaleString();
+        var retained = (dashData.joinsToday || 0) - (dashData.leavesToday || 0);
+        document.getElementById('dashFunnelRetained').textContent = Math.max(0, retained).toLocaleString();
+        document.getElementById('dashFunnelLeaves').textContent = (dashData.leavesToday || 0).toLocaleString();
+
+        // Taxas do funil
+        var convRate = dashData.clicksToday > 0 ? Math.round((dashData.joinsToday / dashData.clicksToday) * 100) : 0;
+        document.getElementById('dashFunnelRate1').textContent = convRate + '% conv.';
+        var retRate = dashData.joinsToday > 0 ? Math.round((retained / dashData.joinsToday) * 100) : 0;
+        document.getElementById('dashFunnelRate2').textContent = retRate + '% ret.';
+        var exitRate = dashData.joinsToday > 0 ? Math.round((dashData.leavesToday / dashData.joinsToday) * 100) : 0;
+        document.getElementById('dashFunnelRate3').textContent = exitRate + '% saiu';
+      }
+    } catch(e) {
+      console.error('Erro dashboard stats:', e);
+      // Fallback: carrega direto do Firestore
+      try {
+        var gmSnap = await db.collection('group_members').get();
+        var totalMembers = 0;
+        gmSnap.forEach(function(doc) { totalMembers += (doc.data().currentMembers || 0); });
+        document.getElementById('statWhatsappMembers').textContent = totalMembers.toLocaleString();
+      } catch(e2) {}
+    }
+
+    // Member events for dashboard table
     try {
       var evData = await serverFetch('/api/member-events/today');
       if (evData) {
-        document.getElementById('statJoinsToday').textContent = evData.joins || 0;
-        document.getElementById('statLeavesToday').textContent = evData.leaves || 0;
         var eventsHtml = '';
         var evList = (evData.events || []).slice(0, 20);
         evList.forEach(function(d) {
           var time = d.timestamp && d.timestamp._seconds ? new Date(d.timestamp._seconds * 1000).toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'}) : '-';
-          var groupName = d.whatsappGroupId ? d.whatsappGroupId.substring(0,20) : '-';
+          var groupName = d.groupName || (d.whatsappGroupId ? d.whatsappGroupId.substring(0,25) : '-');
           eventsHtml += '<tr><td>' + time + '</td><td style="max-width:150px;overflow:hidden;text-overflow:ellipsis">' + escHtml(groupName) + '</td><td>' + (d.action === 'join' ? '<span style="color:var(--accent)"><i class="fas fa-arrow-up"></i> Entrou</span>' : '<span style="color:var(--danger)"><i class="fas fa-arrow-down"></i> Saiu</span>') + '</td><td>***' + escHtml(d.phonePartial || '') + '</td></tr>';
         });
         var evTable = document.getElementById('dashMemberEvents');
@@ -2375,11 +2666,9 @@ select.form-control {
       document.getElementById('statMetaClicks').textContent = totalClicks.toLocaleString();
       document.getElementById('statMetaSpend').textContent = 'R$ ' + totalSpend.toFixed(2);
 
-      // Custo por lead Meta (spend / conversions)
       var costPerLeadMeta = totalConversions > 0 ? (totalSpend / totalConversions) : 0;
       document.getElementById('statCostPerLeadMeta').textContent = costPerLeadMeta > 0 ? 'R$ ' + costPerLeadMeta.toFixed(2) : '-';
 
-      // Custo por lead real (spend / (joins - leaves))
       var joinsToday = parseInt(document.getElementById('statJoinsToday').textContent) || 0;
       var leavesToday = parseInt(document.getElementById('statLeavesToday').textContent) || 0;
       var realLeads = joinsToday - leavesToday;
@@ -2525,6 +2814,7 @@ select.form-control {
       var dailyData = {};
       var countryData = {};
       var browserData = {};
+      var hourlyData = new Array(24).fill(0);
 
       snap.forEach(function(doc) {
         var d = doc.data();
@@ -2532,7 +2822,11 @@ select.form-control {
         var date = new Date(d.timestamp.seconds * 1000);
 
         if (date >= todayStart) clicksToday++;
-        if (date >= weekStart) clicksWeek++;
+        if (date >= weekStart) {
+          clicksWeek++;
+          // Peak hours from last 7 days
+          hourlyData[date.getHours()]++;
+        }
         if (date >= monthStart) clicksMonth++;
 
         var dayKey = date.toISOString().split('T')[0];
@@ -2549,7 +2843,7 @@ select.form-control {
       document.getElementById('statClicksWeek').textContent = clicksWeek.toLocaleString();
       document.getElementById('statClicksMonth').textContent = clicksMonth.toLocaleString();
 
-      // Total members across groups
+      // Total members
       try {
         var gmSnap = await db.collection('group_members').get();
         var totalAnalyticsMembers = 0;
@@ -2557,119 +2851,103 @@ select.form-control {
         document.getElementById('analyticsMembers').textContent = totalAnalyticsMembers.toLocaleString();
       } catch(e2) {}
 
-      // Member events for retention/evasion and joins vs leaves chart
+      // Member events via server API (no Firestore index issues)
       try {
-        var evSnap = await db.collection('member_events')
-          .where('timestamp', '>=', thirtyDaysAgo)
-          .orderBy('timestamp', 'desc')
-          .get();
+        var evData = await serverFetch('/api/member-events/range?days=30');
 
-        var totalJoins = 0, totalLeaves = 0;
-        var dailyJoins = {};
-        var dailyLeaves = {};
-        var joinTimestamps = {};
-        var leaveTimestamps = {};
+        if (evData) {
+          var totalJoins = evData.totalJoins || 0;
+          var totalLeaves = evData.totalLeaves || 0;
 
-        evSnap.forEach(function(doc) {
-          var ev = doc.data();
-          if (!ev.timestamp) return;
-          var evDate = ev.timestamp.toDate ? ev.timestamp.toDate() : new Date(ev.timestamp.seconds * 1000);
-          var evDayKey = evDate.toISOString().split('T')[0];
-          var phone = ev.phonePartial || ev.phone || 'unknown';
+          document.getElementById('analyticsTotalJoins').textContent = totalJoins.toLocaleString();
+          document.getElementById('analyticsTotalLeaves').textContent = totalLeaves.toLocaleString();
 
-          if (ev.action === 'join') {
-            totalJoins++;
-            dailyJoins[evDayKey] = (dailyJoins[evDayKey] || 0) + 1;
-            if (!joinTimestamps[phone]) joinTimestamps[phone] = evDate;
-          }
-          if (ev.action === 'leave') {
-            totalLeaves++;
-            dailyLeaves[evDayKey] = (dailyLeaves[evDayKey] || 0) + 1;
-            if (!leaveTimestamps[phone]) leaveTimestamps[phone] = evDate;
-          }
-        });
+          // Retention rate
+          var retentionRate = evData.retentionRate || 0;
+          var retEl = document.getElementById('analyticsRetention');
+          retEl.textContent = retentionRate + '%';
+          retEl.style.color = retentionRate >= 70 ? 'var(--accent)' : retentionRate >= 40 ? 'var(--warning)' : 'var(--danger)';
 
-        // Retention rate: (joins - leaves) / joins
-        var retained = totalJoins - totalLeaves;
-        var retentionRate = totalJoins > 0 ? Math.round((retained / totalJoins) * 100) : 0;
-        document.getElementById('analyticsRetention').textContent = retentionRate > 0 ? retentionRate + '%' : '-';
+          // Evasion rate
+          var evasionRate = evData.evasionRate || 0;
+          var evaEl = document.getElementById('analyticsEvasion');
+          evaEl.textContent = evasionRate + '%';
+          evaEl.style.color = evasionRate <= 30 ? 'var(--accent)' : evasionRate <= 50 ? 'var(--warning)' : 'var(--danger)';
 
-        // Evasion rate: leaves / joins
-        var evasionRate = totalJoins > 0 ? Math.round((totalLeaves / totalJoins) * 100) : 0;
-        document.getElementById('analyticsEvasion').textContent = evasionRate > 0 ? evasionRate + '%' : '-';
+          // Taxa de fuga (clicks - joins / clicks)
+          var totalClicksMonth = clicksMonth;
+          var fugaRate = totalClicksMonth > 0 ? Math.round(((totalClicksMonth - totalJoins) / totalClicksMonth) * 100) : 0;
+          var fugaEl = document.getElementById('analyticsFuga');
+          fugaEl.textContent = Math.max(0, fugaRate) + '%';
+          fugaEl.style.color = fugaRate <= 30 ? 'var(--accent)' : fugaRate <= 60 ? 'var(--warning)' : 'var(--danger)';
 
-        // Net growth
-        var netGrowth = totalJoins - totalLeaves;
-        document.getElementById('analyticsNetGrowth').textContent = (netGrowth >= 0 ? '+' : '') + netGrowth;
+          // Net growth
+          var netGrowth = totalJoins - totalLeaves;
+          var netEl = document.getElementById('analyticsNetGrowth');
+          netEl.textContent = (netGrowth >= 0 ? '+' : '') + netGrowth;
+          netEl.style.color = netGrowth >= 0 ? 'var(--accent)' : 'var(--danger)';
 
-        // Average time in group (approximate from join/leave pairs)
-        var totalDuration = 0, pairCount = 0;
-        Object.keys(leaveTimestamps).forEach(function(phone) {
-          if (joinTimestamps[phone]) {
-            var diff = leaveTimestamps[phone].getTime() - joinTimestamps[phone].getTime();
-            if (diff > 0) {
-              totalDuration += diff;
-              pairCount++;
-            }
-          }
-        });
-        if (pairCount > 0) {
-          var avgMs = totalDuration / pairCount;
-          var avgHours = Math.round(avgMs / (1000 * 60 * 60));
-          if (avgHours < 24) {
-            document.getElementById('analyticsAvgTime').textContent = avgHours + 'h';
-          } else {
-            document.getElementById('analyticsAvgTime').textContent = Math.round(avgHours / 24) + 'd';
-          }
-        } else {
+          // Conversion rate (clicks → group join)
+          var convRate = totalClicksMonth > 0 ? Math.round((totalJoins / totalClicksMonth) * 100) : 0;
+          document.getElementById('analyticsConversion').textContent = convRate + '%';
+
+          // Average time (approximate)
           document.getElementById('analyticsAvgTime').textContent = '-';
-        }
 
-        // Joins vs Leaves per day chart
-        var jlDays = [];
-        var jlJoinValues = [];
-        var jlLeaveValues = [];
-        for (var j = 29; j >= 0; j--) {
-          var jd = new Date(now);
-          jd.setDate(jd.getDate() - j);
-          var jKey = jd.toISOString().split('T')[0];
-          jlDays.push(jd.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }));
-          jlJoinValues.push(dailyJoins[jKey] || 0);
-          jlLeaveValues.push(dailyLeaves[jKey] || 0);
-        }
-
-        var ctxJL = document.getElementById('joinsVsLeavesChart').getContext('2d');
-        if (joinsVsLeavesChart) joinsVsLeavesChart.destroy();
-        joinsVsLeavesChart = new Chart(ctxJL, {
-          type: 'bar',
-          data: {
-            labels: jlDays,
-            datasets: [
-              {
-                label: 'Entradas',
-                data: jlJoinValues,
-                backgroundColor: 'rgba(37,211,102,0.6)',
-                borderColor: '#25D366',
-                borderWidth: 1,
-                borderRadius: 3
-              },
-              {
-                label: 'Saidas',
-                data: jlLeaveValues,
-                backgroundColor: 'rgba(255,59,48,0.6)',
-                borderColor: '#FF3B30',
-                borderWidth: 1,
-                borderRadius: 3
-              }
-            ]
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { position: 'top' } },
-            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+          // Joins vs Leaves chart from dailyStats
+          var jlDays = [];
+          var jlJoinValues = [];
+          var jlLeaveValues = [];
+          var dailyStats = evData.dailyStats || {};
+          for (var j = 29; j >= 0; j--) {
+            var jd = new Date(now);
+            jd.setDate(jd.getDate() - j);
+            var jKey = jd.toISOString().split('T')[0];
+            jlDays.push(jd.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }));
+            jlJoinValues.push((dailyStats[jKey] && dailyStats[jKey].joins) || 0);
+            jlLeaveValues.push((dailyStats[jKey] && dailyStats[jKey].leaves) || 0);
           }
-        });
+
+          var ctxJL = document.getElementById('joinsVsLeavesChart').getContext('2d');
+          if (joinsVsLeavesChart) joinsVsLeavesChart.destroy();
+          joinsVsLeavesChart = new Chart(ctxJL, {
+            type: 'bar',
+            data: {
+              labels: jlDays,
+              datasets: [
+                { label: 'Entradas', data: jlJoinValues, backgroundColor: 'rgba(37,211,102,0.6)', borderColor: '#25D366', borderWidth: 1, borderRadius: 3 },
+                { label: 'Saidas', data: jlLeaveValues, backgroundColor: 'rgba(255,59,48,0.6)', borderColor: '#FF3B30', borderWidth: 1, borderRadius: 3 }
+              ]
+            },
+            options: {
+              responsive: true, maintainAspectRatio: false,
+              plugins: { legend: { position: 'top' } },
+              scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+            }
+          });
+
+          // Group ranking table
+          var groupStats = evData.groupStats || {};
+          var groupRankingArr = Object.entries(groupStats).map(function(entry) {
+            return { id: entry[0], name: entry[1].groupName || entry[0], joins: entry[1].joins, leaves: entry[1].leaves };
+          }).sort(function(a, b) { return (b.joins - b.leaves) - (a.joins - a.leaves); });
+
+          var rankHtml = '';
+          groupRankingArr.forEach(function(g, idx) {
+            var net = g.joins - g.leaves;
+            var ret = g.joins > 0 ? Math.round(((g.joins - g.leaves) / g.joins) * 100) : 0;
+            var retColor = ret >= 70 ? 'var(--accent)' : ret >= 40 ? 'var(--warning)' : 'var(--danger)';
+            rankHtml += '<tr>' +
+              '<td style="font-weight:700;color:var(--text-muted)">' + (idx + 1) + '</td>' +
+              '<td><strong style="font-size:12px">' + escHtml(g.name.substring(0, 30)) + '</strong></td>' +
+              '<td style="color:var(--accent);font-weight:600">' + g.joins + '</td>' +
+              '<td style="color:var(--danger);font-weight:600">' + g.leaves + '</td>' +
+              '<td style="color:' + (net >= 0 ? 'var(--accent)' : 'var(--danger)') + ';font-weight:600">' + (net >= 0 ? '+' : '') + net + '</td>' +
+              '<td><span style="color:' + retColor + ';font-weight:600">' + ret + '%</span></td>' +
+              '</tr>';
+          });
+          document.getElementById('analyticsGroupRanking').innerHTML = rankHtml || '<tr><td colspan="6"><div class="empty-state"><p>Sem dados</p></div></td></tr>';
+        }
       } catch(e3) { console.error('Erro eventos analytics:', e3); }
 
       // Daily clicks chart
@@ -2701,8 +2979,36 @@ select.form-control {
           }]
         },
         options: {
-          responsive: true,
-          maintainAspectRatio: false,
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+        }
+      });
+
+      // Peak hours chart
+      var ctxPeak = document.getElementById('peakHoursChart').getContext('2d');
+      if (peakHoursChart) peakHoursChart.destroy();
+      var maxHourly = Math.max.apply(null, hourlyData) || 1;
+      var peakColors = hourlyData.map(function(v) {
+        var ratio = v / maxHourly;
+        if (ratio > 0.75) return 'rgba(255,59,48,0.8)';
+        if (ratio > 0.5) return 'rgba(255,214,10,0.8)';
+        if (ratio > 0.25) return 'rgba(37,211,102,0.6)';
+        return 'rgba(37,211,102,0.2)';
+      });
+      peakHoursChart = new Chart(ctxPeak, {
+        type: 'bar',
+        data: {
+          labels: Array.from({length: 24}, function(_, i) { return i + 'h'; }),
+          datasets: [{
+            label: 'Clicks',
+            data: hourlyData,
+            backgroundColor: peakColors,
+            borderRadius: 4
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
           plugins: { legend: { display: false } },
           scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
         }
@@ -2716,22 +3022,9 @@ select.form-control {
         type: 'bar',
         data: {
           labels: sortedCountries.map(function(c) { return c[0]; }),
-          datasets: [{
-            label: 'Clicks',
-            data: sortedCountries.map(function(c) { return c[1]; }),
-            backgroundColor: 'rgba(37,211,102,0.3)',
-            borderColor: '#25D366',
-            borderWidth: 1,
-            borderRadius: 4
-          }]
+          datasets: [{ label: 'Clicks', data: sortedCountries.map(function(c) { return c[1]; }), backgroundColor: 'rgba(37,211,102,0.3)', borderColor: '#25D366', borderWidth: 1, borderRadius: 4 }]
         },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          indexAxis: 'y',
-          plugins: { legend: { display: false } },
-          scales: { x: { beginAtZero: true, ticks: { precision: 0 } } }
-        }
+        options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true, ticks: { precision: 0 } } } }
       });
 
       // Browsers chart
@@ -2743,17 +3036,9 @@ select.form-control {
         type: 'pie',
         data: {
           labels: sortedBrowsers.map(function(b) { return b[0]; }),
-          datasets: [{
-            data: sortedBrowsers.map(function(b) { return b[1]; }),
-            backgroundColor: colors.slice(0, sortedBrowsers.length),
-            borderWidth: 0
-          }]
+          datasets: [{ data: sortedBrowsers.map(function(b) { return b[1]; }), backgroundColor: colors.slice(0, sortedBrowsers.length), borderWidth: 0 }]
         },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: { legend: { position: 'bottom' } }
-        }
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
       });
     } catch (err) {
       console.error('Erro no analytics:', err);
@@ -2937,6 +3222,10 @@ select.form-control {
   // ===== USERS =====
   async function loadUsers() {
     try {
+      // Show create button for superadmin
+      var createBtn = document.getElementById('btnCreateUser');
+      if (createBtn) createBtn.style.display = isSuperAdmin() ? '' : 'none';
+
       var snap = await db.collection('users').get();
       var tbody = document.getElementById('usersTable');
       var html = '';
@@ -2966,13 +3255,16 @@ select.form-control {
 
         var actions = '';
         if (isSuperAdmin() && !isMe) {
-          actions = '<select class="form-control" style="width:130px;padding:5px 8px;font-size:11px;display:inline-block" onchange="changeUserRole(\'' + uid + '\', this.value)">' +
+          actions = '<div style="display:flex;gap:6px;align-items:center">' +
+            '<select class="form-control" style="width:120px;padding:4px 8px;font-size:11px" onchange="changeUserRole(\'' + uid + '\', this.value)">' +
             '<option value="superadmin"' + (role === 'superadmin' ? ' selected' : '') + '>Super Admin</option>' +
             '<option value="admin"' + (role === 'admin' ? ' selected' : '') + '>Admin</option>' +
             '<option value="viewer"' + (role === 'viewer' ? ' selected' : '') + '>Viewer</option>' +
-            '</select>';
+            '</select>' +
+            '<button class="btn btn-danger btn-sm btn-icon" onclick="deleteUser(\'' + uid + '\', \'' + escHtml(u.displayName || u.email || '') + '\')" title="Excluir"><i class="fas fa-trash"></i></button>' +
+            '</div>';
         } else if (isMe) {
-          actions = '<span style="font-size:11px;color:var(--text-muted)">Você</span>';
+          actions = '<span style="font-size:11px;color:var(--accent)"><i class="fas fa-check-circle"></i> Voce</span>';
         } else {
           actions = '<span style="font-size:11px;color:var(--text-muted)">-</span>';
         }
@@ -2987,24 +3279,82 @@ select.form-control {
           '</tr>';
       });
 
-      tbody.innerHTML = html || '<tr><td colspan="6"><div class="empty-state"><p>Nenhum usuário</p></div></td></tr>';
+      tbody.innerHTML = html || '<tr><td colspan="6"><div class="empty-state"><p>Nenhum usuario</p></div></td></tr>';
     } catch (err) {
-      console.error('Erro ao carregar usuários:', err);
+      console.error('Erro ao carregar usuarios:', err);
     }
   }
 
   window.changeUserRole = async function(uid, newRole) {
     if (!isSuperAdmin()) {
-      showToast('Apenas Super Admin pode alterar permissões', 'error');
+      showToast('Apenas Super Admin pode alterar permissoes', 'error');
       return;
     }
     try {
       await db.collection('users').doc(uid).update({ role: newRole });
-      showToast('Permissão atualizada para ' + newRole, 'success');
+      showToast('Permissao atualizada para ' + newRole, 'success');
       loadUsers();
     } catch (err) {
       showToast('Erro ao atualizar: ' + err.message, 'error');
     }
+  };
+
+  window.openCreateUserModal = function() {
+    document.getElementById('newUserName').value = '';
+    document.getElementById('newUserEmail').value = '';
+    document.getElementById('newUserPassword').value = '';
+    document.getElementById('newUserRole').value = 'admin';
+    openModal('createUserModal');
+  };
+
+  window.createNewUser = async function() {
+    var name = document.getElementById('newUserName').value.trim();
+    var email = document.getElementById('newUserEmail').value.trim();
+    var password = document.getElementById('newUserPassword').value;
+    var role = document.getElementById('newUserRole').value;
+
+    if (!email || !password) {
+      showToast('Email e senha sao obrigatorios', 'error');
+      return;
+    }
+    if (password.length < 6) {
+      showToast('Senha deve ter no minimo 6 caracteres', 'error');
+      return;
+    }
+
+    try {
+      await serverPost('/api/users/create', {
+        email: email,
+        password: password,
+        displayName: name,
+        role: role
+      });
+      showToast('Usuario criado com sucesso!', 'success');
+      closeModal('createUserModal');
+      loadUsers();
+    } catch (err) {
+      showToast('Erro: ' + err.message, 'error');
+    }
+  };
+
+  window.deleteUser = function(uid, userName) {
+    showConfirm('Excluir usuario "' + userName + '"? Esta acao nao pode ser desfeita.', async function() {
+      try {
+        var token = await auth.currentUser.getIdToken();
+        var resp = await fetch(SYSTEM_CONFIG.serverUrl + '/api/users/' + uid, {
+          method: 'DELETE',
+          headers: { 'Authorization': 'Bearer ' + token }
+        });
+        if (!resp.ok) {
+          var err = await resp.json().catch(function() { return { error: 'Erro' }; });
+          throw new Error(err.error);
+        }
+        showToast('Usuario excluido', 'success');
+        loadUsers();
+      } catch (err) {
+        showToast('Erro: ' + err.message, 'error');
+      }
+    });
   };
 
   // ===== PERMISSÕES =====
@@ -3438,20 +3788,23 @@ select.form-control {
         totalMembers += members;
         var lastUpdate = g.lastScanned ? new Date(g.lastScanned.seconds * 1000).toLocaleString('pt-BR') : 'N/A';
 
-        // Cross-reference with links collection
         var linkedLink = links.find(function(l) { return l.whatsappGroupId === doc.id; });
-        var linkedName = linkedLink ? linkedLink.name : '-';
+        var linkedName = linkedLink ? linkedLink.name : '';
         var clicks = linkedLink ? (linkedLink.currentClicks || 0) : 0;
         var retention = clicks > 0 ? Math.round((members / clicks) * 100) : 0;
         var retentionColor = retention >= 70 ? 'var(--accent)' : retention >= 40 ? 'var(--warning)' : 'var(--danger)';
 
         html += '<tr>' +
-          '<td><strong>' + escHtml(g.groupName || 'N/A') + '</strong></td>' +
-          '<td style="font-size:18px;font-weight:700">' + members + '</td>' +
-          '<td>' + (linkedLink ? '<span class="badge badge-success">' + escHtml(linkedName) + '</span>' : '<span style="font-size:11px;color:var(--text-muted)">Nao vinculado</span>') + '</td>' +
-          '<td>' + (linkedLink ? clicks + ' &rarr; ' + members : '-') + '</td>' +
-          '<td>' + (linkedLink ? '<span style="color:' + retentionColor + ';font-weight:600">' + retention + '%</span>' : '-') + '</td>' +
-          '<td style="font-size:11px;color:var(--text-muted)">' + lastUpdate + '</td>' +
+          '<td><strong style="font-size:12px">' + escHtml(g.groupName || 'N/A') + '</strong></td>' +
+          '<td style="font-size:16px;font-weight:700">' + members + '</td>' +
+          '<td>' + (linkedLink ? '<span class="badge badge-success" style="font-size:10px">' + escHtml(linkedName) + '</span>' : '<span style="font-size:10px;color:var(--text-muted)">-</span>') + '</td>' +
+          '<td style="text-align:center">-</td>' +
+          '<td style="text-align:center">-</td>' +
+          '<td style="text-align:center">-</td>' +
+          '<td style="font-size:12px">' + (linkedLink ? clicks + ' &rarr; ' + members : '-') + '</td>' +
+          '<td>' + (linkedLink ? '<span style="color:' + retentionColor + ';font-weight:600">' + Math.min(retention, 100) + '%</span>' : '-') + '</td>' +
+          '<td>-</td>' +
+          '<td style="font-size:10px;color:var(--text-muted)">' + lastUpdate + '</td>' +
           '</tr>';
       });
 
@@ -3465,7 +3818,12 @@ select.form-control {
 
   window.loadWhatsAppGroups = async function() {
     try {
-      var groups = await serverFetch('/api/whatsapp/groups');
+      // Fetch groups and per-group events in parallel
+      var [groups, groupEvents] = await Promise.all([
+        serverFetch('/api/whatsapp/groups'),
+        serverFetch('/api/member-events/by-group').catch(function() { return {}; })
+      ]);
+
       var tbody = document.getElementById('whatsappGroupsTable');
       var totalMembers = 0;
       var html = '';
@@ -3474,25 +3832,37 @@ select.form-control {
         var members = g.participants || g.currentMembers || 0;
         totalMembers += members;
 
+        // Per-group events today
+        var gEvents = groupEvents[g.id] || { joins: 0, leaves: 0 };
+        var gJoins = gEvents.joins || 0;
+        var gLeaves = gEvents.leaves || 0;
+        var gNet = gJoins - gLeaves;
+
         // Procura link vinculado
         var linkedLink = links.find(function(l) { return l.whatsappGroupId === g.id; });
-        var linkedName = linkedLink ? linkedLink.name : '-';
+        var linkedName = linkedLink ? linkedLink.name : '';
         var clicks = linkedLink ? (linkedLink.currentClicks || 0) : 0;
         var retention = clicks > 0 ? Math.round((members / clicks) * 100) : 0;
         var retentionColor = retention >= 70 ? 'var(--accent)' : retention >= 40 ? 'var(--warning)' : 'var(--danger)';
+        var exitRate = members > 0 ? ((gLeaves / members) * 100).toFixed(1) : '0';
+        var exitColor = parseFloat(exitRate) > 5 ? 'var(--danger)' : parseFloat(exitRate) > 2 ? 'var(--warning)' : 'var(--accent)';
         var lastUpdate = g.lastScanned ? new Date(g.lastScanned.seconds * 1000).toLocaleString('pt-BR') : 'Agora';
 
         html += '<tr>' +
-          '<td><strong>' + escHtml(g.name || g.groupName || 'N/A') + '</strong></td>' +
-          '<td style="font-size:18px;font-weight:700">' + members + '</td>' +
-          '<td>' + (linkedLink ? '<span class="badge badge-success">' + escHtml(linkedName) + '</span>' : '<span style="font-size:11px;color:var(--text-muted)">Não vinculado</span>') + '</td>' +
-          '<td>' + (linkedLink ? clicks + ' → ' + members : '-') + '</td>' +
-          '<td>' + (linkedLink ? '<span style="color:' + retentionColor + ';font-weight:600">' + retention + '%</span>' : '-') + '</td>' +
-          '<td style="font-size:11px;color:var(--text-muted)">' + lastUpdate + '</td>' +
+          '<td><strong style="font-size:12px">' + escHtml(g.name || g.groupName || 'N/A') + '</strong></td>' +
+          '<td style="font-size:16px;font-weight:700">' + members + '</td>' +
+          '<td>' + (linkedLink ? '<span class="badge badge-success" style="font-size:10px">' + escHtml(linkedName) + '</span>' : '<span style="font-size:10px;color:var(--text-muted)">-</span>') + '</td>' +
+          '<td style="text-align:center"><span style="color:var(--accent);font-weight:600">' + gJoins + '</span></td>' +
+          '<td style="text-align:center"><span style="color:var(--danger);font-weight:600">' + gLeaves + '</span></td>' +
+          '<td style="text-align:center"><span style="color:' + (gNet >= 0 ? 'var(--accent)' : 'var(--danger)') + ';font-weight:600">' + (gNet >= 0 ? '+' : '') + gNet + '</span></td>' +
+          '<td style="font-size:12px">' + (linkedLink ? clicks + ' <i class="fas fa-arrow-right" style="font-size:9px;color:var(--text-muted)"></i> ' + members : '-') + '</td>' +
+          '<td>' + (linkedLink ? '<span style="color:' + retentionColor + ';font-weight:600">' + Math.min(retention, 100) + '%</span>' : '-') + '</td>' +
+          '<td><span style="color:' + exitColor + ';font-weight:600">' + exitRate + '%</span></td>' +
+          '<td style="font-size:10px;color:var(--text-muted)">' + lastUpdate + '</td>' +
           '</tr>';
       });
 
-      tbody.innerHTML = html || '<tr><td colspan="6"><div class="empty-state"><p>Nenhum grupo</p></div></td></tr>';
+      tbody.innerHTML = html || '<tr><td colspan="10"><div class="empty-state"><p>Nenhum grupo</p></div></td></tr>';
       document.getElementById('whatsappTotalMembers').textContent = totalMembers.toLocaleString();
     } catch(err) {
       console.error('Erro ao carregar grupos:', err);
