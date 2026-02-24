@@ -368,11 +368,13 @@ app.get('/api/clicks/leads', authMiddleware, async function(req, res) {
   try {
     var limit = parseInt(req.query.limit) || 50;
     var offset = parseInt(req.query.offset) || 0;
+    var days = parseInt(req.query.days) || 0;
+    var whereClause = days > 0 ? "WHERE timestamp >= NOW() - INTERVAL '" + days + " days'" : '';
     var result = await pool.query(
-      'SELECT * FROM clicks ORDER BY timestamp DESC LIMIT $1 OFFSET $2',
+      'SELECT * FROM clicks ' + whereClause + ' ORDER BY timestamp DESC LIMIT $1 OFFSET $2',
       [limit, offset]
     );
-    var countResult = await pool.query('SELECT COUNT(*) as total FROM clicks');
+    var countResult = await pool.query('SELECT COUNT(*) as total FROM clicks ' + whereClause);
     res.json({
       clicks: result.rows.map(mapClick),
       total: parseInt(countResult.rows[0].total),
