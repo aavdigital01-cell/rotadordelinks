@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const admin = require('firebase-admin');
 const { Pool } = require('pg');
+const fetch = require('node-fetch');
 const metaApi = require('./meta-api');
 const whatsappMonitor = require('./whatsapp-monitor');
 
@@ -754,6 +755,37 @@ app.post('/api/meta/sync', authMiddleware, async function(req, res) {
   try {
     await syncMetaToDB();
     res.json({ success: true, message: 'Dados sincronizados' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ===== EXCHANGE RATE (USD → BRL) =====
+
+var exchangeRateCache = { rate: null, timestamp: 0 };
+var EXCHANGE_CACHE_TTL = 30 * 60 * 1000; // 30 minutos
+
+async function getUsdToBrl() {
+  var now = Date.now();
+  if (exchangeRateCache.rate && (now - exchangeRateCache.timestamp) < EXCHANGE_CACHE_TTL) {
+    return exchangeRateCache.rate;
+  }
+  try {
+    var resp = await fetch('https://economia.awesomeapi.com.br/last/USD-BRL');
+    var data = await resp.json();
+    var rate = parseFloat(data.USDBRL.bid);
+    exchangeRateCache = { rate: rate, timestamp: now };
+    return rate;
+  } catch (err) {
+    console.error('[EXCHANGE] Erro ao buscar cotação:', err.message);
+    return exchangeRateCache.rate || 5.0; // fallback
+  }
+}
+
+app.get('/api/exchange-rate', authMiddleware, async function(req, res) {
+  try {
+    var rate = await getUsdToBrl();
+    res.json({ rate: rate, currency: 'BRL', base: 'USD', cached: (Date.now() - exchangeRateCache.timestamp) < 1000 ? false : true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

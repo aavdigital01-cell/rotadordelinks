@@ -1142,6 +1142,7 @@ select.form-control {
         <div class="card">
           <div class="card-header">
             <span class="card-title"><i class="fab fa-facebook" style="color:var(--info);margin-right:6px"></i>Campanhas Meta Ads</span>
+            <span id="exchangeRateInfo" style="font-size:11px;color:var(--text-muted);margin-left:12px;font-weight:normal"></span>
             <div style="display:flex;gap:8px">
               <select class="form-control" id="metaDateRange" onchange="loadMetaCampaigns()" style="width:150px;padding:6px 10px;font-size:12px">
                 <option value="today">Hoje</option>
@@ -2565,6 +2566,9 @@ select.form-control {
     var clicksToday = 0;
     var evData = null;
 
+    // Buscar cotação USD→BRL para exibir valores Meta em reais
+    await fetchExchangeRate();
+
     var results = await Promise.allSettled([
       // 1) Members via server API (proven to work - same as WhatsApp Monitor)
       serverFetch('/api/whatsapp/groups'),
@@ -2647,7 +2651,7 @@ select.form-control {
     var rate3 = document.getElementById('dashFunnelRate3');
     if (rate3) rate3.textContent = exitRate + '% saiu';
 
-    // Process 4) Meta Ads
+    // Process 4) Meta Ads (converte USD → BRL)
     if (results[3].status === 'fulfilled' && results[3].value) {
       var totalSpend = 0, totalClicks = 0, totalConversions = 0;
       results[3].value.forEach(function(d) {
@@ -2655,14 +2659,15 @@ select.form-control {
         totalClicks += (d.clicks || 0);
         totalConversions += (d.conversions || 0);
       });
+      var totalSpendBRL = totalSpend * usdToBrl;
       document.getElementById('statMetaClicks').textContent = totalClicks.toLocaleString();
-      document.getElementById('statMetaSpend').textContent = 'R$ ' + totalSpend.toFixed(2);
+      document.getElementById('statMetaSpend').textContent = 'R$ ' + totalSpendBRL.toFixed(2);
 
-      var costPerLeadMeta = totalConversions > 0 ? (totalSpend / totalConversions) : 0;
+      var costPerLeadMeta = totalConversions > 0 ? (totalSpendBRL / totalConversions) : 0;
       document.getElementById('statCostPerLeadMeta').textContent = costPerLeadMeta > 0 ? 'R$ ' + costPerLeadMeta.toFixed(2) : '-';
 
       var realLeads = joinsToday - leavesToday;
-      var costPerRealLead = realLeads > 0 ? (totalSpend / realLeads) : 0;
+      var costPerRealLead = realLeads > 0 ? (totalSpendBRL / realLeads) : 0;
       document.getElementById('statCostPerLeadReal').textContent = costPerRealLead > 0 ? 'R$ ' + costPerRealLead.toFixed(2) : '-';
     }
   }
@@ -3528,6 +3533,26 @@ select.form-control {
   }
 
   // ===== META ADS =====
+  var usdToBrl = 1; // cotação USD→BRL (1 = sem conversão)
+
+  function toBRL(usdValue) {
+    return (parseFloat(usdValue || 0) * usdToBrl).toFixed(2);
+  }
+
+  async function fetchExchangeRate() {
+    try {
+      var data = await serverFetch('/api/exchange-rate');
+      if (data && data.rate) {
+        usdToBrl = data.rate;
+        var el = document.getElementById('exchangeRateInfo');
+        if (el) el.textContent = 'Cotação: 1 USD = R$ ' + usdToBrl.toFixed(2);
+      }
+    } catch(e) {
+      console.warn('Erro ao buscar cotação USD→BRL, usando valores originais');
+      usdToBrl = 1;
+    }
+  }
+
   window.loadMetaCampaigns = async function() {
     try {
       var online = await checkServerOnline();
@@ -3541,6 +3566,9 @@ select.form-control {
       document.getElementById('metaServerOffline').style.display = 'none';
       document.getElementById('metaContent').style.display = 'block';
 
+      // Buscar cotação USD→BRL
+      await fetchExchangeRate();
+
       var dateRange = document.getElementById('metaDateRange').value;
       var [campaigns, accountInsights] = await Promise.all([
         serverFetch('/api/meta/campaigns'),
@@ -3550,7 +3578,7 @@ select.form-control {
       // Atualiza stats gerais
       if (accountInsights && accountInsights.data && accountInsights.data[0]) {
         var ai = accountInsights.data[0];
-        document.getElementById('metaSpendToday').textContent = 'R$ ' + parseFloat(ai.spend || 0).toFixed(2);
+        document.getElementById('metaSpendToday').textContent = 'R$ ' + toBRL(ai.spend);
         document.getElementById('metaImpressions').textContent = parseInt(ai.impressions || 0).toLocaleString();
         document.getElementById('metaClicks').textContent = parseInt(ai.clicks || 0).toLocaleString();
         document.getElementById('funnelImpressions').textContent = parseInt(ai.impressions || 0).toLocaleString();
@@ -3567,8 +3595,8 @@ select.form-control {
       if (groupsForFunnel) groupsForFunnel.forEach(function(g) { totalRealMembers += (g.participants || g.currentMembers || 0); });
       document.getElementById('funnelRealMembers').textContent = totalRealMembers.toLocaleString();
 
-      // Custo por lead real
-      var spend = accountInsights && accountInsights.data && accountInsights.data[0] ? parseFloat(accountInsights.data[0].spend || 0) : 0;
+      // Custo por lead real (converte spend USD → BRL)
+      var spend = accountInsights && accountInsights.data && accountInsights.data[0] ? parseFloat(accountInsights.data[0].spend || 0) * usdToBrl : 0;
       var costPerRealLead = totalRealMembers > 0 ? (spend / totalRealMembers) : 0;
       document.getElementById('metaCostPerLead').textContent = 'R$ ' + costPerRealLead.toFixed(2);
 
@@ -3585,6 +3613,9 @@ select.form-control {
     try {
       var metaCamps = await serverFetch('/api/meta-campaigns');
       if (!metaCamps || metaCamps.length === 0) return;
+
+      // Buscar cotação para cache também
+      await fetchExchangeRate();
 
       document.getElementById('metaServerOffline').style.display = 'none';
       document.getElementById('metaContent').style.display = 'block';
@@ -3604,20 +3635,20 @@ select.form-control {
         html += '<tr>' +
           '<td><strong>' + escHtml(c.name || 'N/A') + '</strong></td>' +
           '<td>' + statusBadge + '</td>' +
-          '<td>R$ ' + (c.spend || 0).toFixed(2) + '</td>' +
+          '<td>R$ ' + toBRL(c.spend) + '</td>' +
           '<td>' + (c.impressions || 0).toLocaleString() + '</td>' +
           '<td>' + (c.clicks || 0).toLocaleString() + '</td>' +
-          '<td>R$ ' + (c.cpc || 0).toFixed(2) + '</td>' +
-          '<td>R$ ' + (c.cpm || 0).toFixed(2) + '</td>' +
+          '<td>R$ ' + toBRL(c.cpc) + '</td>' +
+          '<td>R$ ' + toBRL(c.cpm) + '</td>' +
           '<td>' + (c.ctr || 0).toFixed(2) + '%</td>' +
           '<td>' + (c.conversions || 0) + '</td>' +
-          '<td>R$ ' + (c.costPerResult || 0).toFixed(2) + '</td>' +
+          '<td>R$ ' + toBRL(c.costPerResult) + '</td>' +
           '<td><span style="font-size:11px;color:var(--text-muted)">Cache</span></td>' +
           '</tr>';
       });
 
       tbody.innerHTML = html || '<tr><td colspan="11"><div class="empty-state"><p>Nenhuma campanha</p></div></td></tr>';
-      document.getElementById('metaSpendToday').textContent = 'R$ ' + totalSpend.toFixed(2);
+      document.getElementById('metaSpendToday').textContent = 'R$ ' + (totalSpend * usdToBrl).toFixed(2);
       document.getElementById('metaImpressions').textContent = totalImpressions.toLocaleString();
       document.getElementById('metaClicks').textContent = totalClicks.toLocaleString();
     } catch(e) {}
@@ -3655,14 +3686,14 @@ select.form-control {
         html += '<tr>' +
           '<td><strong>' + escHtml(camp.name) + '</strong><br><span style="font-size:10px;color:var(--text-muted)">' + camp.id + '</span></td>' +
           '<td>' + statusBadge + '</td>' +
-          '<td>R$ ' + parseFloat(d.spend || 0).toFixed(2) + '</td>' +
+          '<td>R$ ' + toBRL(d.spend) + '</td>' +
           '<td>' + parseInt(d.impressions || 0).toLocaleString() + '</td>' +
           '<td>' + parseInt(d.clicks || 0).toLocaleString() + '</td>' +
-          '<td>R$ ' + parseFloat(d.cpc || 0).toFixed(2) + '</td>' +
-          '<td>R$ ' + parseFloat(d.cpm || 0).toFixed(2) + '</td>' +
+          '<td>R$ ' + toBRL(d.cpc) + '</td>' +
+          '<td>R$ ' + toBRL(d.cpm) + '</td>' +
           '<td>' + parseFloat(d.ctr || 0).toFixed(2) + '%</td>' +
           '<td>' + conversions + '</td>' +
-          '<td>R$ ' + costPerResult.toFixed(2) + '</td>' +
+          '<td>R$ ' + toBRL(costPerResult) + '</td>' +
           '<td style="white-space:nowrap">' +
           (status === 'ACTIVE' ?
             '<button class="btn btn-warning btn-sm btn-icon" onclick="metaPauseCampaign(\'' + camp.id + '\')" title="Pausar"><i class="fas fa-pause"></i></button>' :
