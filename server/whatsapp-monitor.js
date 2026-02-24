@@ -1,15 +1,14 @@
 /**
  * WhatsApp Group Monitor
  * Monitora entradas/saídas de membros nos grupos
- * Usa whatsapp-web.js (API não-oficial)
+ * Usa whatsapp-web.js + PostgreSQL
  */
 
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
-const QRCode = require('qrcode');
 
 let client = null;
-let db = null;
+let pool = null; // PostgreSQL pool
 let currentQR = null;
 let connectionStatus = {
   connected: false,
@@ -22,8 +21,8 @@ let connectionStatus = {
 /**
  * Inicializa o cliente WhatsApp
  */
-function initialize(firestore) {
-  db = firestore;
+function initialize(pgPool) {
+  pool = pgPool;
 
   client = new Client({
     authStrategy: new LocalAuth({ dataPath: './whatsapp-session' }),
@@ -80,28 +79,23 @@ function initialize(firestore) {
 
       console.log('[WHATSAPP] Membro entrou: ' + memberPhone + ' no grupo ' + groupId);
 
-      // Registra evento no Firestore
-      await db.collection('member_events').add({
-        whatsappGroupId: groupId,
-        phone: hashPhone(memberPhone),
-        phonePartial: memberPhone.slice(-4),
-        action: 'join',
-        timestamp: require('firebase-admin').firestore.FieldValue.serverTimestamp()
-      });
+      // Busca nome do grupo
+      var groupName = await getGroupName(groupId);
+
+      // Registra evento no PostgreSQL
+      await pool.query(
+        'INSERT INTO member_events (whatsapp_group_id, group_name, phone, phone_partial, action) VALUES ($1, $2, $3, $4, $5)',
+        [groupId, groupName, hashPhone(memberPhone), memberPhone.slice(-4), 'join']
+      );
 
       // Atualiza contagem de membros
       await updateGroupMemberCount(groupId);
 
-      // Cria alerta de novo membro
-      var groupInfo = await getGroupInfo(groupId);
-      await db.collection('alerts').add({
-        type: 'member_joined',
-        whatsappGroupId: groupId,
-        groupName: groupInfo ? groupInfo.name : groupId,
-        memberPhone: '***' + memberPhone.slice(-4),
-        timestamp: require('firebase-admin').firestore.FieldValue.serverTimestamp(),
-        read: false
-      });
+      // Cria alerta
+      await pool.query(
+        'INSERT INTO alerts (type, whatsapp_group_id, group_name, member_phone, message) VALUES ($1, $2, $3, $4, $5)',
+        ['member_joined', groupId, groupName, '***' + memberPhone.slice(-4), 'Novo membro entrou no grupo ' + groupName]
+      );
 
     } catch (err) {
       console.error('[WHATSAPP] Erro ao registrar entrada:', err.message);
@@ -117,14 +111,13 @@ function initialize(firestore) {
 
       console.log('[WHATSAPP] Membro saiu: ' + memberPhone + ' do grupo ' + groupId);
 
+      var groupName = await getGroupName(groupId);
+
       // Registra evento
-      await db.collection('member_events').add({
-        whatsappGroupId: groupId,
-        phone: hashPhone(memberPhone),
-        phonePartial: memberPhone.slice(-4),
-        action: 'leave',
-        timestamp: require('firebase-admin').firestore.FieldValue.serverTimestamp()
-      });
+      await pool.query(
+        'INSERT INTO member_events (whatsapp_group_id, group_name, phone, phone_partial, action) VALUES ($1, $2, $3, $4, $5)',
+        [groupId, groupName, hashPhone(memberPhone), memberPhone.slice(-4), 'leave']
+      );
 
       // Atualiza contagem
       await updateGroupMemberCount(groupId);
@@ -142,7 +135,6 @@ function initialize(firestore) {
     connectionStatus.error = reason;
     console.log('[WHATSAPP] Desconectado. Motivo:', reason);
 
-    // Tenta reconectar após 30s
     setTimeout(function() {
       console.log('[WHATSAPP] Tentando reconectar...');
       client.initialize().catch(function(err) {
@@ -162,8 +154,23 @@ function initialize(firestore) {
   client.initialize().catch(function(err) {
     connectionStatus.error = err.message;
     console.error('[WHATSAPP] Erro ao inicializar:', err.message);
-    console.log('[WHATSAPP] Verifique se o Chromium está instalado');
   });
+}
+
+/**
+ * Busca nome de um grupo (com cache simples)
+ */
+var groupNameCache = {};
+async function getGroupName(groupId) {
+  if (groupNameCache[groupId]) return groupNameCache[groupId];
+  try {
+    var chat = await client.getChatById(groupId);
+    if (chat && chat.name) {
+      groupNameCache[groupId] = chat.name;
+      return chat.name;
+    }
+  } catch (err) {}
+  return groupId;
 }
 
 /**
@@ -181,18 +188,19 @@ async function scanGroups() {
         var participants = group.participants || [];
         var memberCount = participants.length;
 
-        // Tenta pegar mais detalhes
         var groupChat = await client.getChatById(group.id._serialized);
         if (groupChat && groupChat.participants) {
           memberCount = groupChat.participants.length;
         }
 
-        await db.collection('group_members').doc(group.id._serialized).set({
-          whatsappGroupId: group.id._serialized,
-          groupName: group.name,
-          currentMembers: memberCount,
-          lastScanned: require('firebase-admin').firestore.FieldValue.serverTimestamp()
-        }, { merge: true });
+        // Upsert no PostgreSQL
+        await pool.query(
+          'INSERT INTO whatsapp_groups (id, group_name, current_members, last_scanned) VALUES ($1, $2, $3, NOW()) ON CONFLICT (id) DO UPDATE SET group_name=$2, current_members=$3, last_scanned=NOW()',
+          [group.id._serialized, group.name, memberCount]
+        );
+
+        // Cache do nome
+        groupNameCache[group.id._serialized] = group.name;
 
       } catch (err) {
         console.error('[WHATSAPP] Erro ao escanear grupo ' + group.name + ':', err.message);
@@ -212,27 +220,14 @@ async function updateGroupMemberCount(groupId) {
   try {
     var chat = await client.getChatById(groupId);
     if (chat && chat.participants) {
-      await db.collection('group_members').doc(groupId).set({
-        whatsappGroupId: groupId,
-        groupName: chat.name,
-        currentMembers: chat.participants.length,
-        lastUpdated: require('firebase-admin').firestore.FieldValue.serverTimestamp()
-      }, { merge: true });
+      await pool.query(
+        'INSERT INTO whatsapp_groups (id, group_name, current_members, last_scanned) VALUES ($1, $2, $3, NOW()) ON CONFLICT (id) DO UPDATE SET group_name=$2, current_members=$3, last_scanned=NOW()',
+        [groupId, chat.name, chat.participants.length]
+      );
+      groupNameCache[groupId] = chat.name;
     }
   } catch (err) {
     console.error('[WHATSAPP] Erro ao atualizar contagem:', err.message);
-  }
-}
-
-/**
- * Retorna info de um grupo
- */
-async function getGroupInfo(groupId) {
-  try {
-    var chat = await client.getChatById(groupId);
-    return chat ? { name: chat.name, participants: chat.participants ? chat.participants.length : 0 } : null;
-  } catch (err) {
-    return null;
   }
 }
 
@@ -247,7 +242,7 @@ function getQR() {
 }
 
 var groupsCache = { data: null, timestamp: 0 };
-var GROUPS_CACHE_TTL = 60000; // 60 seconds cache
+var GROUPS_CACHE_TTL = 60000; // 60 seconds
 
 async function getGroups() {
   // Return cache if fresh
@@ -256,10 +251,11 @@ async function getGroups() {
   }
 
   if (!client || !connectionStatus.ready) {
-    // Retorna dados do Firestore se WhatsApp não está conectado
-    var snap = await db.collection('group_members').get();
-    var groups = [];
-    snap.forEach(function(doc) { groups.push({ id: doc.id, ...doc.data() }); });
+    // Retorna dados do PostgreSQL se WhatsApp não está conectado
+    var result = await pool.query('SELECT * FROM whatsapp_groups ORDER BY group_name');
+    var groups = result.rows.map(function(r) {
+      return { id: r.id, name: r.group_name, participants: r.current_members, currentMembers: r.current_members, groupName: r.group_name, lastScanned: { seconds: Math.floor(new Date(r.last_scanned).getTime() / 1000) } };
+    });
     groupsCache = { data: groups, timestamp: Date.now() };
     return groups;
   }
@@ -277,27 +273,25 @@ async function getGroups() {
       };
     });
 
-    // Cache the result
     groupsCache = { data: result, timestamp: Date.now() };
 
-    // Also update Firestore group_members in background
+    // Update PostgreSQL in background
     result.forEach(function(g) {
-      db.collection('group_members').doc(g.id).set({
-        groupName: g.name,
-        currentMembers: g.participants,
-        lastScanned: require('firebase-admin').firestore.FieldValue.serverTimestamp()
-      }, { merge: true }).catch(function() {});
+      pool.query(
+        'INSERT INTO whatsapp_groups (id, group_name, current_members, last_scanned) VALUES ($1, $2, $3, NOW()) ON CONFLICT (id) DO UPDATE SET group_name=$2, current_members=$3, last_scanned=NOW()',
+        [g.id, g.name, g.participants]
+      ).catch(function() {});
     });
 
     return result;
   } catch (err) {
-    // On error, try Firestore fallback
+    // Fallback to PostgreSQL
     try {
-      var snap = await db.collection('group_members').get();
-      var groups = [];
-      snap.forEach(function(doc) { groups.push({ id: doc.id, ...doc.data() }); });
-      return groups;
-    } catch(e2) {
+      var result = await pool.query('SELECT * FROM whatsapp_groups ORDER BY group_name');
+      return result.rows.map(function(r) {
+        return { id: r.id, name: r.group_name, participants: r.current_members, currentMembers: r.current_members };
+      });
+    } catch (e2) {
       throw new Error('Erro ao listar grupos: ' + err.message);
     }
   }
@@ -365,7 +359,7 @@ async function restart() {
     client = null;
   }
 
-  initialize(db);
+  initialize(pool);
 }
 
 module.exports = {
