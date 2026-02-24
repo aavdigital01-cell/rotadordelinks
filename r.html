@@ -4,8 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Redirecionando...</title>
-<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
-<link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:#0d1b2a;color:#e0e0e0;font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh}
@@ -23,23 +21,19 @@ body{background:#0d1b2a;color:#e0e0e0;font-family:system-ui,-apple-system,sans-s
 <div class="error" id="error"></div>
 </div>
 
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 <script src="config.js"></script>
 <script>
 (function() {
   'use strict';
 
-  // Inicializa Firebase
-  firebase.initializeApp(FIREBASE_CONFIG);
-  const db = firebase.firestore();
+  var SERVER_URL = SYSTEM_CONFIG.serverUrl;
 
   // Pega parâmetros da URL
-  const params = new URLSearchParams(window.location.search);
-  const campaignSlug = params.get('c');
-  const utmSource = params.get('utm_source') || '';
-  const utmMedium = params.get('utm_medium') || '';
-  const utmCampaign = params.get('utm_campaign') || '';
+  var params = new URLSearchParams(window.location.search);
+  var campaignSlug = params.get('c');
+  var utmSource = params.get('utm_source') || '';
+  var utmMedium = params.get('utm_medium') || '';
+  var utmCampaign = params.get('utm_campaign') || '';
 
   if (!campaignSlug) {
     showError('Link inválido. Parâmetro de campanha não encontrado.');
@@ -47,14 +41,14 @@ body{background:#0d1b2a;color:#e0e0e0;font-family:system-ui,-apple-system,sans-s
   }
 
   // Anti-bot: verifica rate limit
-  const now = Date.now();
-  const clickKey = 'rl_clicks_' + campaignSlug;
-  const clickData = JSON.parse(localStorage.getItem(clickKey) || '{"clicks":[],"blocked":false}');
+  var now = Date.now();
+  var clickKey = 'rl_clicks_' + campaignSlug;
+  var clickData = JSON.parse(localStorage.getItem(clickKey) || '{"clicks":[],"blocked":false}');
 
   // Limpa clicks antigos (mais de 60s)
   clickData.clicks = clickData.clicks.filter(function(t) { return now - t < 60000; });
 
-  if (clickData.clicks.length >= SYSTEM_CONFIG.maxClicksPerMinute) {
+  if (clickData.clicks.length >= (SYSTEM_CONFIG.maxClicksPerMinute || 10)) {
     showError('Muitas tentativas. Aguarde um momento.');
     return;
   }
@@ -62,144 +56,63 @@ body{background:#0d1b2a;color:#e0e0e0;font-family:system-ui,-apple-system,sans-s
   clickData.clicks.push(now);
   localStorage.setItem(clickKey, JSON.stringify(clickData));
 
-  // Coleta dados do visitante (não-bloqueante)
+  // Coleta dados do visitante
   var visitorData = {
-    userAgent: navigator.userAgent,
-    language: navigator.language || '',
-    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || '',
-    screenWidth: screen.width,
-    screenHeight: screen.height,
+    device: getDeviceType(),
+    browser: getBrowser(),
+    os: getOS(),
     referrer: document.referrer || '',
     utmSource: utmSource,
     utmMedium: utmMedium,
-    utmCampaign: utmCampaign,
-    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-    device: getDeviceType(),
-    browser: getBrowser(),
-    os: getOS()
+    utmCampaign: utmCampaign
   };
 
-  // Busca campanha e redireciona
+  // Busca campanha e redireciona via API
   rotate(campaignSlug, visitorData);
 
   async function rotate(slug, visitor) {
     try {
-      // 1. Busca campanha pelo slug
-      var campSnap = await db.collection('campaigns')
-        .where('slug', '==', slug)
-        .where('isActive', '==', true)
-        .limit(1)
-        .get();
+      // Pega índice sequencial do localStorage
+      var seqKey = 'rl_seq_' + slug;
+      var seqIdx = parseInt(localStorage.getItem(seqKey) || '0', 10);
 
-      if (campSnap.empty) {
-        showError('Campanha não encontrada ou inativa.');
-        return;
-      }
-
-      var campaign = campSnap.docs[0];
-      var campData = campaign.data();
-      var campaignId = campaign.id;
-
-      // 2. Busca links ativos e não cheios
-      var linksSnap = await db.collection('links')
-        .where('campaignId', '==', campaignId)
-        .where('isActive', '==', true)
-        .where('isFull', '==', false)
-        .get();
-
-      if (linksSnap.empty) {
-        // Todos os grupos estão cheios - registra evento
-        db.collection('alerts').add({
-          type: 'all_full',
-          campaignId: campaignId,
-          campaignName: campData.name,
-          timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-          read: false
-        });
-        showError('Todos os grupos estão cheios no momento. Tente novamente mais tarde.');
-        return;
-      }
-
-      var links = [];
-      linksSnap.forEach(function(doc) {
-        links.push({ id: doc.id, ...doc.data() });
+      var resp = await fetch(SERVER_URL + '/api/rotate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          slug: slug,
+          visitor: visitor,
+          sequentialIndex: seqIdx
+        })
       });
 
-      // 3. Seleciona link baseado no modo de rotação
-      var selected = selectLink(links, campData.rotationMode, campaignId);
-
-      if (!selected) {
-        showError('Nenhum grupo disponível no momento.');
+      if (!resp.ok) {
+        var errData = await resp.json().catch(function() { return {}; });
+        if (resp.status === 404) {
+          showError(errData.error || 'Campanha não encontrada ou inativa.');
+        } else {
+          showError(errData.error || 'Erro ao processar redirecionamento.');
+        }
         return;
       }
 
-      // 4. Dispara Pixels de conversão (antes do redirect)
-      firePixels(campData, selected);
+      var data = await resp.json();
+      // data = { url, campaign, link }
 
-      // 5. Redireciona IMEDIATAMENTE (antes de registrar o click)
-      window.location.replace(selected.url);
+      // Incrementa índice sequencial
+      localStorage.setItem(seqKey, String(seqIdx + 1));
 
-      // 6. Registra click e atualiza contagem (async, não bloqueia o redirect)
-      visitor.linkId = selected.id;
-      visitor.campaignId = campaignId;
-      visitor.linkName = selected.name || '';
+      // Dispara Pixels de conversão (antes do redirect)
+      firePixels(data.campaign, data.link);
 
-      // Incrementa clicks no link via transação
-      var linkRef = db.collection('links').doc(selected.id);
-      db.runTransaction(async function(transaction) {
-        var linkDoc = await transaction.get(linkRef);
-        if (!linkDoc.exists) return;
-
-        var data = linkDoc.data();
-        var newClicks = (data.currentClicks || 0) + 1;
-        var isFull = newClicks >= (data.maxVacancies || Infinity);
-
-        transaction.update(linkRef, {
-          currentClicks: newClicks,
-          isFull: isFull,
-          lastClickAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-
-        // Se ficou cheio, cria alerta
-        if (isFull) {
-          var alertRef = db.collection('alerts').doc();
-          transaction.set(alertRef, {
-            type: 'link_full',
-            campaignId: campaignId,
-            linkId: selected.id,
-            linkName: selected.name || '',
-            campaignName: campData.name || '',
-            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-            read: false
-          });
-        }
-
-        // Alerta de quase cheio
-        var threshold = campData.alertThreshold || SYSTEM_CONFIG.alertThreshold;
-        var fillPercent = (newClicks / (data.maxVacancies || 1)) * 100;
-        if (fillPercent >= threshold && fillPercent - (1 / (data.maxVacancies || 1) * 100) < threshold) {
-          var nearAlertRef = db.collection('alerts').doc();
-          transaction.set(nearAlertRef, {
-            type: 'link_near_full',
-            campaignId: campaignId,
-            linkId: selected.id,
-            linkName: selected.name || '',
-            campaignName: campData.name || '',
-            percent: Math.round(fillPercent),
-            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-            read: false
-          });
-        }
-      });
-
-      // Registra click separadamente (dados do visitante)
-      db.collection('clicks').add(visitor);
-
-      // Tenta pegar geolocalização (async, best-effort)
-      fetchGeo(visitor);
+      // Redireciona IMEDIATAMENTE
+      window.location.replace(data.url);
 
       // Verifica saúde do link em background (detecta links banidos)
-      checkLinkHealth(selected, campData, campaignId);
+      checkLinkHealth(data.link, data.url);
+
+      // Tenta pegar geolocalização e atualiza click (async, best-effort)
+      fetchGeo();
 
     } catch (err) {
       console.error('Erro no rotacionador:', err);
@@ -207,90 +120,17 @@ body{background:#0d1b2a;color:#e0e0e0;font-family:system-ui,-apple-system,sans-s
     }
   }
 
-  function selectLink(links, mode, campaignId) {
-    if (links.length === 0) return null;
-    if (links.length === 1) return links[0];
-
-    switch (mode) {
-      case 'sequential': return selectSequential(links, campaignId);
-      case 'weighted': return selectWeighted(links);
-      case 'least-filled': return selectLeastFilled(links);
-      case 'random':
-      default: return selectRandom(links);
-    }
-  }
-
-  function selectRandom(links) {
-    return links[Math.floor(Math.random() * links.length)];
-  }
-
-  function selectSequential(links, campaignId) {
-    // Usa localStorage para manter o índice entre visitas
-    var key = 'rl_seq_' + campaignId;
-    var idx = parseInt(localStorage.getItem(key) || '0', 10);
-    if (idx >= links.length) idx = 0;
-    localStorage.setItem(key, String(idx + 1));
-
-    // Ordena por 'order' se disponível
-    links.sort(function(a, b) { return (a.order || 0) - (b.order || 0); });
-    return links[idx];
-  }
-
-  function selectWeighted(links) {
-    var totalWeight = links.reduce(function(sum, l) { return sum + (l.weight || 1); }, 0);
-    var random = Math.random() * totalWeight;
-    var cumulative = 0;
-
-    for (var i = 0; i < links.length; i++) {
-      cumulative += (links[i].weight || 1);
-      if (random <= cumulative) return links[i];
-    }
-    return links[links.length - 1];
-  }
-
-  function selectLeastFilled(links) {
-    // Seleciona o link com menor percentual de preenchimento
-    links.sort(function(a, b) {
-      var fillA = (a.currentClicks || 0) / (a.maxVacancies || 1);
-      var fillB = (b.currentClicks || 0) / (b.maxVacancies || 1);
-      return fillA - fillB;
-    });
-
-    // Entre os que têm o mesmo nível de preenchimento, escolhe aleatoriamente
-    var minFill = (links[0].currentClicks || 0) / (links[0].maxVacancies || 1);
-    var sameLevel = links.filter(function(l) {
-      return Math.abs(((l.currentClicks || 0) / (l.maxVacancies || 1)) - minFill) < 0.01;
-    });
-
-    return sameLevel[Math.floor(Math.random() * sameLevel.length)];
-  }
-
-  async function fetchGeo(visitor) {
+  async function fetchGeo() {
     try {
-      var resp = await fetch(SYSTEM_CONFIG.geoApiUrl);
+      var resp = await fetch(SYSTEM_CONFIG.geoApiUrl || 'https://ipapi.co/json/');
       if (resp.ok) {
         var geo = await resp.json();
-        // Atualiza o click com dados de geo
-        var clickSnap = await db.collection('clicks')
-          .where('linkId', '==', visitor.linkId)
-          .where('timestamp', '==', visitor.timestamp)
-          .limit(1)
-          .get();
-
-        // Se não encontrou pelo timestamp (pode não ter sido escrito ainda),
-        // usa uma abordagem alternativa - adiciona os dados de geo diretamente
-        if (!clickSnap.empty) {
-          clickSnap.docs[0].ref.update({
-            country: geo.country_name || '',
-            countryCode: geo.country_code || '',
-            region: geo.region || '',
-            city: geo.city || '',
-            ip: geo.ip ? geo.ip.replace(/\d+$/, 'xxx') : '' // Anonimiza parcialmente
-          });
-        }
+        // Geo data já foi coletada, mas o click já foi registrado server-side
+        // Se quiser atualizar com geo, precisaria de um endpoint separado
+        // Por ora o IP é capturado server-side via req.ip
       }
     } catch (e) {
-      // Geo é best-effort, não bloqueia nada
+      // Geo é best-effort
     }
   }
 
@@ -316,9 +156,9 @@ body{background:#0d1b2a;color:#e0e0e0;font-family:system-ui,-apple-system,sans-s
     var ua = navigator.userAgent;
     if (ua.indexOf('Windows') > -1) return 'Windows';
     if (ua.indexOf('Mac') > -1) return 'macOS';
-    if (ua.indexOf('Linux') > -1) return 'Linux';
     if (ua.indexOf('Android') > -1) return 'Android';
     if (/iPhone|iPad|iPod/.test(ua)) return 'iOS';
+    if (ua.indexOf('Linux') > -1) return 'Linux';
     return 'Outro';
   }
 
@@ -334,7 +174,6 @@ body{background:#0d1b2a;color:#e0e0e0;font-family:system-ui,-apple-system,sans-s
         document,'script','https://connect.facebook.net/en_US/fbevents.js');
         fbq('init', campData.fbPixelId);
         fbq('track', 'PageView');
-        // Evento customizado de conversão
         fbq('track', campData.fbEventName || 'Lead', {
           content_name: link.name || '',
           content_category: campData.name || '',
@@ -370,7 +209,6 @@ body{background:#0d1b2a;color:#e0e0e0;font-family:system-ui,-apple-system,sans-s
         dl=l!='dataLayer'?'&l='+l:'';j.async=true;
         j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;
         f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer',campData.gtmId);
-        // Dispara evento no dataLayer
         window.dataLayer = window.dataLayer || [];
         window.dataLayer.push({
           event: campData.gtmEventName || 'whatsapp_click',
@@ -402,56 +240,25 @@ body{background:#0d1b2a;color:#e0e0e0;font-family:system-ui,-apple-system,sans-s
   }
 
   // ===== VERIFICAÇÃO DE LINK QUEBRADO =====
-  // Tenta verificar se o link do WhatsApp está acessível
-  // Se der timeout ou erro, marca como potencialmente quebrado
-  async function checkLinkHealth(link, campData, campaignId) {
+  async function checkLinkHealth(link, url) {
     try {
       var controller = new AbortController();
-      var timeoutId = setTimeout(function() { controller.abort(); }, 5000); // 5s timeout
+      var timeoutId = setTimeout(function() { controller.abort(); }, 5000);
 
-      var response = await fetch(link.url, {
+      await fetch(url, {
         method: 'HEAD',
         mode: 'no-cors',
         signal: controller.signal
       });
       clearTimeout(timeoutId);
-
-      // no-cors sempre retorna opaque, mas se não deu abort, o domínio existe
     } catch (e) {
-      // Se deu erro de rede ou timeout, pode estar banido/expirado
       if (e.name === 'AbortError' || e.message.includes('network') || e.message.includes('Failed to fetch')) {
-        // Incrementa contador de falhas no link
-        var linkRef = db.collection('links').doc(link.id);
-        db.runTransaction(async function(transaction) {
-          var doc = await transaction.get(linkRef);
-          if (!doc.exists) return;
-          var data = doc.data();
-          var failures = (data.healthCheckFailures || 0) + 1;
-
-          // Após 3 falhas consecutivas, desativa o link
-          if (failures >= 3) {
-            transaction.update(linkRef, {
-              isActive: false,
-              healthCheckFailures: failures,
-              deactivatedReason: 'Link possivelmente banido/expirado (3 falhas consecutivas)',
-              deactivatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            });
-            // Cria alerta
-            var alertRef = db.collection('alerts').doc();
-            transaction.set(alertRef, {
-              type: 'link_broken',
-              campaignId: campaignId,
-              linkId: link.id,
-              linkName: link.name || '',
-              campaignName: campData.name || '',
-              message: 'Link desativado automaticamente - possivelmente banido ou expirado',
-              timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-              read: false
-            });
-          } else {
-            transaction.update(linkRef, { healthCheckFailures: failures });
-          }
-        });
+        // Report broken link to server
+        fetch(SERVER_URL + '/api/report-broken-link', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ linkId: link.id })
+        }).catch(function() {});
       }
     }
   }

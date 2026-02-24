@@ -382,6 +382,139 @@ app.get('/api/clicks/leads', authMiddleware, async function(req, res) {
   }
 });
 
+// ===== ROTATE - Public endpoint for redirect page (no auth) =====
+app.post('/api/rotate', async function(req, res) {
+  try {
+    var slug = req.body.slug;
+    if (!slug) return res.status(400).json({ error: 'Slug obrigatório' });
+
+    // 1. Find campaign by slug
+    var campResult = await pool.query(
+      'SELECT * FROM campaigns WHERE slug=$1 AND is_active=true LIMIT 1', [slug]
+    );
+    if (campResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Campanha não encontrada ou inativa' });
+    }
+    var camp = campResult.rows[0];
+    var campData = mapCampaign(camp);
+
+    // 2. Find active, non-full links
+    var linksResult = await pool.query(
+      'SELECT * FROM links WHERE campaign_id=$1 AND is_active=true AND is_full=false', [camp.id]
+    );
+    if (linksResult.rows.length === 0) {
+      // All groups full - create alert
+      await pool.query(
+        'INSERT INTO alerts (type, campaign_name, message, read) VALUES ($1,$2,$3,false)',
+        ['all_full', camp.name, 'Todos os grupos cheios na campanha ' + camp.name]
+      );
+      return res.status(404).json({ error: 'Todos os grupos estão cheios' });
+    }
+    var links = linksResult.rows.map(mapLink);
+
+    // 3. Select link based on rotation mode
+    var mode = camp.rotation_mode || 'random';
+    var selected = null;
+    if (links.length === 1) {
+      selected = links[0];
+    } else if (mode === 'weighted') {
+      var totalWeight = links.reduce(function(s, l) { return s + (l.weight || 1); }, 0);
+      var r = Math.random() * totalWeight;
+      var cum = 0;
+      for (var i = 0; i < links.length; i++) {
+        cum += (links[i].weight || 1);
+        if (r <= cum) { selected = links[i]; break; }
+      }
+      if (!selected) selected = links[links.length - 1];
+    } else if (mode === 'least-filled') {
+      links.sort(function(a, b) {
+        return ((a.currentClicks || 0) / (a.maxVacancies || 1)) - ((b.currentClicks || 0) / (b.maxVacancies || 1));
+      });
+      selected = links[0];
+    } else if (mode === 'sequential') {
+      var seqIdx = req.body.sequentialIndex || 0;
+      links.sort(function(a, b) { return (a.order || 0) - (b.order || 0); });
+      selected = links[seqIdx % links.length];
+    } else {
+      selected = links[Math.floor(Math.random() * links.length)];
+    }
+
+    // 4. Record click
+    var v = req.body.visitor || {};
+    await pool.query(
+      'INSERT INTO clicks (link_id, link_name, campaign_id, device, browser, os, city, country, country_code, ip, referrer) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
+      [selected.id, selected.name, camp.id, v.device || '', v.browser || '', v.os || '', v.city || '', v.country || '', v.countryCode || '', v.ip || req.ip, v.referrer || '']
+    );
+
+    // 5. Increment clicks and check if full
+    var updResult = await pool.query(
+      'UPDATE links SET current_clicks = current_clicks + 1, is_full = CASE WHEN current_clicks + 1 >= max_vacancies THEN true ELSE false END, updated_at = NOW() WHERE id=$1 RETURNING current_clicks, max_vacancies, is_full',
+      [selected.id]
+    );
+
+    // 6. Create alerts if needed
+    if (updResult.rows.length > 0) {
+      var upd = updResult.rows[0];
+      if (upd.is_full) {
+        await pool.query(
+          'INSERT INTO alerts (type, campaign_name, link_name, message, read) VALUES ($1,$2,$3,$4,false)',
+          ['link_full', camp.name, selected.name, 'Grupo cheio: ' + selected.name]
+        );
+      } else {
+        var threshold = camp.alert_threshold || 90;
+        var fillPct = (upd.current_clicks / (upd.max_vacancies || 1)) * 100;
+        if (fillPct >= threshold) {
+          await pool.query(
+            'INSERT INTO alerts (type, campaign_name, link_name, percent, message, read) VALUES ($1,$2,$3,$4,$5,false)',
+            ['link_near_full', camp.name, selected.name, Math.round(fillPct), 'Grupo quase cheio: ' + selected.name + ' (' + Math.round(fillPct) + '%)']
+          );
+        }
+      }
+    }
+
+    // 7. Return data for client-side pixel firing + redirect
+    res.json({
+      url: selected.url,
+      campaign: campData,
+      link: { id: selected.id, name: selected.name }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Report broken link (no auth - called from redirect page)
+app.post('/api/report-broken-link', async function(req, res) {
+  try {
+    var b = req.body;
+    var linkId = b.linkId;
+    if (!linkId) return res.status(400).json({ error: 'linkId obrigatório' });
+
+    var result = await pool.query(
+      'UPDATE links SET health_check_failures = health_check_failures + 1, updated_at = NOW() WHERE id=$1 RETURNING health_check_failures, name, campaign_id',
+      [linkId]
+    );
+    if (result.rows.length > 0 && result.rows[0].health_check_failures >= 3) {
+      await pool.query(
+        "UPDATE links SET is_active=false, deactivated_reason='Link possivelmente banido/expirado (3 falhas consecutivas)', deactivated_at=NOW() WHERE id=$1",
+        [linkId]
+      );
+      var campName = '';
+      if (result.rows[0].campaign_id) {
+        var cn = await pool.query('SELECT name FROM campaigns WHERE id=$1', [result.rows[0].campaign_id]);
+        if (cn.rows.length > 0) campName = cn.rows[0].name;
+      }
+      await pool.query(
+        'INSERT INTO alerts (type, link_name, campaign_name, message, read) VALUES ($1,$2,$3,$4,false)',
+        ['link_broken', result.rows[0].name, campName, 'Link desativado automaticamente - possivelmente banido ou expirado']
+      );
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Record a click (called from redirect page - no auth needed)
 app.post('/api/clicks', async function(req, res) {
   try {
