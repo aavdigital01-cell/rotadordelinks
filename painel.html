@@ -1123,7 +1123,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
           <div class="stat-card">
             <div class="stat-header">
               <div class="stat-icon blue"><i class="fas fa-dollar-sign"></i></div>
-              <span class="stat-label">Gasto Hoje</span>
+              <span class="stat-label">Gasto Total</span>
             </div>
             <div class="stat-value" id="metaSpendToday">R$ 0</div>
           </div>
@@ -1143,17 +1143,43 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
           </div>
           <div class="stat-card">
             <div class="stat-header">
+              <div class="stat-icon green"><i class="fas fa-users"></i></div>
+              <span class="stat-label">Leads (Conversões)</span>
+            </div>
+            <div class="stat-value" id="metaTotalLeads">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-header">
               <div class="stat-icon yellow"><i class="fas fa-coins"></i></div>
-              <span class="stat-label">Custo por Lead Real</span>
+              <span class="stat-label">CPL Meta (Conversão)</span>
+            </div>
+            <div class="stat-value" id="metaCPLMeta">-</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-header">
+              <div class="stat-icon red"><i class="fas fa-bullseye"></i></div>
+              <span class="stat-label">CPL Real (Membros)</span>
             </div>
             <div class="stat-value" id="metaCostPerLead">R$ 0</div>
           </div>
         </div>
 
+        <!-- Cotação editável -->
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;padding:8px 12px;background:var(--bg-secondary);border-radius:var(--radius-sm);font-size:12px">
+          <i class="fas fa-exchange-alt" style="color:var(--info)"></i>
+          <span style="color:var(--text-secondary)">Cotação USD→BRL:</span>
+          <span id="exchangeRateInfo" style="color:var(--text-primary);font-weight:600">Carregando...</span>
+          <button class="btn btn-secondary btn-sm" onclick="editExchangeRate()" style="padding:2px 8px;font-size:11px">
+            <i class="fas fa-edit"></i> Editar
+          </button>
+          <button class="btn btn-secondary btn-sm" onclick="fetchExchangeRate().then(function(){showToast('Cotação atualizada!','success');loadMetaCampaigns();})" style="padding:2px 8px;font-size:11px">
+            <i class="fas fa-sync"></i> Atualizar
+          </button>
+        </div>
+
         <div class="card">
           <div class="card-header">
             <span class="card-title"><i class="fab fa-facebook" style="color:var(--info);margin-right:6px"></i>Campanhas Meta Ads</span>
-            <span id="exchangeRateInfo" style="font-size:11px;color:var(--text-muted);margin-left:12px;font-weight:normal"></span>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
               <select class="form-control" id="metaDateRange" onchange="loadMetaCampaigns()" style="width:150px;padding:6px 10px;font-size:12px">
                 <option value="today">Hoje</option>
@@ -1164,12 +1190,12 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
                 <option value="this_month">Este mês</option>
                 <option value="last_month">Mês passado</option>
               </select>
-              <select class="form-control" id="metaStatusFilter" onchange="loadMetaCampaigns()" style="width:120px;padding:6px 10px;font-size:12px">
+              <select class="form-control" id="metaStatusFilter" onchange="applyMetaFilters()" style="width:120px;padding:6px 10px;font-size:12px">
                 <option value="all">Todos</option>
                 <option value="ACTIVE">Ativos</option>
                 <option value="PAUSED">Pausados</option>
               </select>
-              <input type="text" id="metaSearchFilter" placeholder="Buscar campanha..." oninput="filterMetaTable()" style="width:180px;padding:6px 10px;font-size:12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-primary)">
+              <input type="text" id="metaSearchFilter" placeholder="Buscar campanha..." oninput="applyMetaFilters()" style="width:180px;padding:6px 10px;font-size:12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-primary)">
               <button class="btn btn-secondary btn-sm" onclick="syncMeta()">
                 <i class="fas fa-sync"></i> Sincronizar
               </button>
@@ -3585,13 +3611,18 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
       if (data && data.rate) {
         usdToBrl = data.rate;
         var el = document.getElementById('exchangeRateInfo');
-        if (el) el.textContent = 'Cotação: 1 USD = R$ ' + usdToBrl.toFixed(2);
+        if (el) el.textContent = 'R$ ' + usdToBrl.toFixed(2) + ' (automático)';
       }
     } catch(e) {
-      console.warn('Erro ao buscar cotação USD→BRL, usando valores originais');
-      usdToBrl = 1;
+      console.warn('Erro ao buscar cotação USD→BRL');
+      if (usdToBrl <= 1) usdToBrl = 5.70; // fallback razoável
+      var el = document.getElementById('exchangeRateInfo');
+      if (el) el.textContent = 'R$ ' + usdToBrl.toFixed(2) + ' (offline)';
     }
   }
+
+  // Armazena campanhas renderizadas para filtrar localmente
+  var metaCampaignsRendered = [];
 
   window.loadMetaCampaigns = async function() {
     try {
@@ -3599,49 +3630,49 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
       if (!online) {
         document.getElementById('metaServerOffline').style.display = 'block';
         document.getElementById('metaContent').style.display = 'none';
-        // Carrega dados do Firestore (cache)
         loadMetaFromCache();
         return;
       }
       document.getElementById('metaServerOffline').style.display = 'none';
       document.getElementById('metaContent').style.display = 'block';
 
-      // Buscar cotação USD→BRL
       await fetchExchangeRate();
 
       var dateRange = document.getElementById('metaDateRange').value;
-      var [campaigns, accountInsights] = await Promise.all([
+      var [campaigns, accountInsights, groupsForFunnel] = await Promise.all([
         serverFetch('/api/meta/campaigns'),
-        serverFetch('/api/meta/account/insights?date_range=' + dateRange)
+        serverFetch('/api/meta/account/insights?date_range=' + dateRange),
+        serverFetch('/api/whatsapp/groups')
       ]);
 
-      // Atualiza stats gerais
+      // Stats da conta
+      var totalSpend = 0, totalImpressions = 0, totalMetaClicks = 0;
       if (accountInsights && accountInsights.data && accountInsights.data[0]) {
         var ai = accountInsights.data[0];
-        document.getElementById('metaSpendToday').textContent = 'R$ ' + toBRL(ai.spend);
-        document.getElementById('metaImpressions').textContent = parseInt(ai.impressions || 0).toLocaleString();
-        document.getElementById('metaClicks').textContent = parseInt(ai.clicks || 0).toLocaleString();
-        document.getElementById('funnelImpressions').textContent = parseInt(ai.impressions || 0).toLocaleString();
-        document.getElementById('funnelMetaClicks').textContent = parseInt(ai.clicks || 0).toLocaleString();
+        totalSpend = parseFloat(ai.spend || 0);
+        totalImpressions = parseInt(ai.impressions || 0);
+        totalMetaClicks = parseInt(ai.clicks || 0);
       }
+      var spendBRL = totalSpend * usdToBrl;
+      document.getElementById('metaSpendToday').textContent = 'R$ ' + spendBRL.toFixed(2);
+      document.getElementById('metaImpressions').textContent = totalImpressions.toLocaleString();
+      document.getElementById('metaClicks').textContent = totalMetaClicks.toLocaleString();
 
-      // Funil: clicks do rotador
+      // Funil
+      document.getElementById('funnelImpressions').textContent = totalImpressions.toLocaleString();
+      document.getElementById('funnelMetaClicks').textContent = totalMetaClicks.toLocaleString();
       var totalRotatorClicks = links.reduce(function(sum, l) { return sum + (l.currentClicks || 0); }, 0);
       document.getElementById('funnelRotatorClicks').textContent = totalRotatorClicks.toLocaleString();
-
-      // Funil: membros reais do WhatsApp
-      var groupsForFunnel = await serverFetch('/api/whatsapp/groups');
       var totalRealMembers = 0;
       if (groupsForFunnel) groupsForFunnel.forEach(function(g) { totalRealMembers += (g.participants || g.currentMembers || 0); });
       document.getElementById('funnelRealMembers').textContent = totalRealMembers.toLocaleString();
 
-      // Custo por lead real (converte spend USD → BRL)
-      var spend = accountInsights && accountInsights.data && accountInsights.data[0] ? parseFloat(accountInsights.data[0].spend || 0) * usdToBrl : 0;
-      var costPerRealLead = totalRealMembers > 0 ? (spend / totalRealMembers) : 0;
-      document.getElementById('metaCostPerLead').textContent = 'R$ ' + costPerRealLead.toFixed(2);
+      // CPL real (membros)
+      var cplReal = totalRealMembers > 0 ? (spendBRL / totalRealMembers) : 0;
+      document.getElementById('metaCostPerLead').textContent = cplReal > 0 ? 'R$ ' + cplReal.toFixed(2) : '-';
 
-      // Tabela de campanhas
-      renderMetaCampaigns(campaigns, dateRange);
+      // Renderizar campanhas e calcular leads/CPL
+      await renderMetaCampaigns(campaigns, dateRange);
 
     } catch (err) {
       console.error('Erro Meta Ads:', err);
@@ -3654,135 +3685,172 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
       var metaCamps = await serverFetch('/api/meta-campaigns');
       if (!metaCamps || metaCamps.length === 0) return;
 
-      // Buscar cotação para cache também
       await fetchExchangeRate();
 
       document.getElementById('metaServerOffline').style.display = 'none';
       document.getElementById('metaContent').style.display = 'block';
 
-      var totalSpend = 0, totalImpressions = 0, totalClicks = 0;
-      var tbody = document.getElementById('metaCampaignsTable');
-      var html = '';
+      metaCampaignsRendered = [];
+      var totalSpend = 0, totalImpressions = 0, totalClicks = 0, totalConversions = 0;
 
       metaCamps.forEach(function(c) {
         totalSpend += (c.spend || 0);
         totalImpressions += (c.impressions || 0);
         totalClicks += (c.clicks || 0);
-
-        var statusBadge = c.status === 'ACTIVE' ? '<span class="badge badge-success">Ativo</span>' :
-                          '<span class="badge badge-warning">' + (c.status || 'N/A') + '</span>';
-
-        var spendBRL = parseFloat(toBRL(c.spend));
-        html += '<tr data-status="' + (c.status || '') + '" data-name="' + escHtml(c.name || '').toLowerCase() + '">' +
-          '<td><strong>' + escHtml(c.name || 'N/A') + '</strong></td>' +
-          '<td data-sort="' + (c.status || '') + '">' + statusBadge + '</td>' +
-          '<td data-sort="' + spendBRL + '">R$ ' + spendBRL.toFixed(2) + '</td>' +
-          '<td data-sort="' + (c.impressions || 0) + '">' + (c.impressions || 0).toLocaleString() + '</td>' +
-          '<td data-sort="' + (c.clicks || 0) + '">' + (c.clicks || 0).toLocaleString() + '</td>' +
-          '<td data-sort="' + parseFloat(toBRL(c.cpc)) + '">R$ ' + toBRL(c.cpc) + '</td>' +
-          '<td data-sort="' + parseFloat(toBRL(c.cpm)) + '">R$ ' + toBRL(c.cpm) + '</td>' +
-          '<td data-sort="' + (c.ctr || 0) + '">' + (c.ctr || 0).toFixed(2) + '%</td>' +
-          '<td data-sort="' + (c.conversions || 0) + '">' + (c.conversions || 0) + '</td>' +
-          '<td data-sort="' + parseFloat(toBRL(c.costPerResult)) + '">R$ ' + toBRL(c.costPerResult) + '</td>' +
-          '<td><span style="font-size:11px;color:var(--text-muted)">Cache</span></td>' +
-          '</tr>';
+        totalConversions += (c.conversions || 0);
+        metaCampaignsRendered.push({
+          id: c.id, name: c.name || 'N/A', status: c.status || 'N/A',
+          spend: c.spend || 0, impressions: c.impressions || 0, clicks: c.clicks || 0,
+          cpc: c.cpc || 0, cpm: c.cpm || 0, ctr: c.ctr || 0,
+          conversions: c.conversions || 0, costPerResult: c.costPerResult || 0,
+          isCache: true
+        });
       });
 
-      tbody.innerHTML = html || '<tr><td colspan="11"><div class="empty-state"><p>Nenhuma campanha</p></div></td></tr>';
-      document.getElementById('metaSpendToday').textContent = 'R$ ' + (totalSpend * usdToBrl).toFixed(2);
+      var spendBRL = totalSpend * usdToBrl;
+      document.getElementById('metaSpendToday').textContent = 'R$ ' + spendBRL.toFixed(2);
       document.getElementById('metaImpressions').textContent = totalImpressions.toLocaleString();
       document.getElementById('metaClicks').textContent = totalClicks.toLocaleString();
+      document.getElementById('metaTotalLeads').textContent = totalConversions;
+      var cplMeta = totalConversions > 0 ? spendBRL / totalConversions : 0;
+      document.getElementById('metaCPLMeta').textContent = cplMeta > 0 ? 'R$ ' + cplMeta.toFixed(2) : '-';
 
-      var metaTable = document.getElementById('metaCampaignsTableWrap');
-      if (metaTable) makeSortable(metaTable);
-    } catch(e) {}
+      renderMetaTable();
+    } catch(e) { console.error('Cache error:', e); }
   }
 
   async function renderMetaCampaigns(campaigns, dateRange) {
-    var tbody = document.getElementById('metaCampaignsTable');
     if (!campaigns || !campaigns.data || campaigns.data.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="11"><div class="empty-state"><p>Nenhuma campanha encontrada</p></div></td></tr>';
+      document.getElementById('metaCampaignsTable').innerHTML = '<tr><td colspan="11"><div class="empty-state"><p>Nenhuma campanha encontrada</p></div></td></tr>';
       return;
     }
 
-    var statusFilter = document.getElementById('metaStatusFilter').value;
-    var filteredCamps = campaigns.data;
-    if (statusFilter !== 'all') {
-      filteredCamps = campaigns.data.filter(function(c) {
-        return (c.effective_status || c.status) === statusFilter;
-      });
-    }
+    metaCampaignsRendered = [];
+    var totalLeads = 0, totalSpendCamps = 0;
 
-    var totalSpendAll = 0;
-    var html = '';
-    for (var camp of filteredCamps) {
+    for (var camp of campaigns.data) {
       try {
         var insights = await serverFetch('/api/meta/campaigns/' + camp.id + '/insights?date_range=' + dateRange);
         var d = insights && insights.data && insights.data[0] ? insights.data[0] : {};
 
         var status = camp.effective_status || camp.status || 'N/A';
-        var statusBadge = status === 'ACTIVE' ? '<span class="badge badge-success">Ativo</span>' :
-                          status === 'PAUSED' ? '<span class="badge badge-warning">Pausado</span>' :
-                          '<span class="badge badge-info">' + status + '</span>';
-
-        var conversions = 0;
-        var costPerResult = 0;
+        var conversions = 0, costPerResult = 0;
         if (d.actions) {
-          var conv = d.actions.find(function(a) { return a.action_type === 'lead' || a.action_type.includes('lead'); });
+          var conv = d.actions.find(function(a) { return a.action_type === 'lead' || a.action_type.includes('lead') || a.action_type.includes('conversion'); });
           if (conv) conversions = parseInt(conv.value);
         }
         if (d.cost_per_action_type) {
-          var cpr = d.cost_per_action_type.find(function(a) { return a.action_type === 'lead' || a.action_type.includes('lead'); });
+          var cpr = d.cost_per_action_type.find(function(a) { return a.action_type === 'lead' || a.action_type.includes('lead') || a.action_type.includes('conversion'); });
           if (cpr) costPerResult = parseFloat(cpr.value);
         }
 
-        var spendBRL = parseFloat(toBRL(d.spend));
-        totalSpendAll += spendBRL;
+        totalLeads += conversions;
+        totalSpendCamps += parseFloat(d.spend || 0);
 
-        html += '<tr data-status="' + status + '" data-name="' + escHtml(camp.name).toLowerCase() + '">' +
-          '<td><strong>' + escHtml(camp.name) + '</strong><br><span style="font-size:10px;color:var(--text-muted)">' + camp.id + '</span></td>' +
-          '<td data-sort="' + status + '">' + statusBadge + '</td>' +
-          '<td data-sort="' + spendBRL + '">R$ ' + spendBRL.toFixed(2) + '</td>' +
-          '<td data-sort="' + parseInt(d.impressions || 0) + '">' + parseInt(d.impressions || 0).toLocaleString() + '</td>' +
-          '<td data-sort="' + parseInt(d.clicks || 0) + '">' + parseInt(d.clicks || 0).toLocaleString() + '</td>' +
-          '<td data-sort="' + parseFloat(toBRL(d.cpc)) + '">R$ ' + toBRL(d.cpc) + '</td>' +
-          '<td data-sort="' + parseFloat(toBRL(d.cpm)) + '">R$ ' + toBRL(d.cpm) + '</td>' +
-          '<td data-sort="' + parseFloat(d.ctr || 0) + '">' + parseFloat(d.ctr || 0).toFixed(2) + '%</td>' +
-          '<td data-sort="' + conversions + '">' + conversions + '</td>' +
-          '<td data-sort="' + parseFloat(toBRL(costPerResult)) + '">R$ ' + toBRL(costPerResult) + '</td>' +
-          '<td style="white-space:nowrap">' +
-          (status === 'ACTIVE' ?
-            '<button class="btn btn-warning btn-sm btn-icon" onclick="metaPauseCampaign(\'' + camp.id + '\')" title="Pausar"><i class="fas fa-pause"></i></button>' :
-            '<button class="btn btn-primary btn-sm btn-icon" onclick="metaActivateCampaign(\'' + camp.id + '\')" title="Ativar"><i class="fas fa-play"></i></button>'
-          ) +
-          ' <button class="btn btn-secondary btn-sm btn-icon" onclick="metaEditBudget(\'' + camp.id + '\',\'' + escHtml(camp.name) + '\')" title="Editar Orçamento"><i class="fas fa-dollar-sign"></i></button>' +
-          '</td></tr>';
+        metaCampaignsRendered.push({
+          id: camp.id, name: camp.name, status: status,
+          spend: parseFloat(d.spend || 0), impressions: parseInt(d.impressions || 0),
+          clicks: parseInt(d.clicks || 0), cpc: parseFloat(d.cpc || 0),
+          cpm: parseFloat(d.cpm || 0), ctr: parseFloat(d.ctr || 0),
+          conversions: conversions, costPerResult: costPerResult,
+          isCache: false
+        });
       } catch(e) {
-        html += '<tr><td>' + escHtml(camp.name) + '</td><td colspan="10" style="color:var(--text-muted);font-size:12px">Erro ao carregar insights</td></tr>';
+        metaCampaignsRendered.push({
+          id: camp.id, name: camp.name, status: camp.effective_status || camp.status || 'N/A',
+          spend: 0, impressions: 0, clicks: 0, cpc: 0, cpm: 0, ctr: 0,
+          conversions: 0, costPerResult: 0, isCache: false, error: true
+        });
       }
     }
-    tbody.innerHTML = html || '<tr><td colspan="11"><div class="empty-state"><p>Nenhuma campanha com esse filtro</p></div></td></tr>';
-    document.getElementById('metaSpendToday').textContent = 'R$ ' + totalSpendAll.toFixed(2);
 
-    // Initialize sortable after rendering
+    // Update total leads and CPL
+    document.getElementById('metaTotalLeads').textContent = totalLeads.toLocaleString();
+    var spendBRL = totalSpendCamps * usdToBrl;
+    var cplMeta = totalLeads > 0 ? spendBRL / totalLeads : 0;
+    document.getElementById('metaCPLMeta').textContent = cplMeta > 0 ? 'R$ ' + cplMeta.toFixed(2) : '-';
+
+    renderMetaTable();
+  }
+
+  function renderMetaTable() {
+    var statusFilter = document.getElementById('metaStatusFilter').value;
+    var searchFilter = (document.getElementById('metaSearchFilter').value || '').toLowerCase();
+
+    var filtered = metaCampaignsRendered.filter(function(c) {
+      if (statusFilter !== 'all') {
+        // Match ACTIVE, PAUSED, or variants like CAMPAIGN_PAUSED
+        if (statusFilter === 'PAUSED') {
+          if (c.status !== 'PAUSED' && !c.status.includes('PAUSED')) return false;
+        } else if (c.status !== statusFilter) {
+          return false;
+        }
+      }
+      if (searchFilter && !(c.name || '').toLowerCase().includes(searchFilter)) return false;
+      return true;
+    });
+
+    var tbody = document.getElementById('metaCampaignsTable');
+    var html = '';
+    filtered.forEach(function(c) {
+      var status = c.status;
+      var isActive = status === 'ACTIVE';
+      var isPaused = status === 'PAUSED' || status.includes('PAUSED');
+      var statusBadge = isActive ? '<span class="badge badge-success">Ativo</span>' :
+                        isPaused ? '<span class="badge badge-warning">Pausado</span>' :
+                        '<span class="badge badge-info">' + status + '</span>';
+
+      var spendBRL = parseFloat(toBRL(c.spend));
+
+      html += '<tr>' +
+        '<td><strong>' + escHtml(c.name) + '</strong>' + (c.isCache ? '' : '<br><span style="font-size:10px;color:var(--text-muted)">' + c.id + '</span>') + '</td>' +
+        '<td data-sort="' + status + '">' + statusBadge + '</td>' +
+        '<td data-sort="' + spendBRL + '">R$ ' + spendBRL.toFixed(2) + '</td>' +
+        '<td data-sort="' + c.impressions + '">' + c.impressions.toLocaleString() + '</td>' +
+        '<td data-sort="' + c.clicks + '">' + c.clicks.toLocaleString() + '</td>' +
+        '<td data-sort="' + parseFloat(toBRL(c.cpc)) + '">R$ ' + toBRL(c.cpc) + '</td>' +
+        '<td data-sort="' + parseFloat(toBRL(c.cpm)) + '">R$ ' + toBRL(c.cpm) + '</td>' +
+        '<td data-sort="' + c.ctr + '">' + c.ctr.toFixed(2) + '%</td>' +
+        '<td data-sort="' + c.conversions + '">' + c.conversions + '</td>' +
+        '<td data-sort="' + parseFloat(toBRL(c.costPerResult)) + '">R$ ' + toBRL(c.costPerResult) + '</td>' +
+        '<td style="white-space:nowrap">' +
+        (c.isCache ? '<span style="font-size:11px;color:var(--text-muted)">Cache</span>' :
+          (isActive ?
+            '<button class="btn btn-warning btn-sm btn-icon" onclick="metaPauseCampaign(\'' + c.id + '\')" title="Pausar"><i class="fas fa-pause"></i></button>' :
+            '<button class="btn btn-primary btn-sm btn-icon" onclick="metaActivateCampaign(\'' + c.id + '\')" title="Ativar"><i class="fas fa-play"></i></button>'
+          ) +
+          ' <button class="btn btn-secondary btn-sm btn-icon" onclick="metaEditBudget(\'' + c.id + '\',\'' + escHtml(c.name).replace(/'/g, "\\'") + '\')" title="Editar Orçamento"><i class="fas fa-dollar-sign"></i></button>'
+        ) +
+        '</td></tr>';
+    });
+
+    tbody.innerHTML = html || '<tr><td colspan="11"><div class="empty-state"><p>Nenhuma campanha com esse filtro</p></div></td></tr>';
+
     var metaTable = document.getElementById('metaCampaignsTableWrap');
     if (metaTable) makeSortable(metaTable);
   }
 
-  window.filterMetaTable = function() {
-    var search = (document.getElementById('metaSearchFilter').value || '').toLowerCase();
-    var rows = document.querySelectorAll('#metaCampaignsTable tr');
-    rows.forEach(function(row) {
-      if (!row.getAttribute('data-name')) return;
-      row.style.display = row.getAttribute('data-name').includes(search) ? '' : 'none';
-    });
+  // Filtrar localmente sem recarregar da API
+  window.applyMetaFilters = function() {
+    renderMetaTable();
+  };
+
+  window.editExchangeRate = function() {
+    var current = usdToBrl.toFixed(2);
+    var newRate = prompt('Valor do dólar (USD → BRL):\nAtual: R$ ' + current, current);
+    if (!newRate || isNaN(parseFloat(newRate))) return;
+    usdToBrl = parseFloat(newRate);
+    document.getElementById('exchangeRateInfo').textContent = 'R$ ' + usdToBrl.toFixed(2) + ' (manual)';
+    // Re-renderizar com nova cotação
+    renderMetaTable();
+    showToast('Cotação alterada para R$ ' + usdToBrl.toFixed(2), 'success');
   };
 
   window.metaEditBudget = function(campId, campName) {
-    var newBudget = prompt('Novo orçamento diário para "' + campName + '" (em USD):', '');
+    var newBudget = prompt('Novo orçamento diário para "' + campName + '":\n(Valor em USD, ex: 50.00)', '');
     if (!newBudget || isNaN(parseFloat(newBudget))) return;
     serverPost('/api/meta/campaigns/' + campId + '/budget', { budget: parseFloat(newBudget), type: 'daily' })
-      .then(function() { showToast('Orçamento atualizado!', 'success'); loadMetaCampaigns(); })
+      .then(function() { showToast('Orçamento atualizado para $' + parseFloat(newBudget).toFixed(2) + '/dia', 'success'); })
       .catch(function(e) { showToast('Erro: ' + e.message, 'error'); });
   };
 
