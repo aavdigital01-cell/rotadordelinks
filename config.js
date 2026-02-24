@@ -8,8 +8,7 @@
 // 4. Em "Seus apps", clique no ícone </> (Web)
 // 5. Registre o app e copie os valores abaixo
 // 6. Ative Authentication > Email/Senha nas configurações
-// 7. Ative Firestore Database e crie em modo produção
-// 8. Copie as regras do arquivo firestore.rules para o Firestore Rules
+// 7. Backend usa PostgreSQL (Firestore não é mais necessário)
 // ============================================
 
 const FIREBASE_CONFIG = {

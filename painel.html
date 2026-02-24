@@ -2261,12 +2261,13 @@ select.form-control {
     }
 
     try {
+      var existingCamp = editId ? campaigns.find(function(c) { return c.id === editId; }) : null;
       var data = {
         name: name,
         slug: slug,
         rotationMode: rotationMode,
         alertThreshold: alertThreshold,
-        isActive: true,
+        isActive: existingCamp ? (existingCamp.isActive !== false) : true,
         fbPixelId: document.getElementById('campaignFbPixel').value.trim(),
         fbEventName: document.getElementById('campaignFbEvent').value,
         ttPixelId: document.getElementById('campaignTtPixel').value.trim(),
@@ -2503,7 +2504,6 @@ select.form-control {
         showToast('Link atualizado!', 'success');
       } else {
         data.createdBy = currentUser.uid;
-        data.order = links.length;
         await serverPost('/api/links', data);
         showToast('Link adicionado!', 'success');
       }
@@ -3146,6 +3146,11 @@ select.form-control {
 
   window.markAlertRead = async function(id) {
     await serverPut('/api/alerts/' + id + '/read', {});
+    var alert = alerts.find(function(a) { return a.id === id; });
+    if (alert) alert.read = true;
+    updateAlertsBadge();
+    renderAlerts();
+    renderNotifications();
   };
 
   window.markAllAlertsRead = async function() {
@@ -3353,14 +3358,12 @@ select.form-control {
 
   window.saveSettings = async function() {
     var threshold = parseInt(document.getElementById('settingAlertThreshold').value) || 90;
-    var browserNotif = document.getElementById('settingBrowserNotif').classList.contains('active');
-    var soundAlert = document.getElementById('settingSoundAlert').classList.contains('active');
+    var browserNotif = document.getElementById('settingBrowserNotif').checked;
 
     try {
       await serverPost('/api/settings', {
         alertThreshold: threshold,
-        browserNotif: browserNotif,
-        soundAlert: soundAlert,
+        browserNotifications: browserNotif,
         updatedBy: currentUser.uid
       });
 
@@ -3532,7 +3535,7 @@ select.form-control {
         document.getElementById('metaServerOffline').style.display = 'block';
         document.getElementById('metaContent').style.display = 'none';
         // Carrega dados do Firestore (cache)
-        loadMetaFromFirestore();
+        loadMetaFromCache();
         return;
       }
       document.getElementById('metaServerOffline').style.display = 'none';
@@ -3574,11 +3577,11 @@ select.form-control {
 
     } catch (err) {
       console.error('Erro Meta Ads:', err);
-      loadMetaFromFirestore();
+      loadMetaFromCache();
     }
   };
 
-  async function loadMetaFromFirestore() {
+  async function loadMetaFromCache() {
     try {
       var metaCamps = await serverFetch('/api/meta-campaigns');
       if (!metaCamps || metaCamps.length === 0) return;
@@ -3703,7 +3706,7 @@ select.form-control {
       if (!online) {
         document.getElementById('whatsappNotConnected').style.display = 'block';
         document.getElementById('whatsappConnected').style.display = 'none';
-        loadWhatsAppFromFirestore();
+        loadWhatsAppFromCache();
         return;
       }
 
@@ -3721,11 +3724,11 @@ select.form-control {
 
       await Promise.all([loadWhatsAppGroups(), loadMemberEvents()]);
     } catch(err) {
-      loadWhatsAppFromFirestore();
+      loadWhatsAppFromCache();
     }
   };
 
-  async function loadWhatsAppFromFirestore() {
+  async function loadWhatsAppFromCache() {
     try {
       var groups = await serverFetch('/api/whatsapp/groups');
       if (!groups || groups.length === 0) return;

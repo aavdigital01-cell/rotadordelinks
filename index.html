@@ -366,7 +366,6 @@ body::after {
 
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 <script src="config.js"></script>
 <script>
 (function() {
@@ -374,7 +373,6 @@ body::after {
 
   firebase.initializeApp(FIREBASE_CONFIG);
   const auth = firebase.auth();
-  const db = firebase.firestore();
 
   // Persistência de sessão
   auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
@@ -509,17 +507,12 @@ body::after {
       var cred = await auth.createUserWithEmailAndPassword(email, password);
       await cred.user.updateProfile({ displayName: name });
 
-      // Verifica se é o primeiro usuário (será Super Admin)
-      var usersSnap = await db.collection('users').limit(1).get();
-      var isFirstUser = usersSnap.empty;
-
-      // Salva dados do usuário no Firestore
-      await db.collection('users').doc(cred.user.uid).set({
-        email: email,
-        displayName: name,
-        role: isFirstUser ? 'superadmin' : 'admin',
-        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-        lastLogin: firebase.firestore.FieldValue.serverTimestamp()
+      // Registra usuário no PostgreSQL via server API
+      var token = await cred.user.getIdToken();
+      await fetch(SYSTEM_CONFIG.serverUrl + '/api/users/login', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email, displayName: name })
       });
 
       // onAuthStateChanged vai redirecionar
