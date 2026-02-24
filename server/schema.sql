@@ -1,9 +1,21 @@
--- LinkRotator PostgreSQL Schema
+-- LinkRotator PostgreSQL Schema (complete)
 
 CREATE TABLE IF NOT EXISTS campaigns (
     id VARCHAR(255) PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
+    slug VARCHAR(255),
+    rotation_mode VARCHAR(50) DEFAULT 'random',
+    alert_threshold INTEGER DEFAULT 90,
     is_active BOOLEAN DEFAULT true,
+    fb_pixel_id VARCHAR(255) DEFAULT '',
+    fb_event_name VARCHAR(100) DEFAULT 'Lead',
+    tt_pixel_id VARCHAR(255) DEFAULT '',
+    tt_event_name VARCHAR(100) DEFAULT 'SubmitForm',
+    gtm_id VARCHAR(255) DEFAULT '',
+    gtm_event_name VARCHAR(100) DEFAULT 'whatsapp_click',
+    gads_id VARCHAR(255) DEFAULT '',
+    gads_conversion_label VARCHAR(255) DEFAULT '',
+    created_by VARCHAR(255),
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
@@ -16,8 +28,15 @@ CREATE TABLE IF NOT EXISTS links (
     whatsapp_group_id VARCHAR(255),
     current_clicks INTEGER DEFAULT 0,
     max_vacancies INTEGER DEFAULT 1000,
+    weight INTEGER DEFAULT 1,
     is_active BOOLEAN DEFAULT true,
+    is_full BOOLEAN DEFAULT false,
     redirect_type VARCHAR(50) DEFAULT 'whatsapp',
+    health_check_failures INTEGER DEFAULT 0,
+    deactivated_reason TEXT,
+    deactivated_at TIMESTAMP,
+    created_by VARCHAR(255),
+    order_num INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
@@ -29,6 +48,7 @@ CREATE TABLE IF NOT EXISTS clicks (
     campaign_id VARCHAR(255),
     device VARCHAR(100),
     browser VARCHAR(100),
+    os VARCHAR(100),
     city VARCHAR(100),
     country VARCHAR(100),
     country_code VARCHAR(10),
@@ -78,6 +98,9 @@ CREATE TABLE IF NOT EXISTS alerts (
     whatsapp_group_id VARCHAR(255),
     group_name VARCHAR(255),
     member_phone VARCHAR(255),
+    link_name VARCHAR(255),
+    campaign_name VARCHAR(255),
+    percent INTEGER,
     message TEXT DEFAULT '',
     read BOOLEAN DEFAULT false,
     timestamp TIMESTAMP DEFAULT NOW()
@@ -89,6 +112,7 @@ CREATE TABLE IF NOT EXISTS users (
     display_name VARCHAR(255),
     role VARCHAR(50) DEFAULT 'admin',
     created_by VARCHAR(255),
+    last_login TIMESTAMP,
     created_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -108,3 +132,4 @@ CREATE INDEX IF NOT EXISTS idx_member_events_action ON member_events(action);
 CREATE INDEX IF NOT EXISTS idx_alerts_read ON alerts(read);
 CREATE INDEX IF NOT EXISTS idx_alerts_timestamp ON alerts(timestamp);
 CREATE INDEX IF NOT EXISTS idx_links_campaign ON links(campaign_id);
+CREATE INDEX IF NOT EXISTS idx_campaigns_slug ON campaigns(slug);

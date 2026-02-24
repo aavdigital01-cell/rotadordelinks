@@ -55,12 +55,77 @@ async function authMiddleware(req, res, next) {
   }
 }
 
+// ===== HELPER: map campaign row to camelCase =====
+function mapCampaign(r) {
+  return {
+    id: r.id, name: r.name, slug: r.slug,
+    rotationMode: r.rotation_mode, alertThreshold: r.alert_threshold,
+    isActive: r.is_active,
+    fbPixelId: r.fb_pixel_id, fbEventName: r.fb_event_name,
+    ttPixelId: r.tt_pixel_id, ttEventName: r.tt_event_name,
+    gtmId: r.gtm_id, gtmEventName: r.gtm_event_name,
+    gadsId: r.gads_id, gadsConversionLabel: r.gads_conversion_label,
+    createdBy: r.created_by,
+    createdAt: r.created_at ? { seconds: Math.floor(new Date(r.created_at).getTime() / 1000) } : null,
+    updatedAt: r.updated_at ? { seconds: Math.floor(new Date(r.updated_at).getTime() / 1000) } : null
+  };
+}
+
+// ===== HELPER: map link row to camelCase =====
+function mapLink(r) {
+  return {
+    id: r.id, name: r.name, url: r.url,
+    campaignId: r.campaign_id, whatsappGroupId: r.whatsapp_group_id,
+    currentClicks: r.current_clicks, maxVacancies: r.max_vacancies,
+    weight: r.weight, isActive: r.is_active, isFull: r.is_full,
+    redirectType: r.redirect_type,
+    healthCheckFailures: r.health_check_failures,
+    deactivatedReason: r.deactivated_reason,
+    deactivatedAt: r.deactivated_at,
+    createdBy: r.created_by, order: r.order_num,
+    createdAt: r.created_at ? { seconds: Math.floor(new Date(r.created_at).getTime() / 1000) } : null,
+    updatedAt: r.updated_at ? { seconds: Math.floor(new Date(r.updated_at).getTime() / 1000) } : null
+  };
+}
+
+// ===== HELPER: map click row to camelCase =====
+function mapClick(r) {
+  return {
+    id: r.id, linkId: r.link_id, linkName: r.link_name,
+    campaignId: r.campaign_id, device: r.device, browser: r.browser,
+    os: r.os, city: r.city, country: r.country, countryCode: r.country_code,
+    ip: r.ip, referrer: r.referrer,
+    timestamp: r.timestamp ? { seconds: Math.floor(new Date(r.timestamp).getTime() / 1000) } : null
+  };
+}
+
+// ===== HELPER: map alert row to camelCase =====
+function mapAlert(r) {
+  return {
+    id: r.id, type: r.type, whatsappGroupId: r.whatsapp_group_id,
+    groupName: r.group_name, memberPhone: r.member_phone,
+    linkName: r.link_name, campaignName: r.campaign_name,
+    percent: r.percent, message: r.message, read: r.read,
+    timestamp: r.timestamp ? { seconds: Math.floor(new Date(r.timestamp).getTime() / 1000) } : null
+  };
+}
+
+// ===== HELPER: map user row to camelCase =====
+function mapUser(r) {
+  return {
+    uid: r.uid, email: r.email, displayName: r.display_name,
+    role: r.role, createdBy: r.created_by,
+    lastLogin: r.last_login ? { seconds: Math.floor(new Date(r.last_login).getTime() / 1000) } : null,
+    createdAt: r.created_at ? { seconds: Math.floor(new Date(r.created_at).getTime() / 1000) } : null
+  };
+}
+
 // ===== CAMPAIGNS =====
 
 app.get('/api/campaigns', authMiddleware, async function(req, res) {
   try {
     var result = await pool.query('SELECT * FROM campaigns ORDER BY created_at DESC');
-    res.json(result.rows);
+    res.json(result.rows.map(mapCampaign));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -68,12 +133,18 @@ app.get('/api/campaigns', authMiddleware, async function(req, res) {
 
 app.post('/api/campaigns', authMiddleware, async function(req, res) {
   try {
-    var id = req.body.id || ('camp_' + Date.now());
-    var name = req.body.name;
-    var isActive = req.body.isActive !== false;
+    var b = req.body;
+    var id = b.id || ('camp_' + Date.now());
     await pool.query(
-      'INSERT INTO campaigns (id, name, is_active) VALUES ($1, $2, $3) ON CONFLICT (id) DO UPDATE SET name=$2, is_active=$3, updated_at=NOW()',
-      [id, name, isActive]
+      `INSERT INTO campaigns (id, name, slug, rotation_mode, alert_threshold, is_active, fb_pixel_id, fb_event_name, tt_pixel_id, tt_event_name, gtm_id, gtm_event_name, gads_id, gads_conversion_label, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+       ON CONFLICT (id) DO UPDATE SET name=$2, slug=$3, rotation_mode=$4, alert_threshold=$5, is_active=$6, fb_pixel_id=$7, fb_event_name=$8, tt_pixel_id=$9, tt_event_name=$10, gtm_id=$11, gtm_event_name=$12, gads_id=$13, gads_conversion_label=$14, updated_at=NOW()`,
+      [id, b.name, b.slug || '', b.rotationMode || 'random', b.alertThreshold || 90,
+       b.isActive !== false, b.fbPixelId || '', b.fbEventName || 'Lead',
+       b.ttPixelId || '', b.ttEventName || 'SubmitForm',
+       b.gtmId || '', b.gtmEventName || 'whatsapp_click',
+       b.gadsId || '', b.gadsConversionLabel || '',
+       b.createdBy || (req.user ? req.user.uid : '')]
     );
     res.json({ success: true, id: id });
   } catch (err) {
@@ -83,14 +154,30 @@ app.post('/api/campaigns', authMiddleware, async function(req, res) {
 
 app.put('/api/campaigns/:id', authMiddleware, async function(req, res) {
   try {
+    var b = req.body;
     var fields = [];
     var values = [];
     var idx = 1;
-    if (req.body.name !== undefined) { fields.push('name=$' + idx); values.push(req.body.name); idx++; }
-    if (req.body.isActive !== undefined) { fields.push('is_active=$' + idx); values.push(req.body.isActive); idx++; }
+    var fieldMap = {
+      name: 'name', slug: 'slug', rotationMode: 'rotation_mode',
+      alertThreshold: 'alert_threshold', isActive: 'is_active',
+      fbPixelId: 'fb_pixel_id', fbEventName: 'fb_event_name',
+      ttPixelId: 'tt_pixel_id', ttEventName: 'tt_event_name',
+      gtmId: 'gtm_id', gtmEventName: 'gtm_event_name',
+      gadsId: 'gads_id', gadsConversionLabel: 'gads_conversion_label'
+    };
+    for (var key in fieldMap) {
+      if (b[key] !== undefined) {
+        fields.push(fieldMap[key] + '=$' + idx);
+        values.push(b[key]);
+        idx++;
+      }
+    }
     fields.push('updated_at=NOW()');
     values.push(req.params.id);
-    await pool.query('UPDATE campaigns SET ' + fields.join(',') + ' WHERE id=$' + idx, values);
+    if (fields.length > 1) {
+      await pool.query('UPDATE campaigns SET ' + fields.join(',') + ' WHERE id=$' + idx, values);
+    }
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -99,6 +186,8 @@ app.put('/api/campaigns/:id', authMiddleware, async function(req, res) {
 
 app.delete('/api/campaigns/:id', authMiddleware, async function(req, res) {
   try {
+    // Also delete associated links
+    await pool.query('DELETE FROM links WHERE campaign_id=$1', [req.params.id]);
     await pool.query('DELETE FROM campaigns WHERE id=$1', [req.params.id]);
     res.json({ success: true });
   } catch (err) {
@@ -111,7 +200,7 @@ app.delete('/api/campaigns/:id', authMiddleware, async function(req, res) {
 app.get('/api/links', authMiddleware, async function(req, res) {
   try {
     var result = await pool.query('SELECT * FROM links ORDER BY created_at DESC');
-    res.json(result.rows);
+    res.json(result.rows.map(mapLink));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -119,11 +208,22 @@ app.get('/api/links', authMiddleware, async function(req, res) {
 
 app.post('/api/links', authMiddleware, async function(req, res) {
   try {
-    var id = req.body.id || ('link_' + Date.now());
     var b = req.body;
+    var id = b.id || ('link_' + Date.now());
     await pool.query(
-      'INSERT INTO links (id, name, url, campaign_id, whatsapp_group_id, current_clicks, max_vacancies, is_active, redirect_type) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)',
-      [id, b.name, b.url || '', b.campaignId || b.campaign_id, b.whatsappGroupId || b.whatsapp_group_id || null, b.currentClicks || b.current_clicks || 0, b.maxVacancies || b.max_vacancies || 1000, b.isActive !== false, b.redirectType || b.redirect_type || 'whatsapp']
+      `INSERT INTO links (id, name, url, campaign_id, whatsapp_group_id, current_clicks, max_vacancies, weight, is_active, is_full, redirect_type, created_by, order_num)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+      [id, b.name, b.url || '',
+       b.campaignId || b.campaign_id || null,
+       b.whatsappGroupId || b.whatsapp_group_id || null,
+       b.currentClicks || b.current_clicks || 0,
+       b.maxVacancies || b.max_vacancies || 1000,
+       b.weight || 1,
+       b.isActive !== false,
+       b.isFull || false,
+       b.redirectType || b.redirect_type || 'whatsapp',
+       b.createdBy || (req.user ? req.user.uid : ''),
+       b.order || b.order_num || 0]
     );
     res.json({ success: true, id: id });
   } catch (err) {
@@ -137,14 +237,42 @@ app.put('/api/links/:id', authMiddleware, async function(req, res) {
     var fields = [];
     var values = [];
     var idx = 1;
-    if (b.name !== undefined) { fields.push('name=$' + idx); values.push(b.name); idx++; }
-    if (b.url !== undefined) { fields.push('url=$' + idx); values.push(b.url); idx++; }
-    if (b.campaignId !== undefined || b.campaign_id !== undefined) { fields.push('campaign_id=$' + idx); values.push(b.campaignId || b.campaign_id); idx++; }
-    if (b.whatsappGroupId !== undefined || b.whatsapp_group_id !== undefined) { fields.push('whatsapp_group_id=$' + idx); values.push(b.whatsappGroupId || b.whatsapp_group_id); idx++; }
-    if (b.currentClicks !== undefined || b.current_clicks !== undefined) { fields.push('current_clicks=$' + idx); values.push(b.currentClicks || b.current_clicks); idx++; }
-    if (b.maxVacancies !== undefined || b.max_vacancies !== undefined) { fields.push('max_vacancies=$' + idx); values.push(b.maxVacancies || b.max_vacancies); idx++; }
-    if (b.isActive !== undefined || b.is_active !== undefined) { fields.push('is_active=$' + idx); values.push(b.isActive !== undefined ? b.isActive : b.is_active); idx++; }
-    if (b.redirectType !== undefined) { fields.push('redirect_type=$' + idx); values.push(b.redirectType); idx++; }
+    var fieldMap = {
+      name: 'name', url: 'url',
+      campaignId: 'campaign_id', campaign_id: 'campaign_id',
+      whatsappGroupId: 'whatsapp_group_id', whatsapp_group_id: 'whatsapp_group_id',
+      currentClicks: 'current_clicks', current_clicks: 'current_clicks',
+      maxVacancies: 'max_vacancies', max_vacancies: 'max_vacancies',
+      weight: 'weight',
+      isActive: 'is_active', is_active: 'is_active',
+      isFull: 'is_full', is_full: 'is_full',
+      redirectType: 'redirect_type',
+      healthCheckFailures: 'health_check_failures',
+      deactivatedReason: 'deactivated_reason',
+      deactivatedAt: 'deactivated_at'
+    };
+    for (var key in fieldMap) {
+      if (b[key] !== undefined) {
+        // Skip duplicate snake_case if camelCase was already processed
+        var col = fieldMap[key];
+        if (!fields.some(function(f) { return f.startsWith(col + '='); })) {
+          fields.push(col + '=$' + idx);
+          values.push(b[key]);
+          idx++;
+        }
+      }
+    }
+    // Handle "delete" fields (set to null)
+    if (b._deleteFields) {
+      b._deleteFields.forEach(function(f) {
+        var col = fieldMap[f] || f;
+        if (!fields.some(function(ff) { return ff.startsWith(col + '='); })) {
+          fields.push(col + '=$' + idx);
+          values.push(null);
+          idx++;
+        }
+      });
+    }
     fields.push('updated_at=NOW()');
     values.push(req.params.id);
     if (fields.length > 1) {
@@ -172,7 +300,6 @@ app.get('/api/clicks/today', authMiddleware, async function(req, res) {
     var result = await pool.query(
       "SELECT * FROM clicks WHERE timestamp >= CURRENT_DATE ORDER BY timestamp DESC"
     );
-    // Hourly breakdown
     var hourly = new Array(24).fill(0);
     var devices = { Mobile: 0, Desktop: 0, Tablet: 0 };
     result.rows.forEach(function(r) {
@@ -182,7 +309,7 @@ app.get('/api/clicks/today', authMiddleware, async function(req, res) {
       if (devices[dev] !== undefined) devices[dev]++;
       else devices['Desktop']++;
     });
-    res.json({ total: result.rows.length, hourly: hourly, devices: devices, clicks: result.rows });
+    res.json({ total: result.rows.length, hourly: hourly, devices: devices, clicks: result.rows.map(mapClick) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -191,7 +318,7 @@ app.get('/api/clicks/today', authMiddleware, async function(req, res) {
 app.get('/api/clicks/recent', authMiddleware, async function(req, res) {
   try {
     var result = await pool.query('SELECT * FROM clicks ORDER BY timestamp DESC LIMIT 10');
-    res.json(result.rows);
+    res.json(result.rows.map(mapClick));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -235,13 +362,33 @@ app.get('/api/clicks/range', authMiddleware, async function(req, res) {
   }
 });
 
+// Paginated clicks for leads view
+app.get('/api/clicks/leads', authMiddleware, async function(req, res) {
+  try {
+    var limit = parseInt(req.query.limit) || 50;
+    var offset = parseInt(req.query.offset) || 0;
+    var result = await pool.query(
+      'SELECT * FROM clicks ORDER BY timestamp DESC LIMIT $1 OFFSET $2',
+      [limit, offset]
+    );
+    var countResult = await pool.query('SELECT COUNT(*) as total FROM clicks');
+    res.json({
+      clicks: result.rows.map(mapClick),
+      total: parseInt(countResult.rows[0].total),
+      hasMore: offset + limit < parseInt(countResult.rows[0].total)
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Record a click (called from redirect page - no auth needed)
 app.post('/api/clicks', async function(req, res) {
   try {
     var b = req.body;
     await pool.query(
-      'INSERT INTO clicks (link_id, link_name, campaign_id, device, browser, city, country, country_code, ip, referrer) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
-      [b.linkId, b.linkName, b.campaignId, b.device, b.browser, b.city, b.country, b.countryCode, b.ip || req.ip, b.referrer]
+      'INSERT INTO clicks (link_id, link_name, campaign_id, device, browser, os, city, country, country_code, ip, referrer) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
+      [b.linkId, b.linkName, b.campaignId, b.device, b.browser, b.os || '', b.city, b.country, b.countryCode, b.ip || req.ip, b.referrer]
     );
     // Increment link clicks
     if (b.linkId) {
@@ -265,7 +412,6 @@ app.get('/api/member-events/today', authMiddleware, async function(req, res) {
       if (r.action === 'join') joins++;
       else if (r.action === 'leave') leaves++;
     });
-    // Format events for frontend compatibility
     var events = result.rows.map(function(r) {
       return {
         id: r.id,
@@ -363,14 +509,7 @@ app.get('/api/stats/dashboard', authMiddleware, async function(req, res) {
 app.get('/api/alerts', authMiddleware, async function(req, res) {
   try {
     var result = await pool.query('SELECT * FROM alerts ORDER BY timestamp DESC LIMIT 50');
-    res.json(result.rows.map(function(r) {
-      return {
-        id: r.id, type: r.type, whatsappGroupId: r.whatsapp_group_id,
-        groupName: r.group_name, memberPhone: r.member_phone,
-        message: r.message, read: r.read,
-        timestamp: { seconds: Math.floor(new Date(r.timestamp).getTime() / 1000) }
-      };
-    }));
+    res.json(result.rows.map(mapAlert));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -549,9 +688,13 @@ app.get('/api/settings', authMiddleware, async function(req, res) {
 
 app.post('/api/settings', authMiddleware, async function(req, res) {
   try {
+    // Merge with existing settings
+    var current = await pool.query("SELECT value FROM settings WHERE key='general'");
+    var existing = current.rows.length > 0 ? current.rows[0].value : {};
+    var merged = Object.assign({}, existing, req.body);
     await pool.query(
       "INSERT INTO settings (key, value, updated_at) VALUES ('general', $1, NOW()) ON CONFLICT (key) DO UPDATE SET value=$1, updated_at=NOW()",
-      [JSON.stringify(req.body)]
+      [JSON.stringify(merged)]
     );
     res.json({ success: true });
   } catch (err) {
@@ -562,7 +705,6 @@ app.post('/api/settings', authMiddleware, async function(req, res) {
 app.post('/api/settings/meta', authMiddleware, async function(req, res) {
   try {
     var meta = req.body;
-    // Save to DB
     var current = await pool.query("SELECT value FROM settings WHERE key='general'");
     var settings = current.rows.length > 0 ? current.rows[0].value : {};
     settings.meta = meta;
@@ -570,7 +712,6 @@ app.post('/api/settings/meta', authMiddleware, async function(req, res) {
       "INSERT INTO settings (key, value, updated_at) VALUES ('general', $1, NOW()) ON CONFLICT (key) DO UPDATE SET value=$1, updated_at=NOW()",
       [JSON.stringify(settings)]
     );
-    // Hot-reload env vars
     if (meta.accessToken) process.env.META_ACCESS_TOKEN = meta.accessToken;
     if (meta.adAccountId) process.env.META_AD_ACCOUNT_ID = meta.adAccountId;
     if (meta.appId) process.env.META_APP_ID = meta.appId;
@@ -588,9 +729,7 @@ app.post('/api/settings/meta', authMiddleware, async function(req, res) {
 app.get('/api/users', authMiddleware, async function(req, res) {
   try {
     var result = await pool.query('SELECT * FROM users ORDER BY created_at DESC');
-    res.json(result.rows.map(function(r) {
-      return { uid: r.uid, email: r.email, displayName: r.display_name, role: r.role, createdAt: r.created_at };
-    }));
+    res.json(result.rows.map(mapUser));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -600,8 +739,72 @@ app.get('/api/users/:uid', authMiddleware, async function(req, res) {
   try {
     var result = await pool.query('SELECT * FROM users WHERE uid=$1', [req.params.uid]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'Usuário não encontrado' });
-    var r = result.rows[0];
-    res.json({ uid: r.uid, email: r.email, displayName: r.display_name, role: r.role, createdAt: r.created_at });
+    res.json(mapUser(result.rows[0]));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Upsert user on login (creates if not exists, updates lastLogin)
+app.post('/api/users/login', authMiddleware, async function(req, res) {
+  try {
+    var b = req.body;
+    var uid = req.user.uid;
+    var result = await pool.query(
+      `INSERT INTO users (uid, email, display_name, last_login)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (uid) DO UPDATE SET email=$2, display_name=$3, last_login=NOW()
+       RETURNING *`,
+      [uid, b.email || req.user.email || '', b.displayName || '']
+    );
+    res.json(mapUser(result.rows[0]));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update user role
+app.put('/api/users/:uid', authMiddleware, async function(req, res) {
+  try {
+    var callerR = await pool.query('SELECT role FROM users WHERE uid=$1', [req.user.uid]);
+    if (callerR.rows.length === 0 || callerR.rows[0].role !== 'superadmin') {
+      return res.status(403).json({ error: 'Apenas Super Admin' });
+    }
+    var b = req.body;
+    var fields = [];
+    var values = [];
+    var idx = 1;
+    if (b.role !== undefined) { fields.push('role=$' + idx); values.push(b.role); idx++; }
+    if (b.displayName !== undefined) { fields.push('display_name=$' + idx); values.push(b.displayName); idx++; }
+    if (fields.length > 0) {
+      values.push(req.params.uid);
+      await pool.query('UPDATE users SET ' + fields.join(',') + ' WHERE uid=$' + idx, values);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Self-promote to superadmin (only if no superadmin exists)
+app.post('/api/users/promote', authMiddleware, async function(req, res) {
+  try {
+    var existing = await pool.query("SELECT uid FROM users WHERE role='superadmin' LIMIT 1");
+    if (existing.rows.length > 0) {
+      return res.status(400).json({ error: 'Já existe um Super Admin' });
+    }
+    await pool.query('UPDATE users SET role=$1 WHERE uid=$2', ['superadmin', req.user.uid]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Check if superadmin exists
+app.get('/api/users/check-superadmin', authMiddleware, async function(req, res) {
+  try {
+    var result = await pool.query("SELECT uid FROM users WHERE role='superadmin' LIMIT 1");
+    res.json({ exists: result.rows.length > 0 });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

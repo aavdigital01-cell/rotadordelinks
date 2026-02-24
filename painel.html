@@ -1982,7 +1982,7 @@ select.form-control {
 
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<!-- Firestore removido - usando PostgreSQL via server API -->
 <script src="config.js"></script>
 <script>
 (function() {
@@ -1991,7 +1991,7 @@ select.form-control {
   // ===== INIT =====
   firebase.initializeApp(FIREBASE_CONFIG);
   const auth = firebase.auth();
-  const db = firebase.firestore();
+  // PostgreSQL via server API - Firestore removido
 
   let currentUser = null;
   let currentUserRole = 'admin';
@@ -2017,11 +2017,14 @@ select.form-control {
     document.getElementById('userName').textContent = user.displayName || user.email;
     document.getElementById('userAvatar').textContent = (user.displayName || user.email).charAt(0).toUpperCase();
 
-    // Carrega role do usuário
+    // Carrega role do usuário e registra login via server API
     try {
-      var userDoc = await db.collection('users').doc(user.uid).get();
-      if (userDoc.exists) {
-        currentUserRole = userDoc.data().role || 'admin';
+      var userData = await serverPost('/api/users/login', {
+        email: user.email || '',
+        displayName: user.displayName || ''
+      });
+      if (userData && userData.role) {
+        currentUserRole = userData.role;
       }
     } catch(e) {}
 
@@ -2031,13 +2034,6 @@ select.form-control {
 
     // Aplica permissões de acordo com a role
     applyPermissions();
-
-    // Atualiza último login (set+merge cria o doc se não existir)
-    db.collection('users').doc(user.uid).set({
-      email: user.email || '',
-      displayName: user.displayName || '',
-      lastLogin: firebase.firestore.FieldValue.serverTimestamp()
-    }, { merge: true }).catch(function() {});
 
     init();
   });
@@ -2054,27 +2050,29 @@ select.form-control {
     checkPromoteEligibility();
     hideLoading();
 
-    // Listeners real-time para alertas
-    var unsubAlerts = db.collection('alerts')
-      .orderBy('timestamp', 'desc')
-      .limit(50)
-      .onSnapshot(function(snap) {
-        alerts = [];
-        snap.forEach(function(doc) { alerts.push({ id: doc.id, ...doc.data() }); });
+    // Poll alerts every 30 seconds
+    async function pollAlerts() {
+      try {
+        alerts = await serverFetch('/api/alerts');
         updateAlertsBadge();
         renderAlerts();
         renderNotifications();
-      });
-    unsubscribers.push(unsubAlerts);
+      } catch(e) {}
+    }
+    pollAlerts();
+    var alertsInterval = setInterval(pollAlerts, 30000);
+    unsubscribers.push(function() { clearInterval(alertsInterval); });
 
-    // Listener real-time para links (atualiza contagem de clicks)
-    var unsubLinks = db.collection('links').onSnapshot(function(snap) {
-      links = [];
-      snap.forEach(function(doc) { links.push({ id: doc.id, ...doc.data() }); });
-      enrichLinksWithGroupData();
-      updateDashboardStats();
-    });
-    unsubscribers.push(unsubLinks);
+    // Poll links every 30 seconds
+    async function pollLinks() {
+      try {
+        links = await serverFetch('/api/links');
+        enrichLinksWithGroupData();
+        updateDashboardStats();
+      } catch(e) {}
+    }
+    var linksInterval = setInterval(pollLinks, 30000);
+    unsubscribers.push(function() { clearInterval(linksInterval); });
   }
 
   function hideLoading() {
@@ -2158,9 +2156,9 @@ select.form-control {
 
   // ===== CAMPAIGNS =====
   async function loadCampaigns() {
-    var snap = await db.collection('campaigns').orderBy('createdAt', 'desc').get();
-    campaigns = [];
-    snap.forEach(function(doc) { campaigns.push({ id: doc.id, ...doc.data() }); });
+    try {
+      campaigns = await serverFetch('/api/campaigns');
+    } catch(e) { campaigns = []; }
     renderCampaignsTable();
     populateCampaignSelectors();
   }
@@ -2276,17 +2274,15 @@ select.form-control {
         gtmId: document.getElementById('campaignGtmId').value.trim(),
         gtmEventName: 'whatsapp_click',
         gadsId: document.getElementById('campaignGadsId').value.trim(),
-        gadsConversionLabel: document.getElementById('campaignGadsLabel').value.trim(),
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        gadsConversionLabel: document.getElementById('campaignGadsLabel').value.trim()
       };
 
       if (editId) {
-        await db.collection('campaigns').doc(editId).update(data);
+        await serverPut('/api/campaigns/' + editId, data);
         showToast('Campanha atualizada!', 'success');
       } else {
-        data.createdAt = firebase.firestore.FieldValue.serverTimestamp();
         data.createdBy = currentUser.uid;
-        await db.collection('campaigns').add(data);
+        await serverPost('/api/campaigns', data);
         showToast('Campanha criada!', 'success');
       }
 
@@ -2300,7 +2296,7 @@ select.form-control {
   window.toggleCampaignStatus = async function(id) {
     var c = campaigns.find(function(x) { return x.id === id; });
     if (!c) return;
-    await db.collection('campaigns').doc(id).update({ isActive: !(c.isActive !== false) });
+    await serverPut('/api/campaigns/' + id, { isActive: !(c.isActive !== false) });
     showToast('Status atualizado', 'success');
     await loadCampaigns();
   };
@@ -2308,12 +2304,7 @@ select.form-control {
   window.deleteCampaign = function(id) {
     var c = campaigns.find(function(x) { return x.id === id; });
     showConfirm('Excluir campanha "' + (c ? c.name : '') + '" e todos os links associados?', async function() {
-      // Deleta links associados
-      var linksSnap = await db.collection('links').where('campaignId', '==', id).get();
-      var batch = db.batch();
-      linksSnap.forEach(function(doc) { batch.delete(doc.ref); });
-      batch.delete(db.collection('campaigns').doc(id));
-      await batch.commit();
+      await serverDelete('/api/campaigns/' + id);
       showToast('Campanha excluída', 'success');
       await loadCampaigns();
       await loadAllLinks();
@@ -2322,9 +2313,9 @@ select.form-control {
 
   // ===== LINKS =====
   async function loadAllLinks() {
-    var snap = await db.collection('links').orderBy('createdAt', 'desc').get();
-    links = [];
-    snap.forEach(function(doc) { links.push({ id: doc.id, ...doc.data() }); });
+    try {
+      links = await serverFetch('/api/links');
+    } catch(e) { links = []; }
     renderLinksTable();
   }
 
@@ -2392,9 +2383,9 @@ select.form-control {
   // Enrich links with group member data for the table
   async function enrichLinksWithGroupData() {
     try {
-      var gmSnap = await db.collection('group_members').get();
+      var groups = await serverFetch('/api/whatsapp/groups');
       var groupMap = {};
-      gmSnap.forEach(function(doc) { groupMap[doc.id] = doc.data().currentMembers || 0; });
+      groups.forEach(function(g) { groupMap[g.id] = g.participants || g.currentMembers || 0; });
       links.forEach(function(l) {
         if (l.whatsappGroupId && groupMap[l.whatsappGroupId] !== undefined) {
           l._groupMembers = groupMap[l.whatsappGroupId];
@@ -2424,17 +2415,7 @@ select.form-control {
           return;
         }
       }
-      // Fallback: Firestore without orderBy
-      var snap = await db.collection('group_members').get();
-      var groups2 = [];
-      snap.forEach(function(doc) { groups2.push({ id: doc.id, ...doc.data() }); });
-      groups2.sort(function(a,b) { return (a.groupName||'').localeCompare(b.groupName||''); });
-      groups2.forEach(function(d) {
-        var opt = document.createElement('option');
-        opt.value = d.id;
-        opt.textContent = (d.groupName || 'Grupo') + ' (' + (d.currentMembers || 0) + ' membros)';
-        select.appendChild(opt);
-      });
+      // Fallback: no groups available
     } catch(e) { console.error('Erro ao carregar grupos:', e); }
   }
 
@@ -2514,18 +2495,16 @@ select.form-control {
         currentClicks: currentClicks,
         isActive: true,
         isFull: maxVacancies > 0 && currentClicks >= maxVacancies,
-        whatsappGroupId: document.getElementById('linkWhatsappGroup').value,
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        whatsappGroupId: document.getElementById('linkWhatsappGroup').value
       };
 
       if (editId) {
-        await db.collection('links').doc(editId).update(data);
+        await serverPut('/api/links/' + editId, data);
         showToast('Link atualizado!', 'success');
       } else {
-        data.createdAt = firebase.firestore.FieldValue.serverTimestamp();
         data.createdBy = currentUser.uid;
         data.order = links.length;
-        await db.collection('links').add(data);
+        await serverPost('/api/links', data);
         showToast('Link adicionado!', 'success');
       }
 
@@ -2539,8 +2518,9 @@ select.form-control {
   window.resetLinkClicks = function(id) {
     var l = links.find(function(x) { return x.id === id; });
     showConfirm('Resetar clicks do link "' + (l ? l.name : '') + '"?', async function() {
-      await db.collection('links').doc(id).update({ currentClicks: 0, isFull: false });
+      await serverPut('/api/links/' + id, { currentClicks: 0, isFull: false });
       showToast('Clicks resetados', 'success');
+      await loadAllLinks();
     });
   };
 
@@ -2551,17 +2531,17 @@ select.form-control {
     // Se estiver reativando um link banido, limpa os dados de saúde
     if (!l.isActive) {
       updateData.healthCheckFailures = 0;
-      updateData.deactivatedReason = firebase.firestore.FieldValue.delete();
-      updateData.deactivatedAt = firebase.firestore.FieldValue.delete();
+      updateData._deleteFields = ['deactivatedReason', 'deactivatedAt'];
     }
-    await db.collection('links').doc(id).update(updateData);
+    await serverPut('/api/links/' + id, updateData);
     showToast(!l.isActive ? 'Link reativado!' : 'Link desativado', 'success');
+    await loadAllLinks();
   };
 
   window.deleteLink = function(id) {
     var l = links.find(function(x) { return x.id === id; });
     showConfirm('Excluir link "' + (l ? l.name : '') + '"?', async function() {
-      await db.collection('links').doc(id).delete();
+      await serverDelete('/api/links/' + id);
       showToast('Link excluído', 'success');
       await loadAllLinks();
     });
@@ -2590,13 +2570,10 @@ select.form-control {
       serverFetch('/api/whatsapp/groups'),
       // 2) Member events via existing endpoint
       serverFetch('/api/member-events/today'),
-      // 3) Clicks today from Firestore
-      (function() {
-        var today = new Date(); today.setHours(0, 0, 0, 0);
-        return db.collection('clicks').where('timestamp', '>=', today).get();
-      })(),
-      // 4) Meta campaigns from Firestore
-      db.collection('meta_campaigns').get()
+      // 3) Clicks today from server
+      serverFetch('/api/clicks/today'),
+      // 4) Meta campaigns from server
+      serverFetch('/api/meta-campaigns')
     ]);
 
     // Process 1) Total members
@@ -2635,7 +2612,7 @@ select.form-control {
 
     // Process 3) Clicks
     if (results[2].status === 'fulfilled' && results[2].value) {
-      clicksToday = results[2].value.size;
+      clicksToday = results[2].value.total || 0;
       document.getElementById('statRotadorClicks').textContent = clicksToday.toLocaleString();
     }
 
@@ -2673,8 +2650,7 @@ select.form-control {
     // Process 4) Meta Ads
     if (results[3].status === 'fulfilled' && results[3].value) {
       var totalSpend = 0, totalClicks = 0, totalConversions = 0;
-      results[3].value.forEach(function(doc) {
-        var d = doc.data();
+      results[3].value.forEach(function(d) {
         totalSpend += (d.spend || 0);
         totalClicks += (d.clicks || 0);
         totalConversions += (d.conversions || 0);
@@ -2693,20 +2669,16 @@ select.form-control {
 
   async function loadRecentClicks() {
     try {
-      var snap = await db.collection('clicks')
-        .orderBy('timestamp', 'desc')
-        .limit(10)
-        .get();
+      var clicks = await serverFetch('/api/clicks/recent');
 
       var tbody = document.getElementById('recentClicksTable');
-      if (snap.empty) {
+      if (!clicks || clicks.length === 0) {
         tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><p>Nenhum click registrado ainda</p></div></td></tr>';
         return;
       }
 
       var html = '';
-      snap.forEach(function(doc) {
-        var d = doc.data();
+      clicks.forEach(function(d) {
         var time = d.timestamp ? new Date(d.timestamp.seconds * 1000).toLocaleString('pt-BR') : 'N/A';
         html += '<tr>' +
           '<td>' + escHtml(d.linkName || 'N/A') + '</td>' +
@@ -2776,34 +2748,15 @@ select.form-control {
 
   async function loadChartData() {
     try {
-      var today = new Date();
-      today.setHours(0, 0, 0, 0);
+      var data = await serverFetch('/api/clicks/today');
 
-      var snap = await db.collection('clicks')
-        .where('timestamp', '>=', today)
-        .get();
-
-      var hourly = new Array(24).fill(0);
-      var devices = { Mobile: 0, Desktop: 0, Tablet: 0 };
-
-      snap.forEach(function(doc) {
-        var d = doc.data();
-        if (d.timestamp) {
-          var hour = new Date(d.timestamp.seconds * 1000).getHours();
-          hourly[hour]++;
-        }
-        var dev = d.device || 'Desktop';
-        if (devices[dev] !== undefined) devices[dev]++;
-        else devices['Desktop']++;
-      });
-
-      if (clicksChart) {
-        clicksChart.data.datasets[0].data = hourly;
+      if (clicksChart && data.hourly) {
+        clicksChart.data.datasets[0].data = data.hourly;
         clicksChart.update();
       }
 
-      if (devicesChart) {
-        devicesChart.data.datasets[0].data = [devices.Mobile, devices.Desktop, devices.Tablet];
+      if (devicesChart && data.devices) {
+        devicesChart.data.datasets[0].data = [data.devices.Mobile || 0, data.devices.Desktop || 0, data.devices.Tablet || 0];
         devicesChart.update();
       }
     } catch (err) {
@@ -2815,43 +2768,16 @@ select.form-control {
   async function loadAnalytics() {
     try {
       var now = new Date();
-      var todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
-      var weekStart = new Date(now); weekStart.setDate(weekStart.getDate() - 7);
-      var monthStart = new Date(now); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
-      var thirtyDaysAgo = new Date(now); thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-      var snap = await db.collection('clicks')
-        .where('timestamp', '>=', thirtyDaysAgo)
-        .get();
+      var rangeData = await serverFetch('/api/clicks/range?days=30');
 
-      var clicksToday = 0, clicksWeek = 0, clicksMonth = 0;
-      var dailyData = {};
-      var countryData = {};
-      var browserData = {};
-      var hourlyData = new Array(24).fill(0);
-
-      snap.forEach(function(doc) {
-        var d = doc.data();
-        if (!d.timestamp) return;
-        var date = new Date(d.timestamp.seconds * 1000);
-
-        if (date >= todayStart) clicksToday++;
-        if (date >= weekStart) {
-          clicksWeek++;
-          // Peak hours from last 7 days
-          hourlyData[date.getHours()]++;
-        }
-        if (date >= monthStart) clicksMonth++;
-
-        var dayKey = date.toISOString().split('T')[0];
-        dailyData[dayKey] = (dailyData[dayKey] || 0) + 1;
-
-        var country = d.country || d.countryCode || 'Desconhecido';
-        countryData[country] = (countryData[country] || 0) + 1;
-
-        var browser = d.browser || 'Outro';
-        browserData[browser] = (browserData[browser] || 0) + 1;
-      });
+      var clicksToday = rangeData.clicksToday || 0;
+      var clicksWeek = rangeData.clicksWeek || 0;
+      var clicksMonth = rangeData.clicksMonth || 0;
+      var dailyData = rangeData.dailyData || {};
+      var countryData = rangeData.countryData || {};
+      var browserData = rangeData.browserData || {};
+      var hourlyData = rangeData.hourlyData || new Array(24).fill(0);
 
       document.getElementById('statClicksToday').textContent = clicksToday.toLocaleString();
       document.getElementById('statClicksWeek').textContent = clicksWeek.toLocaleString();
@@ -3070,24 +2996,20 @@ select.form-control {
   // ===== LEADS =====
   async function loadLeads() {
     try {
-      var query = db.collection('clicks').orderBy('timestamp', 'desc').limit(50);
-      if (lastLeadDoc) query = query.startAfter(lastLeadDoc);
-
-      var snap = await query.get();
-      if (snap.empty && leadsData.length === 0) {
+      var result = await serverFetch('/api/clicks/leads?limit=50&offset=' + leadsData.length);
+      if ((!result.clicks || result.clicks.length === 0) && leadsData.length === 0) {
         document.getElementById('leadsTable').innerHTML =
           '<tr><td colspan="9"><div class="empty-state"><i class="fas fa-users"></i><h3>Nenhum lead</h3><p>Clicks aparecerão aqui</p></div></td></tr>';
         document.getElementById('loadMoreLeads').style.display = 'none';
         return;
       }
 
-      snap.forEach(function(doc) {
-        leadsData.push({ id: doc.id, ...doc.data() });
-        lastLeadDoc = doc;
+      result.clicks.forEach(function(c) {
+        leadsData.push(c);
       });
 
       renderLeadsTable();
-      document.getElementById('loadMoreLeads').style.display = snap.size >= 50 ? 'inline-flex' : 'none';
+      document.getElementById('loadMoreLeads').style.display = result.hasMore ? 'inline-flex' : 'none';
     } catch (err) {
       console.error('Erro ao carregar leads:', err);
     }
@@ -3129,9 +3051,7 @@ select.form-control {
   // ===== ALERTS =====
   async function loadAlerts() {
     try {
-      var snap = await db.collection('alerts').orderBy('timestamp', 'desc').limit(50).get();
-      alerts = [];
-      snap.forEach(function(doc) { alerts.push({ id: doc.id, ...doc.data() }); });
+      alerts = await serverFetch('/api/alerts');
       updateAlertsBadge();
       renderAlerts();
     } catch (err) {
@@ -3225,16 +3145,13 @@ select.form-control {
   }
 
   window.markAlertRead = async function(id) {
-    await db.collection('alerts').doc(id).update({ read: true });
+    await serverPut('/api/alerts/' + id + '/read', {});
   };
 
   window.markAllAlertsRead = async function() {
-    var batch = db.batch();
-    alerts.filter(function(a) { return !a.read; }).forEach(function(a) {
-      batch.update(db.collection('alerts').doc(a.id), { read: true });
-    });
-    await batch.commit();
+    await serverPut('/api/alerts/read-all', {});
     showToast('Todos os alertas marcados como lidos', 'success');
+    await loadAlerts();
   };
 
   window.toggleNotifPanel = function() {
@@ -3248,13 +3165,12 @@ select.form-control {
       var createBtn = document.getElementById('btnCreateUser');
       if (createBtn) createBtn.style.display = isSuperAdmin() ? '' : 'none';
 
-      var snap = await db.collection('users').get();
+      var usersArr = await serverFetch('/api/users');
       var tbody = document.getElementById('usersTable');
       var html = '';
 
-      snap.forEach(function(doc) {
-        var u = doc.data();
-        var uid = doc.id;
+      usersArr.forEach(function(u) {
+        var uid = u.uid;
         var created = u.createdAt ? new Date(u.createdAt.seconds * 1000).toLocaleDateString('pt-BR') : 'N/A';
         var lastLogin = u.lastLogin ? new Date(u.lastLogin.seconds * 1000).toLocaleString('pt-BR') : 'N/A';
         var role = u.role || 'admin';
@@ -3313,7 +3229,7 @@ select.form-control {
       return;
     }
     try {
-      await db.collection('users').doc(uid).update({ role: newRole });
+      await serverPut('/api/users/' + uid, { role: newRole });
       showToast('Permissao atualizada para ' + newRole, 'success');
       loadUsers();
     } catch (err) {
@@ -3383,9 +3299,9 @@ select.form-control {
   // Verifica se deve mostrar botão de promoção
   async function checkPromoteEligibility() {
     try {
-      var snap = await db.collection('users').where('role', '==', 'superadmin').limit(1).get();
+      var result = await serverFetch('/api/users/check-superadmin');
       var promoteCard = document.getElementById('promoteCard');
-      if (snap.empty && currentUserRole !== 'superadmin') {
+      if (!result.exists && currentUserRole !== 'superadmin') {
         // Ninguém é superadmin ainda - mostra botão
         promoteCard.style.display = 'block';
       } else {
@@ -3396,13 +3312,7 @@ select.form-control {
 
   window.promoteSelfToSuperAdmin = async function() {
     try {
-      // Verifica se já existe superadmin
-      var snap = await db.collection('users').where('role', '==', 'superadmin').limit(1).get();
-      if (!snap.empty) {
-        showToast('Já existe um Super Admin', 'error');
-        return;
-      }
-      await db.collection('users').doc(currentUser.uid).update({ role: 'superadmin' });
+      await serverPost('/api/users/promote', {});
       currentUserRole = 'superadmin';
       document.getElementById('userRole').textContent = 'Super Admin';
       document.getElementById('promoteCard').style.display = 'none';
@@ -3447,13 +3357,12 @@ select.form-control {
     var soundAlert = document.getElementById('settingSoundAlert').classList.contains('active');
 
     try {
-      await db.collection('settings').doc('general').set({
+      await serverPost('/api/settings', {
         alertThreshold: threshold,
         browserNotif: browserNotif,
         soundAlert: soundAlert,
-        updatedBy: currentUser.uid,
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-      }, { merge: true });
+        updatedBy: currentUser.uid
+      });
 
       // Solicita permissão de notificação
       if (browserNotif && 'Notification' in window) {
@@ -3579,6 +3488,33 @@ select.form-control {
     return resp.json();
   }
 
+  async function serverPut(endpoint, body) {
+    var token = await auth.currentUser.getIdToken();
+    var resp = await fetch(SYSTEM_CONFIG.serverUrl + endpoint, {
+      method: 'PUT',
+      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (!resp.ok) {
+      var err = await resp.json().catch(function() { return { error: 'Erro de conexão' }; });
+      throw new Error(err.error || 'Erro ' + resp.status);
+    }
+    return resp.json();
+  }
+
+  async function serverDelete(endpoint) {
+    var token = await auth.currentUser.getIdToken();
+    var resp = await fetch(SYSTEM_CONFIG.serverUrl + endpoint, {
+      method: 'DELETE',
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    if (!resp.ok) {
+      var err = await resp.json().catch(function() { return { error: 'Erro de conexão' }; });
+      throw new Error(err.error || 'Erro ' + resp.status);
+    }
+    return resp.json();
+  }
+
   async function checkServerOnline() {
     try {
       await serverFetch('/api/whatsapp/status');
@@ -3623,9 +3559,9 @@ select.form-control {
       document.getElementById('funnelRotatorClicks').textContent = totalRotatorClicks.toLocaleString();
 
       // Funil: membros reais do WhatsApp
-      var membersSnap = await db.collection('group_members').get();
+      var groupsForFunnel = await serverFetch('/api/whatsapp/groups');
       var totalRealMembers = 0;
-      membersSnap.forEach(function(doc) { totalRealMembers += (doc.data().currentMembers || 0); });
+      if (groupsForFunnel) groupsForFunnel.forEach(function(g) { totalRealMembers += (g.participants || g.currentMembers || 0); });
       document.getElementById('funnelRealMembers').textContent = totalRealMembers.toLocaleString();
 
       // Custo por lead real
@@ -3644,8 +3580,8 @@ select.form-control {
 
   async function loadMetaFromFirestore() {
     try {
-      var snap = await db.collection('meta_campaigns').get();
-      if (snap.empty) return;
+      var metaCamps = await serverFetch('/api/meta-campaigns');
+      if (!metaCamps || metaCamps.length === 0) return;
 
       document.getElementById('metaServerOffline').style.display = 'none';
       document.getElementById('metaContent').style.display = 'block';
@@ -3654,8 +3590,7 @@ select.form-control {
       var tbody = document.getElementById('metaCampaignsTable');
       var html = '';
 
-      snap.forEach(function(doc) {
-        var c = doc.data();
+      metaCamps.forEach(function(c) {
         totalSpend += (c.spend || 0);
         totalImpressions += (c.impressions || 0);
         totalClicks += (c.clicks || 0);
@@ -3792,8 +3727,8 @@ select.form-control {
 
   async function loadWhatsAppFromFirestore() {
     try {
-      var snap = await db.collection('group_members').get();
-      if (snap.empty) return;
+      var groups = await serverFetch('/api/whatsapp/groups');
+      if (!groups || groups.length === 0) return;
 
       document.getElementById('whatsappNotConnected').style.display = 'none';
       document.getElementById('whatsappConnected').style.display = 'block';
@@ -3804,20 +3739,19 @@ select.form-control {
       var tbody = document.getElementById('whatsappGroupsTable');
       var html = '';
 
-      snap.forEach(function(doc) {
-        var g = doc.data();
-        var members = g.currentMembers || 0;
+      groups.forEach(function(g) {
+        var members = g.participants || g.currentMembers || 0;
         totalMembers += members;
-        var lastUpdate = g.lastScanned ? new Date(g.lastScanned.seconds * 1000).toLocaleString('pt-BR') : 'N/A';
+        var lastUpdate = 'N/A';
 
-        var linkedLink = links.find(function(l) { return l.whatsappGroupId === doc.id; });
+        var linkedLink = links.find(function(l) { return l.whatsappGroupId === g.id; });
         var linkedName = linkedLink ? linkedLink.name : '';
         var clicks = linkedLink ? (linkedLink.currentClicks || 0) : 0;
         var retention = clicks > 0 ? Math.round((members / clicks) * 100) : 0;
         var retentionColor = retention >= 70 ? 'var(--accent)' : retention >= 40 ? 'var(--warning)' : 'var(--danger)';
 
         html += '<tr>' +
-          '<td><strong style="font-size:12px">' + escHtml(g.groupName || 'N/A') + '</strong></td>' +
+          '<td><strong style="font-size:12px">' + escHtml(g.name || g.groupName || 'N/A') + '</strong></td>' +
           '<td style="font-size:16px;font-weight:700">' + members + '</td>' +
           '<td>' + (linkedLink ? '<span class="badge badge-success" style="font-size:10px">' + escHtml(linkedName) + '</span>' : '<span style="font-size:10px;color:var(--text-muted)">-</span>') + '</td>' +
           '<td style="text-align:center">-</td>' +
