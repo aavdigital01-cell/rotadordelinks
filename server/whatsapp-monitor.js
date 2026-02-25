@@ -97,6 +97,15 @@ function initialize(pgPool) {
         ['member_joined', groupId, groupName, '***' + memberPhone.slice(-4), 'Novo membro entrou no grupo ' + groupName]
       );
 
+      // Backup lead contact (real phone number for re-inviting)
+      if (memberPhone && memberPhone !== 'desconhecido') {
+        await pool.query(
+          'INSERT INTO lead_contacts (phone, whatsapp_group_id, group_name, joined_at, is_active) VALUES ($1, $2, $3, NOW(), true) ' +
+          'ON CONFLICT (phone, whatsapp_group_id) DO UPDATE SET is_active=true, left_at=NULL, joined_at=NOW()',
+          [memberPhone, groupId, groupName]
+        ).catch(function(e) { /* ignore if table doesn't exist yet */ });
+      }
+
     } catch (err) {
       console.error('[WHATSAPP] Erro ao registrar entrada:', err.message);
     }
@@ -121,6 +130,14 @@ function initialize(pgPool) {
 
       // Atualiza contagem
       await updateGroupMemberCount(groupId);
+
+      // Mark lead as inactive in backup
+      if (memberPhone && memberPhone !== 'desconhecido') {
+        await pool.query(
+          'UPDATE lead_contacts SET is_active=false, left_at=NOW() WHERE phone=$1 AND whatsapp_group_id=$2',
+          [memberPhone, groupId]
+        ).catch(function(e) { /* ignore if table doesn't exist yet */ });
+      }
 
     } catch (err) {
       console.error('[WHATSAPP] Erro ao registrar saída:', err.message);
@@ -413,12 +430,17 @@ async function getLiveGroupIds() {
   }
 }
 
+function getClient() {
+  return client;
+}
+
 module.exports = {
   initialize: initialize,
   getStatus: getStatus,
   getQR: getQR,
   getGroups: getGroups,
   getGroupMembers: getGroupMembers,
+  getClient: getClient,
   restart: restart,
   checkGroupExists: checkGroupExists,
   checkInviteCode: checkInviteCode,

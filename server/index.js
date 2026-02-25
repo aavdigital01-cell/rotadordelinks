@@ -1898,6 +1898,651 @@ app.post('/api/links/:id/reactivate', authMiddleware, async function(req, res) {
   }
 });
 
+// ===== AUTO-PAUSE: Monitor group capacity =====
+
+var autoPauseInterval = null;
+
+async function checkAutoCapacity() {
+  try {
+    // Get all active links with auto_pause enabled
+    var linksR = await pool.query(
+      "SELECT l.id, l.name, l.whatsapp_group_id, l.is_active, l.auto_pause_enabled, l.auto_pause_threshold, l.auto_reactivate_below, l.max_vacancies, " +
+      "g.current_members, g.max_members, g.group_name " +
+      "FROM links l LEFT JOIN whatsapp_groups g ON l.whatsapp_group_id = g.id " +
+      "WHERE l.auto_pause_enabled = true AND l.whatsapp_group_id IS NOT NULL"
+    );
+
+    for (var link of linksR.rows) {
+      var members = link.current_members || 0;
+      var maxMembers = link.max_members || 1024;
+      var threshold = link.auto_pause_threshold || 90;
+      var reactivateBelow = link.auto_reactivate_below || 500;
+      var capacityPercent = Math.round((members / maxMembers) * 100);
+
+      if (link.is_active && capacityPercent >= threshold) {
+        // Pause: group at or above capacity threshold
+        await pool.query(
+          "UPDATE links SET is_active=false, is_full=true, deactivated_reason=$1, deactivated_at=NOW(), updated_at=NOW() WHERE id=$2",
+          ['Auto-pause: grupo ' + (link.group_name || '') + ' atingiu ' + capacityPercent + '% da capacidade (' + members + '/' + maxMembers + ')', link.id]
+        );
+        invalidateRotateCache();
+        console.log('[AUTO-PAUSE] Link ' + link.name + ' pausado - grupo com ' + capacityPercent + '% capacidade');
+
+        // Create alert
+        await pool.query(
+          "INSERT INTO alerts (type, link_name, group_name, message, read) VALUES ($1,$2,$3,$4,false)",
+          ['link_health', link.name, link.group_name || '', 'Link pausado automaticamente: grupo atingiu ' + capacityPercent + '% da capacidade']
+        );
+      } else if (!link.is_active && link.deactivated_reason && link.deactivated_reason.startsWith('Auto-pause:') && members <= reactivateBelow) {
+        // Reactivate: group dropped below reactivation threshold
+        await pool.query(
+          "UPDATE links SET is_active=true, is_full=false, deactivated_reason=NULL, deactivated_at=NULL, updated_at=NOW() WHERE id=$1",
+          [link.id]
+        );
+        invalidateRotateCache();
+        console.log('[AUTO-PAUSE] Link ' + link.name + ' reativado - grupo caiu para ' + members + ' membros');
+      }
+    }
+  } catch (err) {
+    console.error('[AUTO-PAUSE] Erro:', err.message);
+  }
+}
+
+// Check capacity every 5 minutes
+autoPauseInterval = setInterval(checkAutoCapacity, 5 * 60 * 1000);
+
+// API: Toggle auto-pause per link
+app.put('/api/links/:id/auto-pause', authMiddleware, async function(req, res) {
+  try {
+    var enabled = req.body.enabled !== undefined ? req.body.enabled : true;
+    var threshold = req.body.threshold || 90;
+    var reactivateBelow = req.body.reactivateBelow || 500;
+    await pool.query(
+      'UPDATE links SET auto_pause_enabled=$1, auto_pause_threshold=$2, auto_reactivate_below=$3, updated_at=NOW() WHERE id=$4',
+      [enabled, threshold, reactivateBelow, req.params.id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// API: Global auto-pause toggle
+app.post('/api/settings/auto-pause', authMiddleware, async function(req, res) {
+  try {
+    var enabled = req.body.enabled;
+    if (enabled) {
+      if (!autoPauseInterval) {
+        autoPauseInterval = setInterval(checkAutoCapacity, 5 * 60 * 1000);
+      }
+    } else {
+      if (autoPauseInterval) {
+        clearInterval(autoPauseInterval);
+        autoPauseInterval = null;
+      }
+    }
+    // Save to settings
+    var current = {};
+    var r = await pool.query("SELECT value FROM settings WHERE key='general'");
+    if (r.rows.length > 0) current = r.rows[0].value || {};
+    current.autoPauseEnabled = enabled;
+    await pool.query(
+      "INSERT INTO settings (key, value, updated_at) VALUES ('general', $1, NOW()) ON CONFLICT (key) DO UPDATE SET value=$1, updated_at=NOW()",
+      [JSON.stringify(current)]
+    );
+    res.json({ success: true, enabled: enabled });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ===== LEAD BACKUP SYSTEM =====
+
+// Get leads by group with real phone numbers
+app.get('/api/leads/backup', authMiddleware, async function(req, res) {
+  try {
+    var groupId = req.query.group_id;
+    var query = 'SELECT lc.*, wg.group_name FROM lead_contacts lc LEFT JOIN whatsapp_groups wg ON lc.whatsapp_group_id = wg.id';
+    var params = [];
+
+    if (groupId) {
+      query += ' WHERE lc.whatsapp_group_id = $1';
+      params.push(groupId);
+    }
+    query += ' ORDER BY lc.joined_at DESC';
+
+    var result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get lead summary by group
+app.get('/api/leads/backup/summary', authMiddleware, async function(req, res) {
+  try {
+    var result = await pool.query(
+      "SELECT lc.whatsapp_group_id, wg.group_name, " +
+      "COUNT(*) FILTER (WHERE lc.is_active = true) as active_leads, " +
+      "COUNT(*) as total_leads, " +
+      "MAX(lc.joined_at) as last_join " +
+      "FROM lead_contacts lc LEFT JOIN whatsapp_groups wg ON lc.whatsapp_group_id = wg.id " +
+      "GROUP BY lc.whatsapp_group_id, wg.group_name ORDER BY active_leads DESC"
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Download leads as CSV
+app.get('/api/leads/backup/download', authMiddleware, async function(req, res) {
+  try {
+    var groupId = req.query.group_id;
+    var query = 'SELECT lc.phone, lc.whatsapp_group_id, wg.group_name, lc.joined_at, lc.left_at, lc.is_active FROM lead_contacts lc LEFT JOIN whatsapp_groups wg ON lc.whatsapp_group_id = wg.id';
+    var params = [];
+
+    if (groupId) {
+      query += ' WHERE lc.whatsapp_group_id = $1';
+      params.push(groupId);
+    }
+    query += ' ORDER BY lc.whatsapp_group_id, lc.joined_at DESC';
+
+    var result = await pool.query(query, params);
+
+    var csv = 'Telefone,Grupo ID,Grupo Nome,Entrou em,Saiu em,Ativo\n';
+    result.rows.forEach(function(r) {
+      csv += r.phone + ',' + r.whatsapp_group_id + ',"' + (r.group_name || '') + '",' +
+        (r.joined_at || '') + ',' + (r.left_at || '') + ',' + (r.is_active ? 'Sim' : 'Não') + '\n';
+    });
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="leads_backup_' + new Date().toISOString().split('T')[0] + '.csv"');
+    res.send(csv);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ===== BROADCAST SYSTEM =====
+
+// Rate limiter for broadcasts
+var broadcastRateLimiter = {
+  perMinute: { count: 0, reset: Date.now() + 60000 },
+  perHour: { count: 0, reset: Date.now() + 3600000 },
+  perDay: { count: 0, reset: Date.now() + 86400000 },
+  limits: { perMinute: 8, perHour: 80, perDay: 400 }
+};
+
+function checkBroadcastLimit() {
+  var now = Date.now();
+  if (now > broadcastRateLimiter.perMinute.reset) { broadcastRateLimiter.perMinute = { count: 0, reset: now + 60000 }; }
+  if (now > broadcastRateLimiter.perHour.reset) { broadcastRateLimiter.perHour = { count: 0, reset: now + 3600000 }; }
+  if (now > broadcastRateLimiter.perDay.reset) { broadcastRateLimiter.perDay = { count: 0, reset: now + 86400000 }; }
+
+  if (broadcastRateLimiter.perMinute.count >= broadcastRateLimiter.limits.perMinute) return false;
+  if (broadcastRateLimiter.perHour.count >= broadcastRateLimiter.limits.perHour) return false;
+  if (broadcastRateLimiter.perDay.count >= broadcastRateLimiter.limits.perDay) return false;
+  return true;
+}
+
+function recordBroadcastSend() {
+  broadcastRateLimiter.perMinute.count++;
+  broadcastRateLimiter.perHour.count++;
+  broadcastRateLimiter.perDay.count++;
+}
+
+// Get broadcast rate limits status
+app.get('/api/broadcast/limits', authMiddleware, function(req, res) {
+  res.json({
+    perMinute: { used: broadcastRateLimiter.perMinute.count, limit: broadcastRateLimiter.limits.perMinute },
+    perHour: { used: broadcastRateLimiter.perHour.count, limit: broadcastRateLimiter.limits.perHour },
+    perDay: { used: broadcastRateLimiter.perDay.count, limit: broadcastRateLimiter.limits.perDay }
+  });
+});
+
+// Create and send broadcast
+app.post('/api/broadcast/send', authMiddleware, async function(req, res) {
+  try {
+    var message = req.body.message;
+    var targetIds = req.body.targetIds || [];
+    var mentionAll = req.body.mentionAll || false;
+    var targetType = req.body.targetType || 'groups';
+
+    if (!message || message.trim() === '') {
+      return res.status(400).json({ error: 'Mensagem é obrigatória' });
+    }
+    if (targetIds.length === 0) {
+      return res.status(400).json({ error: 'Selecione pelo menos um destino' });
+    }
+
+    // Check if WhatsApp is connected
+    var status = whatsappMonitor.getStatus();
+    if (!status.ready) {
+      return res.status(400).json({ error: 'WhatsApp não está conectado' });
+    }
+
+    // Create broadcast record
+    var broadcastR = await pool.query(
+      "INSERT INTO broadcast_messages (message_text, target_type, target_ids, mention_all, sent_by, status, total_targets) " +
+      "VALUES ($1, $2, $3, $4, $5, 'sending', $6) RETURNING id",
+      [message, targetType, targetIds, mentionAll, req.uid || 'admin', targetIds.length]
+    );
+    var broadcastId = broadcastR.rows[0].id;
+
+    // Send in background
+    res.json({ success: true, broadcastId: broadcastId, message: 'Disparo iniciado para ' + targetIds.length + ' destino(s)' });
+
+    // Background send process with anti-ban delays
+    (async function() {
+      var sent = 0;
+      var failed = 0;
+      var client = whatsappMonitor.getClient();
+
+      for (var i = 0; i < targetIds.length; i++) {
+        var targetId = targetIds[i];
+
+        try {
+          // Check rate limit
+          if (!checkBroadcastLimit()) {
+            console.log('[BROADCAST] Rate limit atingido, aguardando...');
+            await new Promise(function(resolve) { setTimeout(resolve, 60000); }); // Wait 1 minute
+          }
+
+          // Anti-ban: check active hours (8am - 10pm)
+          var hour = new Date().getHours();
+          if (hour < 8 || hour >= 22) {
+            console.log('[BROADCAST] Fora do horário ativo, pausando até 8h');
+            // Skip rather than wait hours
+            await pool.query(
+              "INSERT INTO broadcast_logs (broadcast_id, target_id, target_name, status, error_message) VALUES ($1,$2,$3,'skipped','Fora do horário ativo (8h-22h)')",
+              [broadcastId, targetId, '']
+            );
+            failed++;
+            continue;
+          }
+
+          var sendOptions = {};
+
+          // If mentionAll, get participants and mention them
+          if (mentionAll && targetType === 'groups') {
+            try {
+              var chat = await client.getChatById(targetId);
+              if (chat && chat.participants) {
+                var mentions = [];
+                for (var p = 0; p < Math.min(chat.participants.length, 5); p++) {
+                  var contact = await client.getContactById(chat.participants[p].id._serialized);
+                  if (contact) mentions.push(contact);
+                }
+                sendOptions.mentions = mentions;
+              }
+            } catch(e) {
+              console.log('[BROADCAST] Erro ao buscar participantes:', e.message);
+            }
+          }
+
+          await client.sendMessage(targetId, message, sendOptions);
+          recordBroadcastSend();
+          sent++;
+
+          await pool.query(
+            "INSERT INTO broadcast_logs (broadcast_id, target_id, target_name, status, sent_at) VALUES ($1,$2,$3,'sent',NOW())",
+            [broadcastId, targetId, '']
+          );
+
+          console.log('[BROADCAST] Enviado para ' + targetId + ' (' + (i + 1) + '/' + targetIds.length + ')');
+
+          // Anti-ban: random delay between sends (3-8 seconds)
+          var delay = 3000 + Math.random() * 5000;
+          await new Promise(function(resolve) { setTimeout(resolve, delay); });
+
+        } catch (err) {
+          failed++;
+          console.error('[BROADCAST] Erro ao enviar para ' + targetId + ':', err.message);
+          await pool.query(
+            "INSERT INTO broadcast_logs (broadcast_id, target_id, target_name, status, error_message) VALUES ($1,$2,$3,'failed',$4)",
+            [broadcastId, targetId, '', err.message]
+          );
+
+          // If rate limited by WhatsApp, stop sending
+          if (err.message && (err.message.includes('rate') || err.message.includes('too many'))) {
+            console.error('[BROADCAST] Rate limited pelo WhatsApp, parando envios');
+            break;
+          }
+        }
+      }
+
+      // Update broadcast status
+      await pool.query(
+        "UPDATE broadcast_messages SET status='completed', total_sent=$1, total_failed=$2, completed_at=NOW() WHERE id=$3",
+        [sent, failed, broadcastId]
+      );
+      console.log('[BROADCAST] Concluído: ' + sent + ' enviados, ' + failed + ' falharam');
+    })();
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get broadcast history
+app.get('/api/broadcast/history', authMiddleware, async function(req, res) {
+  try {
+    var result = await pool.query('SELECT * FROM broadcast_messages ORDER BY created_at DESC LIMIT 50');
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get broadcast details
+app.get('/api/broadcast/:id', authMiddleware, async function(req, res) {
+  try {
+    var broadcast = await pool.query('SELECT * FROM broadcast_messages WHERE id=$1', [req.params.id]);
+    var logs = await pool.query('SELECT * FROM broadcast_logs WHERE broadcast_id=$1 ORDER BY sent_at', [req.params.id]);
+    res.json({ broadcast: broadcast.rows[0], logs: logs.rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Send invite to leads (re-invite to new group)
+app.post('/api/broadcast/invite-leads', authMiddleware, async function(req, res) {
+  try {
+    var sourceGroupId = req.body.sourceGroupId;
+    var targetGroupId = req.body.targetGroupId;
+    var message = req.body.message || '';
+
+    if (!sourceGroupId || !targetGroupId) {
+      return res.status(400).json({ error: 'Grupo de origem e destino são obrigatórios' });
+    }
+
+    var status = whatsappMonitor.getStatus();
+    if (!status.ready) {
+      return res.status(400).json({ error: 'WhatsApp não está conectado' });
+    }
+
+    // Get leads from source group
+    var leadsR = await pool.query(
+      'SELECT phone FROM lead_contacts WHERE whatsapp_group_id=$1 AND is_active=true AND invite_sent=false',
+      [sourceGroupId]
+    );
+
+    if (leadsR.rows.length === 0) {
+      return res.json({ success: true, message: 'Nenhum lead disponível para convidar' });
+    }
+
+    // Get invite link for target group
+    var client = whatsappMonitor.getClient();
+    var inviteCode;
+    try {
+      inviteCode = await client.getInviteCode(targetGroupId);
+    } catch(e) {
+      return res.status(400).json({ error: 'Erro ao obter link do grupo: ' + e.message });
+    }
+    var inviteLink = 'https://chat.whatsapp.com/' + inviteCode;
+
+    var totalLeads = leadsR.rows.length;
+    res.json({ success: true, message: 'Enviando convites para ' + totalLeads + ' leads...', totalLeads: totalLeads });
+
+    // Background send
+    (async function() {
+      var sent = 0;
+      for (var lead of leadsR.rows) {
+        try {
+          if (!checkBroadcastLimit()) {
+            await new Promise(function(resolve) { setTimeout(resolve, 60000); });
+          }
+
+          var fullMessage = message ? message + '\n\n' + inviteLink : inviteLink;
+          await client.sendMessage(lead.phone + '@c.us', fullMessage);
+          sent++;
+
+          // Mark as invited
+          await pool.query(
+            'UPDATE lead_contacts SET invite_sent=true, invite_sent_at=NOW() WHERE phone=$1 AND whatsapp_group_id=$2',
+            [lead.phone, sourceGroupId]
+          );
+
+          recordBroadcastSend();
+
+          // Anti-ban: 5-10 second delay between DMs
+          var delay = 5000 + Math.random() * 5000;
+          await new Promise(function(resolve) { setTimeout(resolve, delay); });
+
+        } catch(e) {
+          console.error('[INVITE] Erro para ' + lead.phone + ':', e.message);
+          if (e.message && (e.message.includes('rate') || e.message.includes('too many'))) break;
+        }
+      }
+      console.log('[INVITE] Convites enviados: ' + sent + '/' + totalLeads);
+    })();
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ===== SHOPEE API ENDPOINTS =====
+var shopeeApi = require('./shopee-api');
+
+// Search products
+app.get('/api/shopee/products', authMiddleware, async function(req, res) {
+  try {
+    var result = await shopeeApi.searchProducts({
+      keyword: req.query.keyword || '',
+      page: parseInt(req.query.page) || 1,
+      limit: parseInt(req.query.limit) || 20,
+      sortType: req.query.sort || 'relevance'
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Top offers / best commissions
+app.get('/api/shopee/top-offers', authMiddleware, async function(req, res) {
+  try {
+    var result = await shopeeApi.getTopOffers({
+      page: parseInt(req.query.page) || 1,
+      limit: parseInt(req.query.limit) || 20,
+      sortType: req.query.sort || 'commission_rate'
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Generate affiliate link
+app.post('/api/shopee/generate-link', authMiddleware, async function(req, res) {
+  try {
+    var originalUrl = req.body.url;
+    var subId = req.body.subId || 'whatsapp';
+
+    if (!originalUrl) return res.status(400).json({ error: 'URL é obrigatória' });
+
+    var result = await shopeeApi.generateAffiliateLink(originalUrl, subId);
+
+    // Save to DB
+    await pool.query(
+      'INSERT INTO shopee_links (original_url, affiliate_url, sub_id, product_name, price, commission_rate) VALUES ($1,$2,$3,$4,$5,$6)',
+      [originalUrl, result.shortLink, subId, req.body.productName || '', req.body.price || 0, req.body.commissionRate || 0]
+    );
+
+    res.json({ affiliateUrl: result.shortLink, subId: subId });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get saved affiliate links
+app.get('/api/shopee/links', authMiddleware, async function(req, res) {
+  try {
+    var result = await pool.query('SELECT * FROM shopee_links ORDER BY created_at DESC LIMIT 100');
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get commission report
+app.get('/api/shopee/commissions', authMiddleware, async function(req, res) {
+  try {
+    var startDate = req.query.start_date;
+    var endDate = req.query.end_date;
+    var subId = req.query.sub_id;
+
+    // Try API first
+    try {
+      var report = await shopeeApi.getConversionReport({ startDate: startDate, endDate: endDate, subId: subId });
+
+      // Save to DB for caching
+      if (report && report.nodes) {
+        for (var order of report.nodes) {
+          await pool.query(
+            "INSERT INTO shopee_commissions (order_id, item_id, item_name, shop_name, order_amount, commission, commission_rate, status, sub_id, order_created_at) " +
+            "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING",
+            [order.orderId, order.itemId, order.itemName, order.shopName, order.orderAmount, order.commission, order.commissionRate, order.status, order.publisherSubId, order.orderCreatedTime]
+          );
+        }
+      }
+
+      res.json(report);
+    } catch(apiErr) {
+      // Fallback to DB cache
+      var query = 'SELECT * FROM shopee_commissions WHERE 1=1';
+      var params = [];
+      var paramNum = 1;
+      if (startDate) { query += ' AND order_created_at >= $' + paramNum; params.push(startDate); paramNum++; }
+      if (endDate) { query += ' AND order_created_at <= $' + paramNum; params.push(endDate); paramNum++; }
+      if (subId) { query += ' AND sub_id = $' + paramNum; params.push(subId); paramNum++; }
+      query += ' ORDER BY order_created_at DESC LIMIT 200';
+
+      var dbResult = await pool.query(query, params);
+      var totalCommission = 0;
+      var totalAmount = 0;
+      dbResult.rows.forEach(function(r) { totalCommission += parseFloat(r.commission || 0); totalAmount += parseFloat(r.order_amount || 0); });
+
+      res.json({
+        nodes: dbResult.rows,
+        summary: { totalOrders: dbResult.rows.length, totalCommission: totalCommission, totalOrderAmount: totalAmount },
+        source: 'cache'
+      });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Shopee commission summary for WhatsApp subId
+app.get('/api/shopee/whatsapp-revenue', authMiddleware, async function(req, res) {
+  try {
+    var result = await pool.query(
+      "SELECT DATE(order_created_at) as date, COUNT(*) as orders, SUM(commission) as total_commission, SUM(order_amount) as total_sales " +
+      "FROM shopee_commissions WHERE sub_id = 'whatsapp' AND order_created_at >= NOW() - INTERVAL '30 days' " +
+      "GROUP BY DATE(order_created_at) ORDER BY date DESC"
+    );
+    var totals = await pool.query(
+      "SELECT COUNT(*) as total_orders, COALESCE(SUM(commission),0) as total_commission, COALESCE(SUM(order_amount),0) as total_sales " +
+      "FROM shopee_commissions WHERE sub_id = 'whatsapp'"
+    );
+    res.json({ daily: result.rows, totals: totals.rows[0] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Save Shopee config
+app.post('/api/settings/shopee', authMiddleware, async function(req, res) {
+  try {
+    var current = {};
+    var r = await pool.query("SELECT value FROM settings WHERE key='general'");
+    if (r.rows.length > 0) current = r.rows[0].value || {};
+
+    current.shopee = {
+      appId: req.body.appId || '',
+      secret: req.body.secret || ''
+    };
+
+    await pool.query(
+      "INSERT INTO settings (key, value, updated_at) VALUES ('general', $1, NOW()) ON CONFLICT (key) DO UPDATE SET value=$1, updated_at=NOW()",
+      [JSON.stringify(current)]
+    );
+
+    // Configure the Shopee API module
+    shopeeApi.configure(current.shopee);
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ===== MULTI-WHATSAPP NUMBER MANAGEMENT =====
+
+// List connected numbers
+app.get('/api/whatsapp/numbers', authMiddleware, async function(req, res) {
+  try {
+    var result = await pool.query('SELECT * FROM whatsapp_numbers ORDER BY is_primary DESC, created_at');
+
+    // Update primary number status from monitor
+    var status = whatsappMonitor.getStatus();
+    var numbers = result.rows.map(function(n) {
+      if (n.is_primary) {
+        n.status = status.ready ? 'connected' : 'disconnected';
+        n.phone_number = status.phone || n.phone_number;
+      }
+      return n;
+    });
+
+    // If no primary exists, add the current monitor as primary
+    if (numbers.length === 0 && status.ready) {
+      await pool.query(
+        "INSERT INTO whatsapp_numbers (id, phone_number, label, status, is_primary, session_data_path) VALUES ($1,$2,$3,$4,true,$5) ON CONFLICT(id) DO UPDATE SET status=$4, phone_number=$2",
+        ['primary', status.phone || '', 'Principal', 'connected', './whatsapp-session']
+      );
+      numbers.push({ id: 'primary', phone_number: status.phone || '', label: 'Principal', status: 'connected', is_primary: true, use_for_broadcast: true });
+    }
+
+    res.json(numbers);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Add new WhatsApp number
+app.post('/api/whatsapp/numbers', authMiddleware, async function(req, res) {
+  try {
+    var label = req.body.label || 'Número ' + Date.now();
+    var id = 'wn_' + Date.now();
+    var sessionPath = './whatsapp-session-' + id;
+
+    await pool.query(
+      "INSERT INTO whatsapp_numbers (id, label, status, is_primary, use_for_broadcast, session_data_path) VALUES ($1,$2,'pending',$3,$4,$5)",
+      [id, label, false, true, sessionPath]
+    );
+
+    res.json({ id: id, label: label, status: 'pending', message: 'Número adicionado. Escaneie o QR code para conectar.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Remove WhatsApp number
+app.delete('/api/whatsapp/numbers/:id', authMiddleware, async function(req, res) {
+  try {
+    if (req.params.id === 'primary') {
+      return res.status(400).json({ error: 'Não é possível remover o número principal' });
+    }
+    await pool.query('DELETE FROM whatsapp_numbers WHERE id=$1 AND is_primary=false', [req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Auto health check every 30 minutes
 setInterval(function() {
   runHealthCheck().catch(function(err) {
@@ -1934,6 +2579,27 @@ app.listen(PORT, async function() {
   } catch(e) {
     console.error('[META] Erro ao carregar credenciais do banco:', e.message);
   }
+
+  // Load Shopee credentials from database
+  try {
+    var settingsR2 = await pool.query("SELECT value FROM settings WHERE key='general'");
+    if (settingsR2.rows.length > 0 && settingsR2.rows[0].value && settingsR2.rows[0].value.shopee) {
+      shopeeApi.configure(settingsR2.rows[0].value.shopee);
+      console.log('[SHOPEE] Credenciais carregadas do banco de dados');
+    }
+  } catch(e) {
+    console.error('[SHOPEE] Erro ao carregar credenciais:', e.message);
+  }
+
+  // Register primary WhatsApp number
+  try {
+    await pool.query(
+      "INSERT INTO whatsapp_numbers (id, label, status, is_primary, session_data_path) VALUES ('primary', 'Principal', 'connecting', true, './whatsapp-session') ON CONFLICT (id) DO NOTHING"
+    );
+  } catch(e) { /* table might not exist yet */ }
+
+  // First auto-capacity check after 3 minutes
+  setTimeout(checkAutoCapacity, 3 * 60 * 1000);
 
   // First Meta sync
   if (process.env.META_ACCESS_TOKEN && process.env.META_ACCESS_TOKEN !== 'SEU_TOKEN_META_AQUI') {
