@@ -773,14 +773,29 @@ async function getUsdToBrl() {
     return exchangeRateCache.rate;
   }
   try {
+    // Try AwesomeAPI first
     var resp = await fetch('https://economia.awesomeapi.com.br/last/USD-BRL');
     var data = await resp.json();
-    var rate = parseFloat(data.USDBRL.bid);
-    exchangeRateCache = { rate: rate, timestamp: now };
-    return rate;
+    if (data && data.USDBRL && data.USDBRL.bid) {
+      var rate = parseFloat(data.USDBRL.bid);
+      exchangeRateCache = { rate: rate, timestamp: now };
+      return rate;
+    }
+    // Fallback: try alternative endpoint
+    var resp2 = await fetch('https://economia.awesomeapi.com.br/json/last/USD-BRL');
+    var data2 = await resp2.json();
+    if (data2 && data2.USDBRL && data2.USDBRL.bid) {
+      var rate2 = parseFloat(data2.USDBRL.bid);
+      exchangeRateCache = { rate: rate2, timestamp: now };
+      return rate2;
+    }
+    throw new Error('Formato inesperado da API');
   } catch (err) {
-    console.error('[EXCHANGE] Erro ao buscar cotação:', err.message);
-    return exchangeRateCache.rate || 5.0; // fallback
+    if (!exchangeRateCache._logged || (now - exchangeRateCache._logged) > 300000) {
+      console.error('[EXCHANGE] Erro ao buscar cotação:', err.message);
+      exchangeRateCache._logged = now;
+    }
+    return exchangeRateCache.rate || 5.70; // fallback R$5.70
   }
 }
 
