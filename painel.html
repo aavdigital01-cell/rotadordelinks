@@ -1390,16 +1390,21 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
           </div>
         </div>
 
-        <!-- Cotação editável -->
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;padding:8px 12px;background:var(--bg-secondary);border-radius:var(--radius-sm);font-size:12px">
+        <!-- Cotação editável com toggle Auto/Manual -->
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;padding:8px 12px;background:var(--bg-secondary);border-radius:var(--radius-sm);font-size:12px;flex-wrap:wrap">
           <i class="fas fa-exchange-alt" style="color:var(--info)"></i>
           <span style="color:var(--text-secondary)">Cotação USD→BRL:</span>
-          <span id="exchangeRateInfo" style="color:var(--text-primary);font-weight:600">Carregando...</span>
-          <button class="btn btn-secondary btn-sm" onclick="editExchangeRate()" style="padding:2px 8px;font-size:11px">
-            <i class="fas fa-edit"></i> Editar
-          </button>
-          <button class="btn btn-secondary btn-sm" onclick="fetchExchangeRate().then(function(){showToast('Cotação atualizada!','success');loadMetaCampaigns();})" style="padding:2px 8px;font-size:11px">
-            <i class="fas fa-sync"></i> Atualizar
+          <span id="exchangeRateInfo" style="font-weight:600">R$ 5.70</span>
+          <div style="display:flex;gap:4px;margin-left:4px">
+            <button id="btnRateAuto" class="btn btn-primary btn-sm" onclick="setExchangeRateMode('auto')" style="padding:2px 8px;font-size:10px">
+              <i class="fas fa-sync"></i> Automático
+            </button>
+            <button id="btnRateManual" class="btn btn-secondary btn-sm" onclick="setExchangeRateMode('manual')" style="padding:2px 8px;font-size:10px">
+              <i class="fas fa-edit"></i> Manual
+            </button>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="editExchangeRate()" style="padding:2px 8px;font-size:10px" id="btnEditRate">
+            <i class="fas fa-pencil-alt"></i> Editar Valor
           </button>
         </div>
 
@@ -1408,9 +1413,9 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
             <span class="card-title"><i class="fab fa-facebook" style="color:var(--info);margin-right:6px"></i>Campanhas Meta Ads</span>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
               <select class="form-control" id="metaDateRange" onchange="loadMetaCampaigns()" style="width:150px;padding:6px 10px;font-size:12px">
-                <option value="today">Hoje</option>
+                <option value="today" selected>Hoje</option>
                 <option value="yesterday">Ontem</option>
-                <option value="last_7d" selected>Últimos 7 dias</option>
+                <option value="last_7d">Últimos 7 dias</option>
                 <option value="last_14d">Últimos 14 dias</option>
                 <option value="last_30d">Últimos 30 dias</option>
                 <option value="this_month">Este mês</option>
@@ -2438,6 +2443,25 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
   });
 
   async function init() {
+    // Restaura cotação salva do localStorage primeiro (mais rápido)
+    loadMetaPreferences();
+
+    // Tenta carregar cotação do servidor (para sync entre dispositivos)
+    try {
+      var savedSettings = await serverFetch('/api/settings');
+      if (savedSettings && savedSettings.exchangeRate && savedSettings.exchangeRate > 0) {
+        // Servidor tem cotação salva - usa se localStorage não tem preferência manual
+        var localPrefs = localStorage.getItem('metaPrefs');
+        var localParsed = localPrefs ? JSON.parse(localPrefs) : {};
+        if (!localParsed.usdToBrl || localParsed.usdToBrl <= 1) {
+          usdToBrl = savedSettings.exchangeRate;
+        }
+        if (savedSettings.exchangeRateMode) {
+          exchangeRateMode = savedSettings.exchangeRateMode;
+        }
+      }
+    } catch(e) {}
+
     // Carrega dados iniciais em paralelo
     await Promise.all([
       loadCampaigns(),
@@ -3941,26 +3965,29 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
   }
 
   // ===== META ADS =====
-  var usdToBrl = 1; // cotação USD→BRL (1 = sem conversão)
+  var usdToBrl = 5.70; // cotação USD→BRL default
+  var exchangeRateMode = 'auto'; // 'auto' ou 'manual'
 
   function toBRL(usdValue) {
     return (parseFloat(usdValue || 0) * usdToBrl).toFixed(2);
   }
 
   async function fetchExchangeRate() {
+    // Se está no modo manual, NÃO busca da API
+    if (exchangeRateMode === 'manual') {
+      updateExchangeRateDisplay();
+      return;
+    }
     try {
       var data = await serverFetch('/api/exchange-rate');
       if (data && data.rate) {
         usdToBrl = data.rate;
-        var el = document.getElementById('exchangeRateInfo');
-        if (el) el.textContent = 'R$ ' + usdToBrl.toFixed(2) + ' (automático)';
       }
     } catch(e) {
       console.warn('Erro ao buscar cotação USD→BRL');
-      if (usdToBrl <= 1) usdToBrl = 5.70; // fallback razoável
-      var el = document.getElementById('exchangeRateInfo');
-      if (el) el.textContent = 'R$ ' + usdToBrl.toFixed(2) + ' (offline)';
+      if (usdToBrl <= 1) usdToBrl = 5.70;
     }
+    updateExchangeRateDisplay();
   }
 
   // Armazena campanhas renderizadas para filtrar localmente
@@ -3974,17 +4001,42 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
         var prefs = JSON.parse(saved);
         if (prefs.dateRange) document.getElementById('metaDateRange').value = prefs.dateRange;
         if (prefs.statusFilter) document.getElementById('metaStatusFilter').value = prefs.statusFilter;
-        if (prefs.usdToBrl) { usdToBrl = prefs.usdToBrl; }
+        if (prefs.usdToBrl && prefs.usdToBrl > 0) { usdToBrl = prefs.usdToBrl; }
+        if (prefs.exchangeRateMode) { exchangeRateMode = prefs.exchangeRateMode; }
       } catch(e) {}
     }
+    // Atualiza visual da cotação
+    updateExchangeRateDisplay();
   }
 
   function saveMetaPreferences() {
     localStorage.setItem('metaPrefs', JSON.stringify({
       dateRange: document.getElementById('metaDateRange').value,
       statusFilter: document.getElementById('metaStatusFilter').value,
-      usdToBrl: usdToBrl
+      usdToBrl: usdToBrl,
+      exchangeRateMode: exchangeRateMode
     }));
+    // Salva no servidor também para persistir entre dispositivos
+    serverPost('/api/settings', { exchangeRate: usdToBrl, exchangeRateMode: exchangeRateMode }).catch(function() {});
+  }
+
+  function updateExchangeRateDisplay() {
+    var el = document.getElementById('exchangeRateInfo');
+    if (!el) return;
+    if (exchangeRateMode === 'manual') {
+      el.textContent = 'R$ ' + usdToBrl.toFixed(2) + ' (manual)';
+      el.style.color = 'var(--warning)';
+    } else {
+      el.textContent = 'R$ ' + usdToBrl.toFixed(2) + ' (automático)';
+      el.style.color = 'var(--text-primary)';
+    }
+    // Update toggle button visuals
+    var btnAuto = document.getElementById('btnRateAuto');
+    var btnManual = document.getElementById('btnRateManual');
+    if (btnAuto && btnManual) {
+      btnAuto.className = 'btn btn-sm ' + (exchangeRateMode === 'auto' ? 'btn-primary' : 'btn-secondary');
+      btnManual.className = 'btn btn-sm ' + (exchangeRateMode === 'manual' ? 'btn-warning' : 'btn-secondary');
+    }
   }
 
   // Recalcula e atualiza todos os stats do topo + funil completo
@@ -4014,11 +4066,8 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
       document.getElementById('metaCostPerLead').textContent = cplReal > 0 ? 'R$ ' + cplReal.toFixed(2) : '-';
     } catch(e) {}
 
-    // Cotação
-    var rateEl = document.getElementById('exchangeRateInfo');
-    if (rateEl && !rateEl.textContent.includes('manual')) {
-      rateEl.textContent = 'R$ ' + usdToBrl.toFixed(2) + ' (automático)';
-    }
+    // Cotação - sempre mostra o estado correto
+    updateExchangeRateDisplay();
 
     // Update enhanced funnel + load Meta Ads analytics sections
     await updateMetaFunnelComplete();
@@ -4038,11 +4087,8 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
       document.getElementById('metaServerOffline').style.display = 'none';
       document.getElementById('metaContent').style.display = 'block';
 
-      // Busca cotação apenas se não foi editada manualmente
-      var rateEl = document.getElementById('exchangeRateInfo');
-      if (!rateEl.textContent.includes('manual')) {
-        await fetchExchangeRate();
-      }
+      // Busca cotação apenas se está no modo automático
+      await fetchExchangeRate();
 
       var dateRange = document.getElementById('metaDateRange').value;
       var campaigns = await serverFetch('/api/meta/campaigns');
@@ -4102,10 +4148,8 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
       var metaCamps = await serverFetch('/api/meta-campaigns');
       if (!metaCamps || metaCamps.length === 0) return;
 
-      var rateEl = document.getElementById('exchangeRateInfo');
-      if (!rateEl.textContent.includes('manual')) {
-        await fetchExchangeRate();
-      }
+      // Busca cotação respeitando modo (manual não busca da API)
+      await fetchExchangeRate();
 
       document.getElementById('metaServerOffline').style.display = 'none';
       document.getElementById('metaContent').style.display = 'block';
@@ -4188,12 +4232,30 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     renderMetaTable();
   };
 
+  window.setExchangeRateMode = function(mode) {
+    exchangeRateMode = mode;
+    if (mode === 'auto') {
+      // Busca cotação atualizada da API
+      fetchExchangeRate().then(function() {
+        saveMetaPreferences();
+        updateMetaStats();
+        renderMetaTable();
+        showToast('Modo automático ativado', 'success');
+      });
+    } else {
+      updateExchangeRateDisplay();
+      saveMetaPreferences();
+      showToast('Modo manual ativado - edite o valor do dólar', 'info');
+    }
+  };
+
   window.editExchangeRate = function() {
     var current = usdToBrl.toFixed(2);
     var newRate = prompt('Valor do dólar (USD → BRL):\nAtual: R$ ' + current, current);
     if (!newRate || isNaN(parseFloat(newRate))) return;
     usdToBrl = parseFloat(newRate);
-    document.getElementById('exchangeRateInfo').textContent = 'R$ ' + usdToBrl.toFixed(2) + ' (manual)';
+    exchangeRateMode = 'manual'; // Automaticamente muda para manual ao editar
+    updateExchangeRateDisplay();
     saveMetaPreferences();
     // Re-renderiza tabela E recalcula stats
     updateMetaStats();
