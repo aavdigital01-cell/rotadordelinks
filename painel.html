@@ -656,6 +656,159 @@ select.form-control {
   font-size: 12px;
 }
 
+/* ===== EXECUTIVE SUMMARY ===== */
+.exec-summary {
+  background: linear-gradient(135deg, var(--bg-card), var(--bg-secondary));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  margin-bottom: 24px;
+  position: relative;
+  overflow: hidden;
+}
+.exec-summary::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  background: var(--accent);
+}
+.exec-summary-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.exec-summary-title {
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.exec-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 16px;
+}
+.exec-metric {
+  text-align: center;
+}
+.exec-metric-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+.exec-metric-value {
+  font-size: 20px;
+  font-weight: 700;
+}
+.exec-metric-sub {
+  font-size: 10px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+/* ===== HEATMAP ===== */
+.heatmap-grid {
+  display: grid;
+  grid-template-columns: 50px repeat(24, 1fr);
+  gap: 2px;
+  font-size: 10px;
+}
+.heatmap-cell {
+  aspect-ratio: 1;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--text-primary);
+  min-height: 28px;
+  cursor: default;
+  transition: transform 0.1s;
+}
+.heatmap-cell:hover {
+  transform: scale(1.2);
+  z-index: 1;
+}
+.heatmap-label {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 6px;
+  font-size: 10px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.heatmap-hour {
+  text-align: center;
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 9px;
+  padding: 2px 0;
+}
+
+/* ===== AUTO-REFRESH ===== */
+.auto-refresh-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+.auto-refresh-bar select {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  padding: 2px 6px;
+  font-size: 11px;
+}
+.pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 2s infinite;
+}
+@keyframes pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.3; }
+  100% { opacity: 1; }
+}
+
+/* ===== SMART ALERTS PANEL ===== */
+.smart-alert-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+.smart-alert-item.danger { background: var(--danger-bg); border-left: 3px solid var(--danger); }
+.smart-alert-item.warning { background: var(--warning-bg); border-left: 3px solid var(--warning); }
+.smart-alert-item.info { background: var(--info-bg); border-left: 3px solid var(--info); }
+.smart-alert-icon { font-size: 14px; margin-top: 1px; }
+.smart-alert-item.danger .smart-alert-icon { color: var(--danger); }
+.smart-alert-item.warning .smart-alert-icon { color: var(--warning); }
+.smart-alert-item.info .smart-alert-icon { color: var(--info); }
+.smart-alert-title { font-weight: 600; margin-bottom: 2px; }
+.smart-alert-msg { color: var(--text-secondary); font-size: 11px; }
+
 /* ===== RESPONSIVE ===== */
 @media (max-width: 768px) {
   .sidebar { transform: translateX(-100%); }
@@ -666,6 +819,8 @@ select.form-control {
   .content { padding: 16px; }
   .form-row { grid-template-columns: 1fr; }
   .notif-panel { width: 100%; right: -100%; }
+  .exec-summary-grid { grid-template-columns: repeat(3, 1fr); }
+  .heatmap-grid { font-size: 8px; }
 }
 
 @media (max-width: 480px) {
@@ -836,6 +991,77 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
 
     <!-- ===== DASHBOARD VIEW ===== -->
     <div class="view active" id="view-dashboard">
+      <!-- Auto-refresh bar -->
+      <div class="auto-refresh-bar">
+        <div class="pulse-dot" id="autoRefreshDot" style="display:none"></div>
+        <i class="fas fa-sync-alt" style="color:var(--accent)"></i>
+        <span>Auto-refresh:</span>
+        <select id="autoRefreshInterval" onchange="setAutoRefresh(this.value)">
+          <option value="0">Desligado</option>
+          <option value="60">1 min</option>
+          <option value="120">2 min</option>
+          <option value="300" selected>5 min</option>
+          <option value="600">10 min</option>
+        </select>
+        <span style="margin-left:auto;color:var(--text-muted)" id="lastUpdateTime">Carregando...</span>
+        <button class="btn btn-secondary btn-sm" onclick="manualRefresh()" style="padding:2px 8px;font-size:11px">
+          <i class="fas fa-redo"></i> Atualizar
+        </button>
+      </div>
+
+      <!-- Resumo Executivo -->
+      <div class="exec-summary" id="execSummary">
+        <div class="exec-summary-header">
+          <div class="exec-summary-title">
+            <i class="fas fa-chart-bar" style="color:var(--accent)"></i>
+            Resumo Executivo (Hoje)
+          </div>
+          <span style="font-size:10px;color:var(--text-muted)" id="execTimestamp"></span>
+        </div>
+        <div class="exec-summary-grid">
+          <div class="exec-metric">
+            <div class="exec-metric-label">Gasto Meta</div>
+            <div class="exec-metric-value" id="execSpend" style="color:var(--warning)">R$ 0</div>
+            <div class="exec-metric-sub" id="execSpendSub">-</div>
+          </div>
+          <div class="exec-metric">
+            <div class="exec-metric-label">Clicks Total</div>
+            <div class="exec-metric-value" id="execClicks" style="color:var(--info)">0</div>
+            <div class="exec-metric-sub" id="execClicksSub">Meta + Rotador</div>
+          </div>
+          <div class="exec-metric">
+            <div class="exec-metric-label">Entradas</div>
+            <div class="exec-metric-value" id="execJoins" style="color:var(--accent)">0</div>
+            <div class="exec-metric-sub" id="execJoinsSub">-</div>
+          </div>
+          <div class="exec-metric">
+            <div class="exec-metric-label">Retidos</div>
+            <div class="exec-metric-value" id="execRetained" style="color:var(--purple)">0</div>
+            <div class="exec-metric-sub" id="execRetainedSub">-</div>
+          </div>
+          <div class="exec-metric">
+            <div class="exec-metric-label">CPL Real</div>
+            <div class="exec-metric-value" id="execCPL" style="color:var(--danger)">-</div>
+            <div class="exec-metric-sub">Custo por membro retido</div>
+          </div>
+          <div class="exec-metric">
+            <div class="exec-metric-label">ROI Score</div>
+            <div class="exec-metric-value" id="execROI" style="color:var(--accent)">-</div>
+            <div class="exec-metric-sub" id="execROISub">Retenção vs custo</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Smart Alerts -->
+      <div class="card" id="smartAlertsCard" style="margin-bottom:24px;display:none">
+        <div class="card-header">
+          <span class="card-title"><i class="fas fa-bell" style="color:var(--warning);margin-right:6px"></i>Alertas Inteligentes <span id="smartAlertsCount" class="badge badge-warning" style="font-size:10px;margin-left:4px">0</span></span>
+          <button class="btn btn-secondary btn-sm" onclick="loadSmartAlerts()" style="font-size:11px"><i class="fas fa-sync"></i></button>
+        </div>
+        <div class="card-body" id="smartAlertsList" style="max-height:200px;overflow-y:auto">
+        </div>
+      </div>
+
       <!-- Row 1: KPIs Principais -->
       <div class="stats-grid" style="grid-template-columns:repeat(4,1fr)">
         <div class="stat-card">
@@ -1225,31 +1451,142 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
           </div>
         </div>
 
-        <div class="card">
+        <!-- Funil Completo Real (6 etapas) -->
+        <div class="card" style="margin-bottom:24px">
           <div class="card-header">
-            <span class="card-title">Funil de Conversão</span>
+            <span class="card-title"><i class="fas fa-filter" style="color:var(--accent);margin-right:6px"></i>Funil Completo Real</span>
           </div>
           <div class="card-body">
-            <div style="display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;padding:20px 0">
-              <div style="text-align:center;padding:16px 24px;background:var(--info-bg);border-radius:var(--radius);min-width:140px">
-                <div style="font-size:11px;color:var(--info);font-weight:600;margin-bottom:4px">IMPRESSÕES</div>
-                <div style="font-size:24px;font-weight:700" id="funnelImpressions">0</div>
+            <div style="display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;padding:16px 0">
+              <div style="text-align:center;padding:14px 18px;background:var(--info-bg);border-radius:var(--radius);min-width:110px">
+                <div style="font-size:10px;color:var(--info);font-weight:600;margin-bottom:2px">IMPRESSÕES</div>
+                <div style="font-size:20px;font-weight:700" id="funnelImpressions">0</div>
               </div>
-              <i class="fas fa-chevron-right" style="color:var(--text-muted)"></i>
-              <div style="text-align:center;padding:16px 24px;background:var(--purple-bg);border-radius:var(--radius);min-width:140px">
-                <div style="font-size:11px;color:var(--purple);font-weight:600;margin-bottom:4px">CLICKS (META)</div>
-                <div style="font-size:24px;font-weight:700" id="funnelMetaClicks">0</div>
+              <div style="text-align:center">
+                <i class="fas fa-chevron-right" style="color:var(--text-muted);font-size:11px"></i>
+                <div style="font-size:9px;color:var(--text-muted)" id="funnelRate1">-</div>
               </div>
-              <i class="fas fa-chevron-right" style="color:var(--text-muted)"></i>
-              <div style="text-align:center;padding:16px 24px;background:var(--accent-glow);border-radius:var(--radius);min-width:140px">
-                <div style="font-size:11px;color:var(--accent);font-weight:600;margin-bottom:4px">CLICKS (ROTADOR)</div>
-                <div style="font-size:24px;font-weight:700" id="funnelRotatorClicks">0</div>
+              <div style="text-align:center;padding:14px 18px;background:var(--purple-bg);border-radius:var(--radius);min-width:110px">
+                <div style="font-size:10px;color:var(--purple);font-weight:600;margin-bottom:2px">CLICK META</div>
+                <div style="font-size:20px;font-weight:700" id="funnelMetaClicks">0</div>
               </div>
-              <i class="fas fa-chevron-right" style="color:var(--text-muted)"></i>
-              <div style="text-align:center;padding:16px 24px;background:var(--warning-bg);border-radius:var(--radius);min-width:140px">
-                <div style="font-size:11px;color:var(--warning);font-weight:600;margin-bottom:4px">MEMBROS REAIS</div>
-                <div style="font-size:24px;font-weight:700" id="funnelRealMembers">0</div>
+              <div style="text-align:center">
+                <i class="fas fa-chevron-right" style="color:var(--text-muted);font-size:11px"></i>
+                <div style="font-size:9px;color:var(--text-muted)" id="funnelRate2">-</div>
               </div>
+              <div style="text-align:center;padding:14px 18px;background:var(--accent-glow);border-radius:var(--radius);min-width:110px">
+                <div style="font-size:10px;color:var(--accent);font-weight:600;margin-bottom:2px">CLICK ROTADOR</div>
+                <div style="font-size:20px;font-weight:700" id="funnelRotatorClicks">0</div>
+              </div>
+              <div style="text-align:center">
+                <i class="fas fa-chevron-right" style="color:var(--text-muted);font-size:11px"></i>
+                <div style="font-size:9px;color:var(--text-muted)" id="funnelRate3">-</div>
+              </div>
+              <div style="text-align:center;padding:14px 18px;background:var(--warning-bg);border-radius:var(--radius);min-width:110px">
+                <div style="font-size:10px;color:var(--warning);font-weight:600;margin-bottom:2px">ENTROU</div>
+                <div style="font-size:20px;font-weight:700" id="funnelRealMembers">0</div>
+              </div>
+              <div style="text-align:center">
+                <i class="fas fa-chevron-right" style="color:var(--text-muted);font-size:11px"></i>
+                <div style="font-size:9px;color:var(--text-muted)" id="funnelRate4">-</div>
+              </div>
+              <div style="text-align:center;padding:14px 18px;background:var(--accent-dim);border-radius:var(--radius);min-width:110px;border:1px solid var(--accent)">
+                <div style="font-size:10px;color:var(--accent);font-weight:600;margin-bottom:2px">PERMANECEU</div>
+                <div style="font-size:20px;font-weight:700" id="funnelRetained">0</div>
+              </div>
+              <div style="text-align:center">
+                <i class="fas fa-chevron-right" style="color:var(--text-muted);font-size:11px"></i>
+                <div style="font-size:9px;color:var(--danger)" id="funnelRate5">-</div>
+              </div>
+              <div style="text-align:center;padding:14px 18px;background:var(--danger-bg);border-radius:var(--radius);min-width:110px">
+                <div style="font-size:10px;color:var(--danger);font-weight:600;margin-bottom:2px">SAIU</div>
+                <div style="font-size:20px;font-weight:700" id="funnelLeaves">0</div>
+              </div>
+            </div>
+            <!-- ROI metrics row -->
+            <div style="display:flex;gap:16px;justify-content:center;flex-wrap:wrap;padding-top:12px;border-top:1px solid var(--border)">
+              <div style="text-align:center;padding:8px 16px">
+                <div style="font-size:10px;color:var(--text-muted);font-weight:600">CUSTO/MEMBRO RETIDO</div>
+                <div style="font-size:18px;font-weight:700;color:var(--accent)" id="funnelCostRetained">-</div>
+              </div>
+              <div style="text-align:center;padding:8px 16px">
+                <div style="font-size:10px;color:var(--text-muted);font-weight:600">ROI RETENCAO</div>
+                <div style="font-size:18px;font-weight:700;color:var(--purple)" id="funnelROI">-</div>
+              </div>
+              <div style="text-align:center;padding:8px 16px">
+                <div style="font-size:10px;color:var(--text-muted);font-weight:600">CUSTO/CLICK REAL</div>
+                <div style="font-size:18px;font-weight:700;color:var(--info)" id="funnelCostClick">-</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mapa de Calor + Atribuição side by side -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">
+          <!-- Heatmap -->
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title"><i class="fas fa-fire" style="color:var(--danger);margin-right:6px"></i>Mapa de Calor (Clicks)</span>
+              <select id="heatmapDays" onchange="loadHeatmap()" style="padding:4px 8px;font-size:11px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;color:var(--text-primary)">
+                <option value="7" selected>7 dias</option>
+                <option value="14">14 dias</option>
+                <option value="30">30 dias</option>
+              </select>
+            </div>
+            <div class="card-body" id="heatmapContainer" style="overflow-x:auto">
+              <p style="text-align:center;color:var(--text-muted);font-size:12px">Carregando...</p>
+            </div>
+          </div>
+
+          <!-- Atribuição por campanha -->
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title"><i class="fas fa-trophy" style="color:var(--warning);margin-right:6px"></i>Atribuição por Campanha</span>
+            </div>
+            <div class="table-wrap" style="max-height:340px;overflow-y:auto">
+              <table id="attributionTableWrap">
+                <thead>
+                  <tr>
+                    <th class="sortable">Campanha</th>
+                    <th class="sortable">Clicks</th>
+                    <th class="sortable">Entradas</th>
+                    <th class="sortable">Retidos</th>
+                    <th class="sortable">Retenção</th>
+                    <th class="sortable">Custo/Retido</th>
+                  </tr>
+                </thead>
+                <tbody id="attributionTable">
+                  <tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:20px">Carregando...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Analytics Extras: Referrer, OS, Cidade -->
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px">
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title"><i class="fas fa-globe" style="color:var(--info);margin-right:6px"></i>Top Cidades</span>
+            </div>
+            <div class="card-body" id="topCitiesList" style="max-height:200px;overflow-y:auto;font-size:12px">
+              <p style="color:var(--text-muted)">Carregando...</p>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title"><i class="fas fa-mobile-alt" style="color:var(--purple);margin-right:6px"></i>Sistemas</span>
+            </div>
+            <div class="card-body" id="topOSList" style="max-height:200px;overflow-y:auto;font-size:12px">
+              <p style="color:var(--text-muted)">Carregando...</p>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title"><i class="fas fa-link" style="color:var(--accent);margin-right:6px"></i>Referrers</span>
+            </div>
+            <div class="card-body" id="topReferrersList" style="max-height:200px;overflow-y:auto;font-size:12px">
+              <p style="color:var(--text-muted)">Carregando...</p>
             </div>
           </div>
         </div>
@@ -2616,6 +2953,11 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     } catch(e) { console.error('Dashboard stats error:', e); }
     loadRecentClicks();
     initDashboardCharts();
+    // Load executive summary + smart alerts in parallel (non-blocking)
+    Promise.allSettled([loadExecSummary(), loadSmartAlerts()]);
+    // Update timestamp
+    var timeEl = document.getElementById('lastUpdateTime');
+    if (timeEl) timeEl.textContent = 'Atualizado ' + new Date().toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
   }
 
   async function updateDashboardStats() {
@@ -3645,7 +3987,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     }));
   }
 
-  // Recalcula e atualiza todos os stats do topo + funil
+  // Recalcula e atualiza todos os stats do topo + funil completo
   async function updateMetaStats() {
     var totalSpend = 0, totalImpressions = 0, totalClicks = 0, totalConversions = 0;
     metaCampaignsRendered.forEach(function(c) {
@@ -3663,18 +4005,11 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     var cplMeta = totalConversions > 0 ? spendBRL / totalConversions : 0;
     document.getElementById('metaCPLMeta').textContent = cplMeta > 0 ? 'R$ ' + cplMeta.toFixed(2) : '-';
 
-    // Funil
-    document.getElementById('funnelImpressions').textContent = totalImpressions.toLocaleString();
-    document.getElementById('funnelMetaClicks').textContent = totalClicks.toLocaleString();
-    var totalRotatorClicks = links.reduce(function(sum, l) { return sum + (l.currentClicks || 0); }, 0);
-    document.getElementById('funnelRotatorClicks').textContent = totalRotatorClicks.toLocaleString();
-
-    // Membros reais do WhatsApp
+    // Membros reais do WhatsApp para CPL Real
     try {
       var groups = await serverFetch('/api/whatsapp/groups');
       var totalRealMembers = 0;
       if (groups) groups.forEach(function(g) { totalRealMembers += (g.participants || g.currentMembers || 0); });
-      document.getElementById('funnelRealMembers').textContent = totalRealMembers.toLocaleString();
       var cplReal = totalRealMembers > 0 ? spendBRL / totalRealMembers : 0;
       document.getElementById('metaCostPerLead').textContent = cplReal > 0 ? 'R$ ' + cplReal.toFixed(2) : '-';
     } catch(e) {}
@@ -3684,6 +4019,9 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     if (rateEl && !rateEl.textContent.includes('manual')) {
       rateEl.textContent = 'R$ ' + usdToBrl.toFixed(2) + ' (automático)';
     }
+
+    // Update enhanced funnel + load Meta Ads analytics sections
+    await updateMetaFunnelComplete();
   }
 
   window.loadMetaCampaigns = async function() {
@@ -3749,6 +4087,9 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
       await updateMetaStats();
       renderMetaTable();
 
+      // Load analytics sections in parallel (non-blocking)
+      Promise.allSettled([loadHeatmap(), loadAttribution(), loadAnalyticsBreakdown()]);
+
     } catch (err) {
       console.error('Erro Meta Ads:', err);
       loadMetaFromCache();
@@ -3781,6 +4122,9 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
 
       await updateMetaStats();
       renderMetaTable();
+
+      // Load analytics sections in parallel (non-blocking)
+      Promise.allSettled([loadHeatmap(), loadAttribution(), loadAnalyticsBreakdown()]);
     } catch(e) { console.error('Cache error:', e); }
   }
 
@@ -4234,6 +4578,337 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
       showToast('Copiado!', 'success');
     });
   };
+
+  // ===== AUTO-REFRESH =====
+  var autoRefreshTimer = null;
+
+  window.setAutoRefresh = function(seconds) {
+    var sec = parseInt(seconds);
+    if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null; }
+    var dot = document.getElementById('autoRefreshDot');
+    if (sec > 0) {
+      dot.style.display = 'block';
+      autoRefreshTimer = setInterval(function() {
+        manualRefresh();
+      }, sec * 1000);
+      localStorage.setItem('autoRefreshInterval', sec);
+    } else {
+      dot.style.display = 'none';
+      localStorage.setItem('autoRefreshInterval', '0');
+    }
+  };
+
+  window.manualRefresh = async function() {
+    var timeEl = document.getElementById('lastUpdateTime');
+    timeEl.textContent = 'Atualizando...';
+    try {
+      var currentView = document.querySelector('.view.active');
+      if (currentView && currentView.id === 'view-dashboard') {
+        await updateDashboardStats();
+        loadRecentClicks();
+      } else if (currentView && currentView.id === 'view-metaads') {
+        await loadMetaCampaigns();
+      }
+      await loadExecSummary();
+      await loadSmartAlerts();
+      timeEl.textContent = 'Atualizado ' + new Date().toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
+    } catch(e) {
+      timeEl.textContent = 'Erro ao atualizar';
+      console.error('Refresh error:', e);
+    }
+  };
+
+  // Restore auto-refresh preference
+  (function() {
+    var saved = localStorage.getItem('autoRefreshInterval');
+    if (saved) {
+      var sel = document.getElementById('autoRefreshInterval');
+      if (sel) { sel.value = saved; setAutoRefresh(saved); }
+    } else {
+      setAutoRefresh(300); // default 5min
+    }
+  })();
+
+  // ===== EXECUTIVE SUMMARY =====
+  async function loadExecSummary() {
+    try {
+      var data = await serverFetch('/api/analytics/summary?days=1');
+      if (!data) return;
+
+      var spendBRL = data.metaSpendUSD * usdToBrl;
+      document.getElementById('execSpend').textContent = 'R$ ' + spendBRL.toFixed(2);
+      document.getElementById('execSpendSub').textContent = '$' + data.metaSpendUSD.toFixed(2) + ' USD';
+
+      var totalClicks = data.clicks + data.metaClicks;
+      document.getElementById('execClicks').textContent = totalClicks.toLocaleString();
+      document.getElementById('execClicksSub').textContent = data.metaClicks + ' Meta + ' + data.clicks + ' Rotador';
+
+      document.getElementById('execJoins').textContent = data.joins.toLocaleString();
+      document.getElementById('execJoinsSub').textContent = data.conversionRate + '% conversão';
+
+      document.getElementById('execRetained').textContent = data.retained.toLocaleString();
+      document.getElementById('execRetainedSub').textContent = data.retentionRate + '% retenção';
+
+      var cplRetained = data.retained > 0 ? spendBRL / data.retained : 0;
+      document.getElementById('execCPL').textContent = cplRetained > 0 ? 'R$ ' + cplRetained.toFixed(2) : '-';
+
+      // ROI Score: retention rate - normalized cost (higher is better)
+      var roiScore = data.retentionRate;
+      var roiEl = document.getElementById('execROI');
+      roiEl.textContent = roiScore.toFixed(0) + '%';
+      roiEl.style.color = roiScore >= 70 ? 'var(--accent)' : roiScore >= 40 ? 'var(--warning)' : 'var(--danger)';
+      document.getElementById('execROISub').textContent = roiScore >= 70 ? 'Excelente' : roiScore >= 40 ? 'Regular' : 'Precisa melhorar';
+
+      document.getElementById('execTimestamp').textContent = new Date().toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
+    } catch(e) { console.error('Exec summary error:', e); }
+  }
+
+  // ===== SMART ALERTS =====
+  window.loadSmartAlerts = async function() {
+    try {
+      var data = await serverFetch('/api/analytics/smart-alerts');
+      if (!data || !data.alerts) return;
+
+      var card = document.getElementById('smartAlertsCard');
+      var list = document.getElementById('smartAlertsList');
+      var countEl = document.getElementById('smartAlertsCount');
+
+      if (data.alerts.length === 0) {
+        card.style.display = 'none';
+        return;
+      }
+
+      card.style.display = 'block';
+      countEl.textContent = data.count;
+
+      var icons = { danger: 'fa-exclamation-circle', warning: 'fa-exclamation-triangle', info: 'fa-info-circle' };
+      var html = '';
+      data.alerts.forEach(function(a) {
+        html += '<div class="smart-alert-item ' + a.severity + '">' +
+          '<i class="fas ' + (icons[a.severity] || 'fa-info-circle') + ' smart-alert-icon"></i>' +
+          '<div><div class="smart-alert-title">' + escHtml(a.title) + '</div>' +
+          '<div class="smart-alert-msg">' + escHtml(a.message) + '</div></div></div>';
+      });
+      list.innerHTML = html;
+    } catch(e) { console.error('Smart alerts error:', e); }
+  };
+
+  // ===== HEATMAP =====
+  window.loadHeatmap = async function() {
+    try {
+      var days = parseInt(document.getElementById('heatmapDays').value) || 7;
+      var data = await serverFetch('/api/analytics/heatmap?days=' + days);
+      if (!data) return;
+
+      var container = document.getElementById('heatmapContainer');
+      var dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
+      // Find max value for color scaling
+      var maxVal = 1;
+      data.clicksMatrix.forEach(function(row) {
+        row.forEach(function(v) { if (v > maxVal) maxVal = v; });
+      });
+
+      var html = '<div class="heatmap-grid">';
+      // Header row with hours
+      html += '<div class="heatmap-label"></div>';
+      for (var h = 0; h < 24; h++) {
+        html += '<div class="heatmap-hour">' + (h < 10 ? '0' : '') + h + 'h</div>';
+      }
+
+      // Data rows
+      for (var d = 0; d < 7; d++) {
+        html += '<div class="heatmap-label">' + dayNames[d] + '</div>';
+        for (var h = 0; h < 24; h++) {
+          var val = data.clicksMatrix[d][h];
+          var joins = data.joinsMatrix[d][h];
+          var intensity = maxVal > 0 ? val / maxVal : 0;
+          var r = Math.round(37 + intensity * 218);
+          var g = Math.round(211 - intensity * 100);
+          var b = Math.round(102 - intensity * 50);
+          var alpha = 0.1 + intensity * 0.8;
+          var bgColor = val === 0 ? 'var(--bg-hover)' : 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
+          var textColor = intensity > 0.5 ? '#fff' : 'var(--text-secondary)';
+          var tooltip = dayNames[d] + ' ' + h + 'h: ' + val + ' clicks, ' + joins + ' entradas';
+          html += '<div class="heatmap-cell" style="background:' + bgColor + ';color:' + textColor + '" title="' + tooltip + '">' + (val > 0 ? val : '') + '</div>';
+        }
+      }
+      html += '</div>';
+
+      // Legend
+      html += '<div style="display:flex;align-items:center;gap:8px;margin-top:10px;justify-content:center;font-size:10px;color:var(--text-muted)">';
+      html += '<span>Menos</span>';
+      for (var i = 0; i <= 4; i++) {
+        var int = i / 4;
+        var lr = Math.round(37 + int * 218);
+        var lg = Math.round(211 - int * 100);
+        var lb = Math.round(102 - int * 50);
+        var la = 0.1 + int * 0.8;
+        html += '<div style="width:16px;height:16px;border-radius:3px;background:' + (i === 0 ? 'var(--bg-hover)' : 'rgba(' + lr + ',' + lg + ',' + lb + ',' + la + ')') + '"></div>';
+      }
+      html += '<span>Mais</span></div>';
+
+      // Hourly summary chart below
+      html += '<div style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px">';
+      html += '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:8px;font-weight:600">Clicks vs Entradas por Hora (total ' + days + ' dias)</div>';
+      var hourMax = 1;
+      for (var h = 0; h < 24; h++) {
+        if (data.clicksHourly[h] > hourMax) hourMax = data.clicksHourly[h];
+        if (data.joinsHourly[h] > hourMax) hourMax = data.joinsHourly[h];
+      }
+      html += '<div style="display:flex;align-items:flex-end;gap:2px;height:80px">';
+      for (var h = 0; h < 24; h++) {
+        var clickH = Math.round((data.clicksHourly[h] / hourMax) * 70);
+        var joinH = Math.round((data.joinsHourly[h] / hourMax) * 70);
+        html += '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:1px" title="' + h + 'h: ' + data.clicksHourly[h] + ' clicks, ' + data.joinsHourly[h] + ' entradas">';
+        html += '<div style="width:100%;display:flex;gap:1px;align-items:flex-end;height:70px">';
+        html += '<div style="flex:1;height:' + Math.max(clickH, 1) + 'px;background:var(--info);border-radius:2px 2px 0 0;opacity:0.7"></div>';
+        html += '<div style="flex:1;height:' + Math.max(joinH, 1) + 'px;background:var(--accent);border-radius:2px 2px 0 0;opacity:0.7"></div>';
+        html += '</div>';
+        html += '<div style="font-size:8px;color:var(--text-muted)">' + h + '</div>';
+        html += '</div>';
+      }
+      html += '</div>';
+      html += '<div style="display:flex;gap:12px;justify-content:center;margin-top:6px;font-size:10px">';
+      html += '<span><span style="display:inline-block;width:8px;height:8px;background:var(--info);border-radius:2px;margin-right:3px"></span>Clicks</span>';
+      html += '<span><span style="display:inline-block;width:8px;height:8px;background:var(--accent);border-radius:2px;margin-right:3px"></span>Entradas</span>';
+      html += '</div></div>';
+
+      container.innerHTML = html;
+    } catch(e) {
+      console.error('Heatmap error:', e);
+      document.getElementById('heatmapContainer').innerHTML = '<p style="text-align:center;color:var(--text-muted);font-size:12px">Erro ao carregar</p>';
+    }
+  };
+
+  // ===== ATTRIBUTION TABLE =====
+  async function loadAttribution() {
+    try {
+      var data = await serverFetch('/api/analytics/attribution?days=30');
+      if (!data || !data.attribution) return;
+
+      var tbody = document.getElementById('attributionTable');
+      var html = '';
+
+      data.attribution.forEach(function(a) {
+        var retColor = a.retentionRate >= 70 ? 'var(--accent)' : a.retentionRate >= 40 ? 'var(--warning)' : 'var(--danger)';
+        var costRetainedBRL = a.costPerRetainedUSD * usdToBrl;
+        html += '<tr>' +
+          '<td><strong style="font-size:11px">' + escHtml(a.campaignName) + '</strong></td>' +
+          '<td data-sort="' + a.clicks + '">' + a.clicks.toLocaleString() + '</td>' +
+          '<td data-sort="' + a.joins + '">' + a.joins.toLocaleString() + '</td>' +
+          '<td data-sort="' + a.retained + '">' + a.retained.toLocaleString() + '</td>' +
+          '<td data-sort="' + a.retentionRate + '"><span style="color:' + retColor + ';font-weight:600">' + a.retentionRate + '%</span></td>' +
+          '<td data-sort="' + costRetainedBRL + '">' + (costRetainedBRL > 0 ? 'R$ ' + costRetainedBRL.toFixed(2) : '-') + '</td>' +
+          '</tr>';
+      });
+
+      tbody.innerHTML = html || '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:20px">Nenhum dado de atribuição</td></tr>';
+
+      var table = document.getElementById('attributionTableWrap');
+      if (table) makeSortable(table);
+    } catch(e) { console.error('Attribution error:', e); }
+  }
+
+  // ===== ANALYTICS BREAKDOWN =====
+  async function loadAnalyticsBreakdown() {
+    try {
+      var data = await serverFetch('/api/analytics/breakdown?days=7');
+      if (!data) return;
+
+      // Cities
+      var citiesHtml = '';
+      (data.cities || []).forEach(function(c, i) {
+        var pct = data.cities[0] ? Math.round((c.count / data.cities[0].count) * 100) : 0;
+        citiesHtml += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
+          '<span style="width:18px;text-align:right;color:var(--text-muted);font-size:10px">' + (i + 1) + '</span>' +
+          '<div style="flex:1"><div style="margin-bottom:2px">' + escHtml(c.name) + ' <span style="color:var(--text-muted)">(' + c.count + ')</span></div>' +
+          '<div style="height:3px;background:var(--bg-hover);border-radius:2px"><div style="height:100%;width:' + pct + '%;background:var(--info);border-radius:2px"></div></div></div></div>';
+      });
+      document.getElementById('topCitiesList').innerHTML = citiesHtml || '<p style="color:var(--text-muted)">Sem dados</p>';
+
+      // OS
+      var osHtml = '';
+      (data.os || []).forEach(function(o, i) {
+        var pct = data.os[0] ? Math.round((o.count / data.os[0].count) * 100) : 0;
+        osHtml += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
+          '<span style="width:18px;text-align:right;color:var(--text-muted);font-size:10px">' + (i + 1) + '</span>' +
+          '<div style="flex:1"><div style="margin-bottom:2px">' + escHtml(o.name) + ' <span style="color:var(--text-muted)">(' + o.count + ')</span></div>' +
+          '<div style="height:3px;background:var(--bg-hover);border-radius:2px"><div style="height:100%;width:' + pct + '%;background:var(--purple);border-radius:2px"></div></div></div></div>';
+      });
+      document.getElementById('topOSList').innerHTML = osHtml || '<p style="color:var(--text-muted)">Sem dados</p>';
+
+      // Referrers
+      var refHtml = '';
+      (data.referrers || []).forEach(function(r, i) {
+        var pct = data.referrers[0] ? Math.round((r.count / data.referrers[0].count) * 100) : 0;
+        var name = r.name;
+        try { name = new URL(r.name).hostname; } catch(e) {}
+        refHtml += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
+          '<span style="width:18px;text-align:right;color:var(--text-muted);font-size:10px">' + (i + 1) + '</span>' +
+          '<div style="flex:1"><div style="margin-bottom:2px;word-break:break-all">' + escHtml(name) + ' <span style="color:var(--text-muted)">(' + r.count + ')</span></div>' +
+          '<div style="height:3px;background:var(--bg-hover);border-radius:2px"><div style="height:100%;width:' + pct + '%;background:var(--accent);border-radius:2px"></div></div></div></div>';
+      });
+      document.getElementById('topReferrersList').innerHTML = refHtml || '<p style="color:var(--text-muted)">Sem dados</p>';
+    } catch(e) { console.error('Analytics breakdown error:', e); }
+  }
+
+  // ===== UPDATE META FUNNEL (enhanced with 6 steps) =====
+  async function updateMetaFunnelComplete() {
+    try {
+      var totalImpressions = 0, totalMetaClicks = 0, totalSpend = 0;
+      metaCampaignsRendered.forEach(function(c) {
+        totalImpressions += c.impressions;
+        totalMetaClicks += c.clicks;
+        totalSpend += c.spend;
+      });
+
+      var spendBRL = totalSpend * usdToBrl;
+
+      // Rotator clicks
+      var totalRotatorClicks = links.reduce(function(sum, l) { return sum + (l.currentClicks || 0); }, 0);
+
+      // Member events (today)
+      var evData = await serverFetch('/api/member-events/today');
+      var joins = evData ? (evData.joins || 0) : 0;
+      var leaves = evData ? (evData.leaves || 0) : 0;
+      var retained = Math.max(0, joins - leaves);
+
+      // Update funnel
+      document.getElementById('funnelImpressions').textContent = totalImpressions.toLocaleString();
+      document.getElementById('funnelMetaClicks').textContent = totalMetaClicks.toLocaleString();
+      document.getElementById('funnelRotatorClicks').textContent = totalRotatorClicks.toLocaleString();
+      document.getElementById('funnelRealMembers').textContent = joins.toLocaleString();
+      document.getElementById('funnelRetained').textContent = retained.toLocaleString();
+      document.getElementById('funnelLeaves').textContent = leaves.toLocaleString();
+
+      // Calculate rates between steps
+      var rate1 = totalImpressions > 0 ? ((totalMetaClicks / totalImpressions) * 100).toFixed(1) : '0';
+      document.getElementById('funnelRate1').textContent = rate1 + '% CTR';
+
+      var rate2 = totalMetaClicks > 0 ? ((totalRotatorClicks / totalMetaClicks) * 100).toFixed(1) : '0';
+      document.getElementById('funnelRate2').textContent = rate2 + '%';
+
+      var rate3 = totalRotatorClicks > 0 ? ((joins / totalRotatorClicks) * 100).toFixed(1) : '0';
+      document.getElementById('funnelRate3').textContent = rate3 + '% conv.';
+
+      var rate4 = joins > 0 ? ((retained / joins) * 100).toFixed(1) : '0';
+      document.getElementById('funnelRate4').textContent = rate4 + '% ret.';
+
+      var rate5 = joins > 0 ? ((leaves / joins) * 100).toFixed(1) : '0';
+      document.getElementById('funnelRate5').textContent = rate5 + '% saiu';
+
+      // ROI metrics
+      var costRetained = retained > 0 ? spendBRL / retained : 0;
+      document.getElementById('funnelCostRetained').textContent = costRetained > 0 ? 'R$ ' + costRetained.toFixed(2) : '-';
+
+      var roiPct = joins > 0 ? ((retained / joins) * 100).toFixed(0) : '0';
+      document.getElementById('funnelROI').textContent = roiPct + '%';
+
+      var costClick = totalRotatorClicks > 0 ? spendBRL / totalRotatorClicks : 0;
+      document.getElementById('funnelCostClick').textContent = costClick > 0 ? 'R$ ' + costClick.toFixed(2) : '-';
+    } catch(e) { console.error('Funnel update error:', e); }
+  }
 
   // ===== LOGOUT =====
   window.handleLogout = function() {

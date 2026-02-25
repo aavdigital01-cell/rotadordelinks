@@ -1015,6 +1015,320 @@ app.delete('/api/users/:uid', authMiddleware, async function(req, res) {
   }
 });
 
+// ===== ANALYTICS ENDPOINTS =====
+
+// Executive summary - all key metrics in one call
+app.get('/api/analytics/summary', authMiddleware, async function(req, res) {
+  try {
+    var days = parseInt(req.query.days) || 1;
+    var interval = days === 1 ? 'CURRENT_DATE' : "NOW() - INTERVAL '" + days + " days'";
+
+    var [clicksR, eventsR, groupsR, metaR, metaSpendR] = await Promise.all([
+      pool.query("SELECT COUNT(*) as total FROM clicks WHERE timestamp >= " + interval),
+      pool.query("SELECT action, COUNT(*) as cnt FROM member_events WHERE timestamp >= " + interval + " GROUP BY action"),
+      pool.query('SELECT COALESCE(SUM(current_members),0) as total, COUNT(*) as cnt FROM whatsapp_groups'),
+      pool.query('SELECT COALESCE(SUM(clicks),0) as clicks, COALESCE(SUM(impressions),0) as impressions, COALESCE(SUM(conversions),0) as conversions FROM meta_campaigns'),
+      pool.query('SELECT COALESCE(SUM(spend),0) as spend FROM meta_campaigns')
+    ]);
+
+    var clicks = parseInt(clicksR.rows[0].total);
+    var joins = 0, leaves = 0;
+    eventsR.rows.forEach(function(r) {
+      if (r.action === 'join') joins = parseInt(r.cnt);
+      else leaves = parseInt(r.cnt);
+    });
+    var totalMembers = parseInt(groupsR.rows[0].total);
+    var totalGroups = parseInt(groupsR.rows[0].cnt);
+    var retained = Math.max(0, joins - leaves);
+    var metaClicks = parseInt(metaR.rows[0].clicks);
+    var metaImpressions = parseInt(metaR.rows[0].impressions);
+    var metaConversions = parseInt(metaR.rows[0].conversions);
+    var metaSpend = parseFloat(metaSpendR.rows[0].spend);
+
+    var convRate = clicks > 0 ? ((joins / clicks) * 100).toFixed(1) : '0';
+    var retentionRate = joins > 0 ? ((retained / joins) * 100).toFixed(1) : '0';
+    var exitRate = joins > 0 ? ((leaves / joins) * 100).toFixed(1) : '0';
+    var flightRate = clicks > 0 ? (((clicks - joins) / clicks) * 100).toFixed(1) : '0';
+
+    res.json({
+      period: days === 1 ? 'today' : days + 'd',
+      clicks: clicks, joins: joins, leaves: leaves, retained: retained,
+      totalMembers: totalMembers, totalGroups: totalGroups,
+      metaClicks: metaClicks, metaImpressions: metaImpressions,
+      metaConversions: metaConversions, metaSpendUSD: metaSpend,
+      conversionRate: parseFloat(convRate), retentionRate: parseFloat(retentionRate),
+      exitRate: parseFloat(exitRate), flightRate: parseFloat(flightRate),
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Heatmap: hourly distribution of clicks and member events
+app.get('/api/analytics/heatmap', authMiddleware, async function(req, res) {
+  try {
+    var days = parseInt(req.query.days) || 7;
+
+    var [clicksR, eventsR] = await Promise.all([
+      pool.query(
+        "SELECT EXTRACT(HOUR FROM timestamp) as hour, EXTRACT(DOW FROM timestamp) as dow, COUNT(*) as cnt FROM clicks WHERE timestamp >= NOW() - INTERVAL '" + days + " days' GROUP BY hour, dow ORDER BY dow, hour"
+      ),
+      pool.query(
+        "SELECT EXTRACT(HOUR FROM timestamp) as hour, EXTRACT(DOW FROM timestamp) as dow, action, COUNT(*) as cnt FROM member_events WHERE timestamp >= NOW() - INTERVAL '" + days + " days' GROUP BY hour, dow, action ORDER BY dow, hour"
+      )
+    ]);
+
+    // Build 7x24 matrices (dow 0=Sun, 6=Sat)
+    var clicksMatrix = Array.from({length: 7}, function() { return new Array(24).fill(0); });
+    var joinsMatrix = Array.from({length: 7}, function() { return new Array(24).fill(0); });
+    var leavesMatrix = Array.from({length: 7}, function() { return new Array(24).fill(0); });
+
+    clicksR.rows.forEach(function(r) {
+      clicksMatrix[parseInt(r.dow)][parseInt(r.hour)] = parseInt(r.cnt);
+    });
+    eventsR.rows.forEach(function(r) {
+      var dow = parseInt(r.dow), hour = parseInt(r.hour);
+      if (r.action === 'join') joinsMatrix[dow][hour] = parseInt(r.cnt);
+      else leavesMatrix[dow][hour] = parseInt(r.cnt);
+    });
+
+    // Also build hourly totals
+    var clicksHourly = new Array(24).fill(0);
+    var joinsHourly = new Array(24).fill(0);
+    var leavesHourly = new Array(24).fill(0);
+    for (var d = 0; d < 7; d++) {
+      for (var h = 0; h < 24; h++) {
+        clicksHourly[h] += clicksMatrix[d][h];
+        joinsHourly[h] += joinsMatrix[d][h];
+        leavesHourly[h] += leavesMatrix[d][h];
+      }
+    }
+
+    res.json({
+      days: days,
+      clicksMatrix: clicksMatrix, joinsMatrix: joinsMatrix, leavesMatrix: leavesMatrix,
+      clicksHourly: clicksHourly, joinsHourly: joinsHourly, leavesHourly: leavesHourly
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Attribution: which campaigns bring members that stay
+app.get('/api/analytics/attribution', authMiddleware, async function(req, res) {
+  try {
+    var days = parseInt(req.query.days) || 30;
+
+    // Get clicks grouped by campaign
+    var clicksR = await pool.query(
+      "SELECT campaign_id, COUNT(*) as clicks FROM clicks WHERE campaign_id IS NOT NULL AND timestamp >= NOW() - INTERVAL '" + days + " days' GROUP BY campaign_id"
+    );
+
+    // Get member events for correlation
+    var eventsR = await pool.query(
+      "SELECT whatsapp_group_id, action, COUNT(*) as cnt FROM member_events WHERE timestamp >= NOW() - INTERVAL '" + days + " days' GROUP BY whatsapp_group_id, action"
+    );
+
+    // Get links to map campaign → whatsapp group
+    var linksR = await pool.query(
+      'SELECT campaign_id, whatsapp_group_id FROM links WHERE campaign_id IS NOT NULL AND whatsapp_group_id IS NOT NULL'
+    );
+
+    // Get meta spend per campaign
+    var metaR = await pool.query('SELECT id, name, spend, clicks as meta_clicks, conversions FROM meta_campaigns');
+
+    // Build campaign → groups mapping
+    var campToGroups = {};
+    linksR.rows.forEach(function(l) {
+      if (!campToGroups[l.campaign_id]) campToGroups[l.campaign_id] = [];
+      if (l.whatsapp_group_id && campToGroups[l.campaign_id].indexOf(l.whatsapp_group_id) === -1) {
+        campToGroups[l.campaign_id].push(l.whatsapp_group_id);
+      }
+    });
+
+    // Build group → events mapping
+    var groupEvents = {};
+    eventsR.rows.forEach(function(r) {
+      if (!groupEvents[r.whatsapp_group_id]) groupEvents[r.whatsapp_group_id] = { joins: 0, leaves: 0 };
+      if (r.action === 'join') groupEvents[r.whatsapp_group_id].joins = parseInt(r.cnt);
+      else groupEvents[r.whatsapp_group_id].leaves = parseInt(r.cnt);
+    });
+
+    // Build meta campaign lookup
+    var metaLookup = {};
+    metaR.rows.forEach(function(m) {
+      metaLookup[m.id] = { name: m.name, spend: parseFloat(m.spend), metaClicks: m.meta_clicks, conversions: m.conversions };
+    });
+
+    // Build clicks lookup
+    var clicksLookup = {};
+    clicksR.rows.forEach(function(c) {
+      clicksLookup[c.campaign_id] = parseInt(c.clicks);
+    });
+
+    // Get all campaign names
+    var campNamesR = await pool.query('SELECT id, name FROM campaigns');
+    var campNames = {};
+    campNamesR.rows.forEach(function(c) { campNames[c.id] = c.name; });
+
+    // Build attribution data
+    var attribution = [];
+    var allCampIds = Object.keys(campToGroups);
+    allCampIds.forEach(function(campId) {
+      var groups = campToGroups[campId];
+      var totalJoins = 0, totalLeaves = 0;
+      groups.forEach(function(gid) {
+        if (groupEvents[gid]) {
+          totalJoins += groupEvents[gid].joins;
+          totalLeaves += groupEvents[gid].leaves;
+        }
+      });
+      var retained = Math.max(0, totalJoins - totalLeaves);
+      var retentionRate = totalJoins > 0 ? Math.round((retained / totalJoins) * 100) : 0;
+      var clicks = clicksLookup[campId] || 0;
+      var meta = metaLookup[campId] || {};
+      var spend = meta.spend || 0;
+      var costPerRetained = retained > 0 && spend > 0 ? spend / retained : 0;
+
+      attribution.push({
+        campaignId: campId,
+        campaignName: campNames[campId] || meta.name || campId,
+        clicks: clicks,
+        metaClicks: meta.metaClicks || 0,
+        spendUSD: spend,
+        joins: totalJoins,
+        leaves: totalLeaves,
+        retained: retained,
+        retentionRate: retentionRate,
+        costPerRetainedUSD: parseFloat(costPerRetained.toFixed(4)),
+        groups: groups.length
+      });
+    });
+
+    // Sort by retention rate descending
+    attribution.sort(function(a, b) { return b.retentionRate - a.retentionRate; });
+
+    res.json({ days: days, attribution: attribution });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Smart alerts check
+app.get('/api/analytics/smart-alerts', authMiddleware, async function(req, res) {
+  try {
+    var alerts = [];
+
+    // 1. Campaigns spending without conversions (last 6h)
+    var metaR = await pool.query('SELECT id, name, spend, conversions, status FROM meta_campaigns WHERE status = $1', ['ACTIVE']);
+    metaR.rows.forEach(function(c) {
+      if (parseFloat(c.spend) > 0 && parseInt(c.conversions) === 0) {
+        alerts.push({
+          type: 'no_conversion',
+          severity: 'warning',
+          title: 'Campanha sem conversão',
+          message: c.name + ' gastou $' + parseFloat(c.spend).toFixed(2) + ' sem nenhuma conversão',
+          campaignId: c.id, campaignName: c.name
+        });
+      }
+    });
+
+    // 2. High exit rate groups (>30% leave rate today)
+    var eventsR = await pool.query(
+      "SELECT whatsapp_group_id, group_name, action, COUNT(*) as cnt FROM member_events WHERE timestamp >= CURRENT_DATE GROUP BY whatsapp_group_id, group_name, action"
+    );
+    var groupStats = {};
+    eventsR.rows.forEach(function(r) {
+      var gid = r.whatsapp_group_id;
+      if (!groupStats[gid]) groupStats[gid] = { name: r.group_name || gid, joins: 0, leaves: 0 };
+      if (r.action === 'join') groupStats[gid].joins = parseInt(r.cnt);
+      else groupStats[gid].leaves = parseInt(r.cnt);
+    });
+    Object.keys(groupStats).forEach(function(gid) {
+      var g = groupStats[gid];
+      if (g.joins >= 3 && g.leaves > 0) {
+        var exitRate = (g.leaves / g.joins) * 100;
+        if (exitRate > 30) {
+          alerts.push({
+            type: 'high_exit_rate',
+            severity: exitRate > 60 ? 'danger' : 'warning',
+            title: 'Alta taxa de saída',
+            message: g.name + ': ' + Math.round(exitRate) + '% dos membros saíram (' + g.leaves + '/' + g.joins + ')',
+            groupId: gid, groupName: g.name
+          });
+        }
+      }
+    });
+
+    // 3. High CPC campaigns (CPC > 2x average)
+    var activeMeta = metaR.rows.filter(function(c) { return parseInt(c.spend) > 0; });
+    if (activeMeta.length > 1) {
+      var cpcs = [];
+      var metaDetailsR = await pool.query('SELECT id, name, cpc, spend FROM meta_campaigns WHERE spend > 0');
+      metaDetailsR.rows.forEach(function(c) { cpcs.push({ id: c.id, name: c.name, cpc: parseFloat(c.cpc) }); });
+      var avgCpc = cpcs.reduce(function(s, c) { return s + c.cpc; }, 0) / cpcs.length;
+      cpcs.forEach(function(c) {
+        if (c.cpc > avgCpc * 2 && c.cpc > 0) {
+          alerts.push({
+            type: 'high_cpc',
+            severity: 'info',
+            title: 'CPC elevado',
+            message: c.name + ': CPC $' + c.cpc.toFixed(2) + ' (média $' + avgCpc.toFixed(2) + ')',
+            campaignId: c.id, campaignName: c.name
+          });
+        }
+      });
+    }
+
+    // 4. Links near full
+    var linksR = await pool.query('SELECT name, current_clicks, max_vacancies FROM links WHERE is_active=true AND is_full=false');
+    linksR.rows.forEach(function(l) {
+      var pct = (l.current_clicks / (l.max_vacancies || 1)) * 100;
+      if (pct >= 85) {
+        alerts.push({
+          type: 'link_near_full',
+          severity: pct >= 95 ? 'danger' : 'warning',
+          title: 'Grupo quase cheio',
+          message: l.name + ': ' + Math.round(pct) + '% ocupado (' + l.current_clicks + '/' + l.max_vacancies + ')',
+          linkName: l.name
+        });
+      }
+    });
+
+    // Sort: danger first, then warning, then info
+    var severityOrder = { danger: 0, warning: 1, info: 2 };
+    alerts.sort(function(a, b) { return (severityOrder[a.severity] || 3) - (severityOrder[b.severity] || 3); });
+
+    res.json({ alerts: alerts, count: alerts.length, timestamp: new Date().toISOString() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Analytics extras: referrer, OS, city breakdown
+app.get('/api/analytics/breakdown', authMiddleware, async function(req, res) {
+  try {
+    var days = parseInt(req.query.days) || 7;
+    var [refR, osR, cityR, browserR] = await Promise.all([
+      pool.query("SELECT referrer, COUNT(*) as cnt FROM clicks WHERE timestamp >= NOW() - INTERVAL '" + days + " days' AND referrer IS NOT NULL AND referrer != '' GROUP BY referrer ORDER BY cnt DESC LIMIT 20"),
+      pool.query("SELECT os, COUNT(*) as cnt FROM clicks WHERE timestamp >= NOW() - INTERVAL '" + days + " days' AND os IS NOT NULL AND os != '' GROUP BY os ORDER BY cnt DESC LIMIT 10"),
+      pool.query("SELECT city, COUNT(*) as cnt FROM clicks WHERE timestamp >= NOW() - INTERVAL '" + days + " days' AND city IS NOT NULL AND city != '' GROUP BY city ORDER BY cnt DESC LIMIT 20"),
+      pool.query("SELECT browser, COUNT(*) as cnt FROM clicks WHERE timestamp >= NOW() - INTERVAL '" + days + " days' AND browser IS NOT NULL AND browser != '' GROUP BY browser ORDER BY cnt DESC LIMIT 10")
+    ]);
+
+    res.json({
+      days: days,
+      referrers: refR.rows.map(function(r) { return { name: r.referrer, count: parseInt(r.cnt) }; }),
+      os: osR.rows.map(function(r) { return { name: r.os, count: parseInt(r.cnt) }; }),
+      cities: cityR.rows.map(function(r) { return { name: r.city, count: parseInt(r.cnt) }; }),
+      browsers: browserR.rows.map(function(r) { return { name: r.browser, count: parseInt(r.cnt) }; })
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ===== STATS OVERVIEW =====
 
 app.get('/api/stats/overview', authMiddleware, async function(req, res) {
