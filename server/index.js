@@ -391,98 +391,115 @@ app.post('/api/rotate', async function(req, res) {
     var slug = req.body.slug;
     if (!slug) return res.status(400).json({ error: 'Slug obrigatório' });
 
-    // 1. Find campaign by slug
-    var campResult = await pool.query(
-      'SELECT * FROM campaigns WHERE slug=$1 AND is_active=true LIMIT 1', [slug]
+    // SINGLE QUERY: campaign + active links via JOIN
+    var result = await pool.query(
+      `SELECT c.id as camp_id, c.name as camp_name, c.slug, c.rotation_mode, c.alert_threshold,
+              c.fb_pixel_id, c.fb_event_name, c.tt_pixel_id, c.tt_event_name,
+              c.gtm_id, c.gtm_event_name, c.gads_id, c.gads_conversion_label,
+              l.id as link_id, l.name as link_name, l.url as link_url,
+              l.current_clicks, l.max_vacancies, l.weight, l.order_num
+       FROM campaigns c
+       JOIN links l ON l.campaign_id = c.id
+       WHERE c.slug=$1 AND c.is_active=true AND l.is_active=true AND l.is_full=false
+       ORDER BY l.order_num`, [slug]
     );
-    if (campResult.rows.length === 0) {
+
+    if (result.rows.length === 0) {
+      // Check if campaign exists but all links are full
+      var campCheck = await pool.query('SELECT name FROM campaigns WHERE slug=$1 AND is_active=true', [slug]);
+      if (campCheck.rows.length > 0) {
+        pool.query(
+          'INSERT INTO alerts (type, campaign_name, message, read) VALUES ($1,$2,$3,false)',
+          ['all_full', campCheck.rows[0].name, 'Todos os grupos cheios na campanha ' + campCheck.rows[0].name]
+        ).catch(function() {});
+        return res.status(404).json({ error: 'Todos os grupos estão cheios' });
+      }
       return res.status(404).json({ error: 'Campanha não encontrada ou inativa' });
     }
-    var camp = campResult.rows[0];
-    var campData = mapCampaign(camp);
 
-    // 2. Find active, non-full links
-    var linksResult = await pool.query(
-      'SELECT * FROM links WHERE campaign_id=$1 AND is_active=true AND is_full=false', [camp.id]
-    );
-    if (linksResult.rows.length === 0) {
-      // All groups full - create alert
-      await pool.query(
-        'INSERT INTO alerts (type, campaign_name, message, read) VALUES ($1,$2,$3,false)',
-        ['all_full', camp.name, 'Todos os grupos cheios na campanha ' + camp.name]
-      );
-      return res.status(404).json({ error: 'Todos os grupos estão cheios' });
-    }
-    var links = linksResult.rows.map(mapLink);
+    // Build campaign data from first row
+    var r0 = result.rows[0];
+    var campData = {
+      id: r0.camp_id, name: r0.camp_name, slug: r0.slug,
+      fbPixelId: r0.fb_pixel_id || '', fbEventName: r0.fb_event_name || 'Lead',
+      ttPixelId: r0.tt_pixel_id || '', ttEventName: r0.tt_event_name || 'SubmitForm',
+      gtmId: r0.gtm_id || '', gtmEventName: r0.gtm_event_name || 'whatsapp_click',
+      gadsId: r0.gads_id || '', gadsConversionLabel: r0.gads_conversion_label || ''
+    };
 
-    // 3. Select link based on rotation mode
-    var mode = camp.rotation_mode || 'random';
+    // Build links array
+    var links = result.rows.map(function(r) {
+      return { id: r.link_id, name: r.link_name, url: r.link_url, currentClicks: r.current_clicks, maxVacancies: r.max_vacancies, weight: r.weight || 1, order: r.order_num || 0 };
+    });
+
+    // Select link based on rotation mode
+    var mode = r0.rotation_mode || 'random';
     var selected = null;
     if (links.length === 1) {
       selected = links[0];
     } else if (mode === 'weighted') {
-      var totalWeight = links.reduce(function(s, l) { return s + (l.weight || 1); }, 0);
-      var r = Math.random() * totalWeight;
+      var totalWeight = links.reduce(function(s, l) { return s + l.weight; }, 0);
+      var rand = Math.random() * totalWeight;
       var cum = 0;
       for (var i = 0; i < links.length; i++) {
-        cum += (links[i].weight || 1);
-        if (r <= cum) { selected = links[i]; break; }
+        cum += links[i].weight;
+        if (rand <= cum) { selected = links[i]; break; }
       }
       if (!selected) selected = links[links.length - 1];
     } else if (mode === 'least-filled') {
       links.sort(function(a, b) {
-        return ((a.currentClicks || 0) / (a.maxVacancies || 1)) - ((b.currentClicks || 0) / (b.maxVacancies || 1));
+        return (a.currentClicks / (a.maxVacancies || 1)) - (b.currentClicks / (b.maxVacancies || 1));
       });
       selected = links[0];
     } else if (mode === 'sequential') {
       var seqIdx = req.body.sequentialIndex || 0;
-      links.sort(function(a, b) { return (a.order || 0) - (b.order || 0); });
       selected = links[seqIdx % links.length];
     } else {
       selected = links[Math.floor(Math.random() * links.length)];
     }
 
-    // 4. Record click
-    var v = req.body.visitor || {};
-    await pool.query(
-      'INSERT INTO clicks (link_id, link_name, campaign_id, device, browser, os, city, country, country_code, ip, referrer) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
-      [selected.id, selected.name, camp.id, v.device || '', v.browser || '', v.os || '', v.city || '', v.country || '', v.countryCode || '', v.ip || req.ip, v.referrer || '']
-    );
-
-    // 5. Increment clicks and check if full
-    var updResult = await pool.query(
-      'UPDATE links SET current_clicks = current_clicks + 1, is_full = CASE WHEN current_clicks + 1 >= max_vacancies THEN true ELSE false END, updated_at = NOW() WHERE id=$1 RETURNING current_clicks, max_vacancies, is_full',
-      [selected.id]
-    );
-
-    // 6. Create alerts if needed
-    if (updResult.rows.length > 0) {
-      var upd = updResult.rows[0];
-      if (upd.is_full) {
-        await pool.query(
-          'INSERT INTO alerts (type, campaign_name, link_name, message, read) VALUES ($1,$2,$3,$4,false)',
-          ['link_full', camp.name, selected.name, 'Grupo cheio: ' + selected.name]
-        );
-      } else {
-        var threshold = camp.alert_threshold || 90;
-        var fillPct = (upd.current_clicks / (upd.max_vacancies || 1)) * 100;
-        if (fillPct >= threshold) {
-          await pool.query(
-            'INSERT INTO alerts (type, campaign_name, link_name, percent, message, read) VALUES ($1,$2,$3,$4,$5,false)',
-            ['link_near_full', camp.name, selected.name, Math.round(fillPct), 'Grupo quase cheio: ' + selected.name + ' (' + Math.round(fillPct) + '%)']
-          );
-        }
-      }
-    }
-
-    // 7. Return data for client-side pixel firing + redirect
+    // RESPOND IMMEDIATELY with the URL
     res.json({
       url: selected.url,
       campaign: campData,
       link: { id: selected.id, name: selected.name }
     });
+
+    // BACKGROUND: Record click, update counts, check alerts (non-blocking)
+    var v = req.body.visitor || {};
+    var campId = r0.camp_id;
+    var threshold = r0.alert_threshold || 90;
+
+    pool.query(
+      'INSERT INTO clicks (link_id, link_name, campaign_id, device, browser, os, city, country, country_code, ip, referrer) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
+      [selected.id, selected.name, campId, v.device || '', v.browser || '', v.os || '', v.city || '', v.country || '', v.countryCode || '', v.ip || req.ip, v.referrer || '']
+    ).catch(function(e) { console.error('[ROTATE] Erro ao registrar click:', e.message); });
+
+    pool.query(
+      'UPDATE links SET current_clicks = current_clicks + 1, is_full = CASE WHEN current_clicks + 1 >= max_vacancies THEN true ELSE false END, updated_at = NOW() WHERE id=$1 RETURNING current_clicks, max_vacancies, is_full',
+      [selected.id]
+    ).then(function(updResult) {
+      if (updResult.rows.length > 0) {
+        var upd = updResult.rows[0];
+        if (upd.is_full) {
+          pool.query(
+            'INSERT INTO alerts (type, campaign_name, link_name, message, read) VALUES ($1,$2,$3,$4,false)',
+            ['link_full', r0.camp_name, selected.name, 'Grupo cheio: ' + selected.name]
+          ).catch(function() {});
+        } else {
+          var fillPct = (upd.current_clicks / (upd.max_vacancies || 1)) * 100;
+          if (fillPct >= threshold) {
+            pool.query(
+              'INSERT INTO alerts (type, campaign_name, link_name, percent, message, read) VALUES ($1,$2,$3,$4,$5,false)',
+              ['link_near_full', r0.camp_name, selected.name, Math.round(fillPct), 'Grupo quase cheio: ' + selected.name + ' (' + Math.round(fillPct) + '%)']
+            ).catch(function() {});
+          }
+        }
+      }
+    }).catch(function(e) { console.error('[ROTATE] Erro ao atualizar clicks:', e.message); });
+
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    if (!res.headersSent) res.status(500).json({ error: err.message });
   }
 });
 

@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Redirecionando...</title>
+<link rel="preconnect" href="https://api.promosdetododia.com.br" crossorigin>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:#0d1b2a;color:#e0e0e0;font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh}
@@ -21,146 +22,75 @@ body{background:#0d1b2a;color:#e0e0e0;font-family:system-ui,-apple-system,sans-s
 <div class="error" id="error"></div>
 </div>
 
-<script src="config.js"></script>
 <script>
 (function() {
   'use strict';
 
-  var SERVER_URL = SYSTEM_CONFIG.serverUrl;
+  // Server URL inline - elimina request extra do config.js
+  var SERVER_URL = 'https://api.promosdetododia.com.br';
 
   // Pega parâmetros da URL
   var params = new URLSearchParams(window.location.search);
   var campaignSlug = params.get('c');
-  var utmSource = params.get('utm_source') || '';
-  var utmMedium = params.get('utm_medium') || '';
-  var utmCampaign = params.get('utm_campaign') || '';
 
   if (!campaignSlug) {
     showError('Link inválido. Parâmetro de campanha não encontrado.');
     return;
   }
 
-  // Anti-bot: verifica rate limit
+  // Anti-bot: rate limit simples
   var now = Date.now();
-  var clickKey = 'rl_clicks_' + campaignSlug;
-  var clickData = JSON.parse(localStorage.getItem(clickKey) || '{"clicks":[],"blocked":false}');
-
-  // Limpa clicks antigos (mais de 60s)
-  clickData.clicks = clickData.clicks.filter(function(t) { return now - t < 60000; });
-
-  if (clickData.clicks.length >= (SYSTEM_CONFIG.maxClicksPerMinute || 10)) {
+  var clickKey = 'rl_c_' + campaignSlug;
+  var stored = localStorage.getItem(clickKey);
+  var clickData = stored ? JSON.parse(stored) : { t: [] };
+  clickData.t = clickData.t.filter(function(t) { return now - t < 60000; });
+  if (clickData.t.length >= 10) {
     showError('Muitas tentativas. Aguarde um momento.');
     return;
   }
-
-  clickData.clicks.push(now);
+  clickData.t.push(now);
   localStorage.setItem(clickKey, JSON.stringify(clickData));
 
-  // Coleta dados do visitante
-  var visitorData = {
-    device: getDeviceType(),
-    browser: getBrowser(),
-    os: getOS(),
-    referrer: document.referrer || '',
-    utmSource: utmSource,
-    utmMedium: utmMedium,
-    utmCampaign: utmCampaign
+  // Coleta dados do visitante (inline, sem funções extras)
+  var ua = navigator.userAgent;
+  var visitor = {
+    device: /tablet|ipad/i.test(ua) ? 'Tablet' : /mobile|iphone|android/i.test(ua) ? 'Mobile' : 'Desktop',
+    browser: ua.indexOf('Firefox')>-1?'Firefox':ua.indexOf('SamsungBrowser')>-1?'Samsung':ua.indexOf('OPR')>-1?'Opera':ua.indexOf('Edg')>-1?'Edge':ua.indexOf('Chrome')>-1?'Chrome':ua.indexOf('Safari')>-1?'Safari':'Outro',
+    os: ua.indexOf('Windows')>-1?'Windows':ua.indexOf('Android')>-1?'Android':/iPhone|iPad/.test(ua)?'iOS':ua.indexOf('Mac')>-1?'macOS':'Outro',
+    referrer: document.referrer || ''
   };
 
-  // Busca campanha e redireciona via API
-  rotate(campaignSlug, visitorData);
+  // Sequencial index
+  var seqKey = 'rl_s_' + campaignSlug;
+  var seqIdx = parseInt(localStorage.getItem(seqKey) || '0', 10);
 
-  async function rotate(slug, visitor) {
-    try {
-      // Pega índice sequencial do localStorage
-      var seqKey = 'rl_seq_' + slug;
-      var seqIdx = parseInt(localStorage.getItem(seqKey) || '0', 10);
-
-      var resp = await fetch(SERVER_URL + '/api/rotate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          slug: slug,
-          visitor: visitor,
-          sequentialIndex: seqIdx
-        })
+  // Faz request ao servidor
+  fetch(SERVER_URL + '/api/rotate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ slug: campaignSlug, visitor: visitor, sequentialIndex: seqIdx })
+  }).then(function(resp) {
+    if (!resp.ok) {
+      return resp.json().catch(function() { return {}; }).then(function(err) {
+        showError(err.error || 'Erro ao processar redirecionamento.');
+        throw new Error('stop');
       });
+    }
+    return resp.json();
+  }).then(function(data) {
+    // Incrementa índice sequencial
+    localStorage.setItem(seqKey, String(seqIdx + 1));
 
-      if (!resp.ok) {
-        var errData = await resp.json().catch(function() { return {}; });
-        if (resp.status === 404) {
-          showError(errData.error || 'Campanha não encontrada ou inativa.');
-        } else {
-          showError(errData.error || 'Erro ao processar redirecionamento.');
-        }
-        return;
-      }
+    // REDIRECIONA PRIMEIRO - prioridade máxima
+    window.location.replace(data.url);
 
-      var data = await resp.json();
-      // data = { url, campaign, link }
-
-      // Incrementa índice sequencial
-      localStorage.setItem(seqKey, String(seqIdx + 1));
-
-      // Dispara Pixels de conversão (antes do redirect)
-      firePixels(data.campaign, data.link);
-
-      // Redireciona IMEDIATAMENTE
-      window.location.replace(data.url);
-
-      // Verifica saúde do link em background (detecta links banidos)
-      checkLinkHealth(data.link, data.url);
-
-      // Tenta pegar geolocalização e atualiza click (async, best-effort)
-      fetchGeo();
-
-    } catch (err) {
-      console.error('Erro no rotacionador:', err);
+    // Dispara pixels DEPOIS do redirect (browser ainda executa JS pendente)
+    firePixels(data.campaign, data.link);
+  }).catch(function(err) {
+    if (err.message !== 'stop') {
       showError('Erro ao processar redirecionamento. Tente novamente.');
     }
-  }
-
-  async function fetchGeo() {
-    try {
-      var resp = await fetch(SYSTEM_CONFIG.geoApiUrl || 'https://ipapi.co/json/');
-      if (resp.ok) {
-        var geo = await resp.json();
-        // Geo data já foi coletada, mas o click já foi registrado server-side
-        // Se quiser atualizar com geo, precisaria de um endpoint separado
-        // Por ora o IP é capturado server-side via req.ip
-      }
-    } catch (e) {
-      // Geo é best-effort
-    }
-  }
-
-  function getDeviceType() {
-    var ua = navigator.userAgent;
-    if (/tablet|ipad|playbook|silk/i.test(ua)) return 'Tablet';
-    if (/mobile|iphone|ipod|android|blackberry|opera mini|iemobile/i.test(ua)) return 'Mobile';
-    return 'Desktop';
-  }
-
-  function getBrowser() {
-    var ua = navigator.userAgent;
-    if (ua.indexOf('Firefox') > -1) return 'Firefox';
-    if (ua.indexOf('SamsungBrowser') > -1) return 'Samsung';
-    if (ua.indexOf('Opera') > -1 || ua.indexOf('OPR') > -1) return 'Opera';
-    if (ua.indexOf('Edg') > -1) return 'Edge';
-    if (ua.indexOf('Chrome') > -1) return 'Chrome';
-    if (ua.indexOf('Safari') > -1) return 'Safari';
-    return 'Outro';
-  }
-
-  function getOS() {
-    var ua = navigator.userAgent;
-    if (ua.indexOf('Windows') > -1) return 'Windows';
-    if (ua.indexOf('Mac') > -1) return 'macOS';
-    if (ua.indexOf('Android') > -1) return 'Android';
-    if (/iPhone|iPad|iPod/.test(ua)) return 'iOS';
-    if (ua.indexOf('Linux') > -1) return 'Linux';
-    return 'Outro';
-  }
+  });
 
   // ===== PIXELS DE RASTREAMENTO =====
   function firePixels(campData, link) {
@@ -234,39 +164,12 @@ body{background:#0d1b2a;color:#e0e0e0;font-family:system-ui,-apple-system,sans-s
           });
         }
       }
-    } catch(e) {
-      // Pixels são best-effort, nunca bloqueiam o redirect
-    }
-  }
-
-  // ===== VERIFICAÇÃO DE LINK QUEBRADO =====
-  async function checkLinkHealth(link, url) {
-    try {
-      var controller = new AbortController();
-      var timeoutId = setTimeout(function() { controller.abort(); }, 5000);
-
-      await fetch(url, {
-        method: 'HEAD',
-        mode: 'no-cors',
-        signal: controller.signal
-      });
-      clearTimeout(timeoutId);
-    } catch (e) {
-      if (e.name === 'AbortError' || e.message.includes('network') || e.message.includes('Failed to fetch')) {
-        // Report broken link to server
-        fetch(SERVER_URL + '/api/report-broken-link', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ linkId: link.id })
-        }).catch(function() {});
-      }
-    }
+    } catch(e) {}
   }
 
   function showError(msg) {
-    var el = document.getElementById('error');
-    el.textContent = msg;
-    el.style.display = 'block';
+    document.getElementById('error').textContent = msg;
+    document.getElementById('error').style.display = 'block';
     document.getElementById('spinner').style.display = 'none';
     document.getElementById('msg').style.display = 'none';
   }
