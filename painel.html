@@ -2270,7 +2270,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
       <div class="form-group">
         <label>Slug (para URL)</label>
         <input type="text" class="form-control" id="campaignSlug" placeholder="Ex: black-friday" oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9-]/g,'')">
-        <div class="form-hint">Usado na URL: seusite.com/r.html?c=<strong>slug-aqui</strong></div>
+        <div class="form-hint">Usado na URL: api.promosdetododia.com.br/r/<strong>slug-aqui</strong></div>
       </div>
       <div class="form-group">
         <label>Modo de Rotação</label>
@@ -2669,10 +2669,12 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
       var activeLinks = campLinks.filter(function(l) { return l.isActive && !l.isFull; }).length;
       var rotationLabels = { random: 'Aleatório', sequential: 'Sequencial', weighted: 'Por Peso', 'least-filled': 'Menos Cheio' };
 
+      var fastUrl = 'https://api.promosdetododia.com.br/r/' + c.slug;
+
       html += '<tr>' +
         '<td><strong>' + escHtml(c.name) + '</strong></td>' +
-        '<td><code style="font-size:11px;color:var(--accent)">' + escHtml(c.slug) + '</code>' +
-        ' <button class="copy-btn" onclick="copyToClipboard(\'' + escHtml(window.location.origin + '/r.html?c=' + c.slug) + '\')"><i class="fas fa-copy"></i></button></td>' +
+        '<td><div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap"><code style="font-size:11px;color:var(--accent)">' + escHtml(fastUrl) + '</code>' +
+        ' <button class="copy-btn" onclick="copyToClipboard(\'' + escHtml(fastUrl) + '\')" title="Copiar URL rápida"><i class="fas fa-copy"></i></button></div></td>' +
         '<td><span class="badge badge-info">' + (rotationLabels[c.rotationMode] || c.rotationMode) + '</span></td>' +
         '<td>' + activeLinks + ' / ' + campLinks.length + '</td>' +
         '<td>' + totalClicks.toLocaleString() + '</td>' +
