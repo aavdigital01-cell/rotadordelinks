@@ -1541,15 +1541,14 @@ app.get('/api/analytics/smart-alerts', authMiddleware, async function(req, res) 
       }
     });
 
-    // 5. Links with health issues (broken/banned)
-    var unhealthyLinksR = await pool.query("SELECT name, health_check_failures, deactivated_reason FROM links WHERE health_check_failures > 0 OR (deactivated_reason IS NOT NULL AND deactivated_reason LIKE '%banido%')");
+    // 5. Links with health issues (only show truly broken or deactivated links)
+    var unhealthyLinksR = await pool.query("SELECT name, health_check_failures, deactivated_reason FROM links WHERE health_check_failures >= 3 OR (deactivated_reason IS NOT NULL AND deactivated_reason != '')");
     unhealthyLinksR.rows.forEach(function(l) {
-      var sev = l.health_check_failures >= 3 || l.deactivated_reason ? 'danger' : 'warning';
       alerts.push({
         type: 'link_health',
-        severity: sev,
+        severity: 'danger',
         title: 'Link com problema',
-        message: l.name + (l.deactivated_reason ? ' - ' + l.deactivated_reason : ' - ' + l.health_check_failures + ' falha(s) detectada(s)'),
+        message: l.name + (l.deactivated_reason ? ' - ' + l.deactivated_reason : ' - ' + l.health_check_failures + ' falhas consecutivas detectadas'),
         linkName: l.name
       });
     });
@@ -1692,18 +1691,38 @@ async function runHealthCheck() {
     for (var link of linksR.rows) {
       var result = { type: 'link', linkId: link.id, linkName: link.name, url: link.url, status: 'healthy', issues: [] };
 
-      // a) Check WhatsApp invite link via client
+      // a) Check linked WhatsApp group exists (do this FIRST for cross-check)
+      var groupConfirmedActive = false;
+      if (link.whatsapp_group_id && whatsappReady) {
+        var groupCheck = await whatsappMonitor.checkGroupExists(link.whatsapp_group_id);
+        if (groupCheck !== null) {
+          if (groupCheck.exists) {
+            groupConfirmedActive = true;
+          } else {
+            result.status = 'broken';
+            result.issues.push('Grupo vinculado não encontrado no WhatsApp');
+          }
+        }
+      }
+
+      // b) Check WhatsApp invite link via client
       var inviteCode = extractInviteCode(link.url);
       if (inviteCode && whatsappReady) {
         var inviteCheck = await whatsappMonitor.checkInviteCode(inviteCode);
-        if (inviteCheck !== null) {
-          if (!inviteCheck.valid) {
+        if (inviteCheck !== null && !inviteCheck.valid) {
+          if (inviteCheck.definitive) {
+            // Definitively invalid invite code
             result.status = 'broken';
             result.issues.push('Link de convite inválido ou expirado');
+          } else if (!groupConfirmedActive) {
+            // Inconclusive invite check AND group not confirmed active = warning only
+            result.status = 'warning';
+            result.issues.push('Não foi possível verificar link de convite (erro temporário)');
           }
+          // If group is confirmed active, ignore inconclusive invite check (false positive)
         }
       } else if (inviteCode && !whatsappReady) {
-        // Fallback: HTTP check
+        // Fallback: HTTP check (only for definitive failures)
         try {
           var resp = await fetch('https://chat.whatsapp.com/' + inviteCode, {
             method: 'GET',
@@ -1711,37 +1730,21 @@ async function runHealthCheck() {
             headers: { 'User-Agent': 'Mozilla/5.0 (compatible; LinkRotatorBot/1.0)' }
           });
           var body = await resp.text();
-          // Check for invalid group indicators in meta tags
           if (resp.status === 404 || body.includes('invite_link_revoke') || body.includes('"invite_link_is_revoked":true')) {
             result.status = 'broken';
             result.issues.push('Link de convite revogado ou grupo banido');
-          } else if (!body.includes('og:title') || body.includes('<title>WhatsApp</title>')) {
-            // Generic WhatsApp page without group info = possibly invalid
-            result.status = 'warning';
-            result.issues.push('Link pode estar inválido (sem informações do grupo)');
           }
+          // Removed the overly broad og:title check that caused false positives
         } catch (err) {
-          result.status = 'warning';
-          result.issues.push('Erro ao verificar URL: ' + err.message);
+          // Network errors are inconclusive, don't mark as warning
+          console.log('[HEALTH] Erro HTTP ao verificar ' + link.name + ': ' + err.message);
         }
       }
 
-      // b) Check linked WhatsApp group exists
-      if (link.whatsapp_group_id && whatsappReady) {
-        var groupCheck = await whatsappMonitor.checkGroupExists(link.whatsapp_group_id);
-        if (groupCheck !== null && !groupCheck.exists) {
-          result.status = 'broken';
-          result.issues.push('Grupo vinculado não encontrado no WhatsApp');
-        }
-      }
-
-      // c) Check accumulated health_check_failures
+      // c) Check accumulated health_check_failures (only if already broken from checks above)
       if (link.health_check_failures >= 3) {
         result.status = 'broken';
-        result.issues.push(link.health_check_failures + ' falhas consecutivas reportadas por usuários');
-      } else if (link.health_check_failures >= 1) {
-        if (result.status === 'healthy') result.status = 'warning';
-        result.issues.push(link.health_check_failures + ' falha(s) reportada(s) por usuários');
+        result.issues.push(link.health_check_failures + ' falhas consecutivas detectadas');
       }
 
       // Update counters
@@ -1779,8 +1782,8 @@ async function runHealthCheck() {
             result.autoDeactivated = true;
           }
         }
-      } else if (result.status === 'healthy' && link.health_check_failures > 0) {
-        // Link recovered - reset failures
+      } else if ((result.status === 'healthy' || result.status === 'warning') && link.health_check_failures > 0) {
+        // Link recovered or only warning - reset failures
         await pool.query('UPDATE links SET health_check_failures=0, updated_at=NOW() WHERE id=$1', [link.id]);
       }
 

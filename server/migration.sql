@@ -37,3 +37,6 @@ ALTER TABLE clicks ADD COLUMN IF NOT EXISTS os VARCHAR(100);
 
 -- Index on campaign slug for redirect lookups
 CREATE INDEX IF NOT EXISTS idx_campaigns_slug ON campaigns(slug);
+
+-- Reset false positive health_check_failures (from false positive detections)
+UPDATE links SET health_check_failures = 0 WHERE health_check_failures > 0 AND is_active = true;

@@ -389,7 +389,13 @@ async function checkInviteCode(inviteCode) {
     var info = await client.getInviteInfo(inviteCode);
     return { valid: true, groupName: info.subject, size: info.size };
   } catch (err) {
-    return { valid: false, error: err.message };
+    var msg = (err.message || '').toLowerCase();
+    // Only mark as definitively invalid for specific error messages
+    if (msg.includes('invite') || msg.includes('revoked') || msg.includes('not found') || msg.includes('invalid')) {
+      return { valid: false, definitive: true, error: err.message };
+    }
+    // Other errors (network, rate limit, timeout) = inconclusive
+    return { valid: false, definitive: false, error: err.message };
   }
 }
 
