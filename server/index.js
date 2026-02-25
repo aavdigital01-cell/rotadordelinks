@@ -147,6 +147,7 @@ app.post('/api/campaigns', authMiddleware, async function(req, res) {
        b.gadsId || '', b.gadsConversionLabel || '',
        b.createdBy || (req.user ? req.user.uid : '')]
     );
+    invalidateRotateCache();
     res.json({ success: true, id: id });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -179,6 +180,7 @@ app.put('/api/campaigns/:id', authMiddleware, async function(req, res) {
     if (fields.length > 1) {
       await pool.query('UPDATE campaigns SET ' + fields.join(',') + ' WHERE id=$' + idx, values);
     }
+    invalidateRotateCache();
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -190,6 +192,7 @@ app.delete('/api/campaigns/:id', authMiddleware, async function(req, res) {
     // Also delete associated links
     await pool.query('DELETE FROM links WHERE campaign_id=$1', [req.params.id]);
     await pool.query('DELETE FROM campaigns WHERE id=$1', [req.params.id]);
+    invalidateRotateCache();
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -226,6 +229,7 @@ app.post('/api/links', authMiddleware, async function(req, res) {
        b.createdBy || (req.user ? req.user.uid : ''),
        b.order || b.order_num || 0]
     );
+    invalidateRotateCache();
     res.json({ success: true, id: id });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -279,6 +283,7 @@ app.put('/api/links/:id', authMiddleware, async function(req, res) {
     if (fields.length > 1) {
       await pool.query('UPDATE links SET ' + fields.join(',') + ' WHERE id=$' + idx, values);
     }
+    invalidateRotateCache();
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -288,6 +293,7 @@ app.put('/api/links/:id', authMiddleware, async function(req, res) {
 app.delete('/api/links/:id', authMiddleware, async function(req, res) {
   try {
     await pool.query('DELETE FROM links WHERE id=$1', [req.params.id]);
+    invalidateRotateCache();
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -385,118 +391,249 @@ app.get('/api/clicks/leads', authMiddleware, async function(req, res) {
   }
 });
 
-// ===== ROTATE - Public endpoint for redirect page (no auth) =====
+// ===== ULTRA-FAST REDIRECT SYSTEM =====
+
+// In-memory cache for campaigns + links (avoids DB query on every redirect)
+var rotateCache = {};
+var ROTATE_CACHE_TTL = 30000; // 30 seconds
+
+async function getCampaignData(slug) {
+  var now = Date.now();
+  if (rotateCache[slug] && (now - rotateCache[slug].ts) < ROTATE_CACHE_TTL) {
+    return rotateCache[slug].data;
+  }
+
+  var result = await pool.query(
+    `SELECT c.id as camp_id, c.name as camp_name, c.slug, c.rotation_mode, c.alert_threshold,
+            c.fb_pixel_id, c.fb_event_name, c.tt_pixel_id, c.tt_event_name,
+            c.gtm_id, c.gtm_event_name, c.gads_id, c.gads_conversion_label,
+            l.id as link_id, l.name as link_name, l.url as link_url,
+            l.current_clicks, l.max_vacancies, l.weight, l.order_num
+     FROM campaigns c
+     JOIN links l ON l.campaign_id = c.id
+     WHERE c.slug=$1 AND c.is_active=true AND l.is_active=true AND l.is_full=false
+     ORDER BY l.order_num`, [slug]
+  );
+
+  if (result.rows.length === 0) {
+    rotateCache[slug] = { ts: now, data: null };
+    return null;
+  }
+
+  var r0 = result.rows[0];
+  var data = {
+    campaign: {
+      id: r0.camp_id, name: r0.camp_name, slug: r0.slug,
+      rotationMode: r0.rotation_mode || 'random', alertThreshold: r0.alert_threshold || 90,
+      fbPixelId: r0.fb_pixel_id || '', fbEventName: r0.fb_event_name || 'Lead',
+      ttPixelId: r0.tt_pixel_id || '', ttEventName: r0.tt_event_name || 'SubmitForm',
+      gtmId: r0.gtm_id || '', gtmEventName: r0.gtm_event_name || 'whatsapp_click',
+      gadsId: r0.gads_id || '', gadsConversionLabel: r0.gads_conversion_label || ''
+    },
+    links: result.rows.map(function(r) {
+      return { id: r.link_id, name: r.link_name, url: r.link_url, currentClicks: r.current_clicks, maxVacancies: r.max_vacancies, weight: r.weight || 1, order: r.order_num || 0 };
+    }),
+    hasPixels: !!(r0.fb_pixel_id || r0.tt_pixel_id || r0.gtm_id || r0.gads_id)
+  };
+
+  rotateCache[slug] = { ts: now, data: data };
+  return data;
+}
+
+// Invalidate cache when links/campaigns change
+function invalidateRotateCache(slug) {
+  if (slug) { delete rotateCache[slug]; }
+  else { rotateCache = {}; }
+}
+
+// Select link based on rotation mode
+var sequentialCounters = {};
+function selectLink(links, mode, slug) {
+  if (links.length === 1) return links[0];
+
+  if (mode === 'weighted') {
+    var totalWeight = links.reduce(function(s, l) { return s + l.weight; }, 0);
+    var rand = Math.random() * totalWeight;
+    var cum = 0;
+    for (var i = 0; i < links.length; i++) {
+      cum += links[i].weight;
+      if (rand <= cum) return links[i];
+    }
+    return links[links.length - 1];
+  }
+  if (mode === 'least-filled') {
+    links.sort(function(a, b) {
+      return (a.currentClicks / (a.maxVacancies || 1)) - (b.currentClicks / (b.maxVacancies || 1));
+    });
+    return links[0];
+  }
+  if (mode === 'sequential') {
+    var idx = sequentialCounters[slug] || 0;
+    sequentialCounters[slug] = idx + 1;
+    return links[idx % links.length];
+  }
+  // random
+  return links[Math.floor(Math.random() * links.length)];
+}
+
+// Parse User-Agent server-side
+function parseUA(ua) {
+  if (!ua) return { device: 'Desktop', browser: 'Outro', os: 'Outro' };
+  var device = /tablet|ipad/i.test(ua) ? 'Tablet' : /mobile|iphone|android/i.test(ua) ? 'Mobile' : 'Desktop';
+  var browser = ua.indexOf('Firefox')>-1?'Firefox':ua.indexOf('SamsungBrowser')>-1?'Samsung':ua.indexOf('OPR')>-1?'Opera':ua.indexOf('Edg')>-1?'Edge':ua.indexOf('Chrome')>-1?'Chrome':ua.indexOf('Safari')>-1?'Safari':'Outro';
+  var os = ua.indexOf('Windows')>-1?'Windows':ua.indexOf('Android')>-1?'Android':/iPhone|iPad/.test(ua)?'iOS':ua.indexOf('Mac')>-1?'macOS':'Outro';
+  return { device: device, browser: browser, os: os };
+}
+
+// IP rate limiting (in-memory, simple)
+var ipRateLimit = {};
+function checkRateLimit(ip) {
+  var now = Date.now();
+  if (!ipRateLimit[ip]) ipRateLimit[ip] = [];
+  ipRateLimit[ip] = ipRateLimit[ip].filter(function(t) { return now - t < 60000; });
+  if (ipRateLimit[ip].length >= 15) return false;
+  ipRateLimit[ip].push(now);
+  return true;
+}
+// Clean rate limit map every 5 min
+setInterval(function() {
+  var now = Date.now();
+  Object.keys(ipRateLimit).forEach(function(ip) {
+    ipRateLimit[ip] = ipRateLimit[ip].filter(function(t) { return now - t < 60000; });
+    if (ipRateLimit[ip].length === 0) delete ipRateLimit[ip];
+  });
+}, 5 * 60 * 1000);
+
+// Background click recording (fire and forget)
+function recordClickBackground(linkId, linkName, campId, campName, visitor, threshold) {
+  pool.query(
+    'INSERT INTO clicks (link_id, link_name, campaign_id, device, browser, os, city, country, country_code, ip, referrer) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
+    [linkId, linkName, campId, visitor.device||'', visitor.browser||'', visitor.os||'', visitor.city||'', visitor.country||'', visitor.countryCode||'', visitor.ip||'', visitor.referrer||'']
+  ).catch(function(e) { console.error('[ROTATE] Click error:', e.message); });
+
+  pool.query(
+    'UPDATE links SET current_clicks = current_clicks + 1, is_full = CASE WHEN current_clicks + 1 >= max_vacancies THEN true ELSE false END, updated_at = NOW() WHERE id=$1 RETURNING current_clicks, max_vacancies, is_full',
+    [linkId]
+  ).then(function(updResult) {
+    if (!updResult.rows.length) return;
+    var upd = updResult.rows[0];
+    // Invalidate cache if link became full
+    if (upd.is_full) {
+      rotateCache = {}; // force refresh
+      pool.query('INSERT INTO alerts (type, campaign_name, link_name, message, read) VALUES ($1,$2,$3,$4,false)',
+        ['link_full', campName, linkName, 'Grupo cheio: ' + linkName]).catch(function(){});
+    } else {
+      var fillPct = (upd.current_clicks / (upd.max_vacancies || 1)) * 100;
+      if (fillPct >= threshold) {
+        pool.query('INSERT INTO alerts (type, campaign_name, link_name, percent, message, read) VALUES ($1,$2,$3,$4,$5,false)',
+          ['link_near_full', campName, linkName, Math.round(fillPct), 'Grupo quase cheio: ' + linkName + ' (' + Math.round(fillPct) + '%)']).catch(function(){});
+      }
+    }
+  }).catch(function(e) { console.error('[ROTATE] Update error:', e.message); });
+}
+
+// ===== SERVER-SIDE REDIRECT: GET /r/:slug (FASTEST - no HTML/JS needed) =====
+app.get('/r/:slug', async function(req, res) {
+  try {
+    var slug = req.params.slug;
+    var ip = req.headers['x-forwarded-for'] || req.ip;
+
+    // Rate limit
+    if (!checkRateLimit(ip)) {
+      return res.status(429).send('Muitas tentativas. Aguarde.');
+    }
+
+    // Get cached campaign data
+    var data = await getCampaignData(slug);
+    if (!data) {
+      return res.status(404).send('<!DOCTYPE html><html><body style="background:#0d1b2a;color:#e0e0e0;font-family:system-ui;display:flex;align-items:center;justify-content:center;min-height:100vh"><div style="text-align:center"><p style="color:#FF3B30">Campanha não encontrada ou todos os grupos estão cheios.</p></div></body></html>');
+    }
+
+    // Select link
+    var selected = selectLink(data.links, data.campaign.rotationMode, slug);
+
+    // Parse visitor from headers
+    var ua = req.headers['user-agent'] || '';
+    var visitor = parseUA(ua);
+    visitor.ip = ip;
+    visitor.referrer = req.headers.referer || '';
+
+    // Record click in background
+    recordClickBackground(selected.id, selected.name, data.campaign.id, data.campaign.name, visitor, data.campaign.alertThreshold);
+
+    // If campaign has pixels configured, serve inline HTML with pixels + redirect
+    if (data.hasPixels) {
+      var pixelHtml = '<!DOCTYPE html><html><head><meta charset="UTF-8">';
+      pixelHtml += '<meta http-equiv="refresh" content="0;url=' + escapeHtml(selected.url) + '">';
+
+      // Facebook Pixel
+      if (data.campaign.fbPixelId) {
+        pixelHtml += '<script>!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version="2.0";n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,"script","https://connect.facebook.net/en_US/fbevents.js");fbq("init","' + data.campaign.fbPixelId + '");fbq("track","PageView");fbq("track","' + (data.campaign.fbEventName || 'Lead') + '",{content_name:"' + escapeHtml(selected.name) + '"});</script>';
+        pixelHtml += '<noscript><img height="1" width="1" style="display:none" src="https://www.facebook.com/tr?id=' + data.campaign.fbPixelId + '&ev=PageView&noscript=1"></noscript>';
+      }
+
+      // TikTok Pixel
+      if (data.campaign.ttPixelId) {
+        pixelHtml += '<script>!function(w,d,t){w.TiktokAnalyticsObject=t;var ttq=w[t]=w[t]||[];ttq.methods=["page","track","identify","instances","debug","on","off","once","ready","alias","group","enableCookie","disableCookie"];ttq.setAndDefer=function(t,e){t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}};for(var i=0;i<ttq.methods.length;i++)ttq.setAndDefer(ttq,ttq.methods[i]);ttq.instance=function(t){for(var e=ttq._i[t]||[],n=0;n<ttq.methods.length;n++)ttq.setAndDefer(e,ttq.methods[n]);return e};ttq.load=function(e,n){var i="https://analytics.tiktok.com/i18n/pixel/events.js";ttq._i=ttq._i||{};ttq._i[e]=[];ttq._i[e]._u=i;ttq._t=ttq._t||{};ttq._t[e]=+new Date;ttq._o=ttq._o||{};ttq._o[e]=n||{};var o=document.createElement("script");o.type="text/javascript";o.async=!0;o.src=i+"?sdkid="+e+"&lib="+t;var a=document.getElementsByTagName("script")[0];a.parentNode.insertBefore(o,a)};ttq.load("' + data.campaign.ttPixelId + '");ttq.page();}(window,document,"ttq");ttq.track("' + (data.campaign.ttEventName || 'SubmitForm') + '");</script>';
+      }
+
+      // GTM
+      if (data.campaign.gtmId) {
+        pixelHtml += '<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({"gtm.start":new Date().getTime(),event:"gtm.js"});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!="dataLayer"?"&l="+l:"";j.async=true;j.src="https://www.googletagmanager.com/gtm.js?id="+i+dl;f.parentNode.insertBefore(j,f);})(window,document,"script","dataLayer","' + data.campaign.gtmId + '");window.dataLayer=window.dataLayer||[];window.dataLayer.push({event:"' + (data.campaign.gtmEventName || 'whatsapp_click') + '"});</script>';
+      }
+
+      // Google Ads
+      if (data.campaign.gadsId) {
+        pixelHtml += '<script async src="https://www.googletagmanager.com/gtag/js?id=' + data.campaign.gadsId + '"></script>';
+        pixelHtml += '<script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag("js",new Date());gtag("config","' + data.campaign.gadsId + '");';
+        if (data.campaign.gadsConversionLabel) {
+          pixelHtml += 'gtag("event","conversion",{send_to:"' + data.campaign.gadsId + '/' + data.campaign.gadsConversionLabel + '"});';
+        }
+        pixelHtml += '</script>';
+      }
+
+      pixelHtml += '</head><body><script>window.location.replace("' + escapeHtml(selected.url) + '");</script></body></html>';
+
+      res.set('Content-Type', 'text/html; charset=utf-8');
+      res.set('Cache-Control', 'no-cache, no-store');
+      return res.send(pixelHtml);
+    }
+
+    // NO PIXELS: Pure 302 redirect (fastest possible)
+    res.set('Cache-Control', 'no-cache, no-store');
+    res.redirect(302, selected.url);
+
+  } catch (err) {
+    console.error('[ROTATE] Error:', err.message);
+    if (!res.headersSent) res.status(500).send('Erro interno');
+  }
+});
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// ===== ROTATE - POST API endpoint (kept for backward compatibility with r.html) =====
 app.post('/api/rotate', async function(req, res) {
   try {
     var slug = req.body.slug;
     if (!slug) return res.status(400).json({ error: 'Slug obrigatório' });
 
-    // SINGLE QUERY: campaign + active links via JOIN
-    var result = await pool.query(
-      `SELECT c.id as camp_id, c.name as camp_name, c.slug, c.rotation_mode, c.alert_threshold,
-              c.fb_pixel_id, c.fb_event_name, c.tt_pixel_id, c.tt_event_name,
-              c.gtm_id, c.gtm_event_name, c.gads_id, c.gads_conversion_label,
-              l.id as link_id, l.name as link_name, l.url as link_url,
-              l.current_clicks, l.max_vacancies, l.weight, l.order_num
-       FROM campaigns c
-       JOIN links l ON l.campaign_id = c.id
-       WHERE c.slug=$1 AND c.is_active=true AND l.is_active=true AND l.is_full=false
-       ORDER BY l.order_num`, [slug]
-    );
-
-    if (result.rows.length === 0) {
-      // Check if campaign exists but all links are full
-      var campCheck = await pool.query('SELECT name FROM campaigns WHERE slug=$1 AND is_active=true', [slug]);
-      if (campCheck.rows.length > 0) {
-        pool.query(
-          'INSERT INTO alerts (type, campaign_name, message, read) VALUES ($1,$2,$3,false)',
-          ['all_full', campCheck.rows[0].name, 'Todos os grupos cheios na campanha ' + campCheck.rows[0].name]
-        ).catch(function() {});
-        return res.status(404).json({ error: 'Todos os grupos estão cheios' });
-      }
-      return res.status(404).json({ error: 'Campanha não encontrada ou inativa' });
+    var data = await getCampaignData(slug);
+    if (!data) {
+      return res.status(404).json({ error: 'Campanha não encontrada ou todos os grupos estão cheios' });
     }
 
-    // Build campaign data from first row
-    var r0 = result.rows[0];
-    var campData = {
-      id: r0.camp_id, name: r0.camp_name, slug: r0.slug,
-      fbPixelId: r0.fb_pixel_id || '', fbEventName: r0.fb_event_name || 'Lead',
-      ttPixelId: r0.tt_pixel_id || '', ttEventName: r0.tt_event_name || 'SubmitForm',
-      gtmId: r0.gtm_id || '', gtmEventName: r0.gtm_event_name || 'whatsapp_click',
-      gadsId: r0.gads_id || '', gadsConversionLabel: r0.gads_conversion_label || ''
-    };
+    var selected = selectLink(data.links, data.campaign.rotationMode, slug);
 
-    // Build links array
-    var links = result.rows.map(function(r) {
-      return { id: r.link_id, name: r.link_name, url: r.link_url, currentClicks: r.current_clicks, maxVacancies: r.max_vacancies, weight: r.weight || 1, order: r.order_num || 0 };
-    });
+    // Respond immediately
+    res.json({ url: selected.url, campaign: data.campaign, link: { id: selected.id, name: selected.name } });
 
-    // Select link based on rotation mode
-    var mode = r0.rotation_mode || 'random';
-    var selected = null;
-    if (links.length === 1) {
-      selected = links[0];
-    } else if (mode === 'weighted') {
-      var totalWeight = links.reduce(function(s, l) { return s + l.weight; }, 0);
-      var rand = Math.random() * totalWeight;
-      var cum = 0;
-      for (var i = 0; i < links.length; i++) {
-        cum += links[i].weight;
-        if (rand <= cum) { selected = links[i]; break; }
-      }
-      if (!selected) selected = links[links.length - 1];
-    } else if (mode === 'least-filled') {
-      links.sort(function(a, b) {
-        return (a.currentClicks / (a.maxVacancies || 1)) - (b.currentClicks / (b.maxVacancies || 1));
-      });
-      selected = links[0];
-    } else if (mode === 'sequential') {
-      var seqIdx = req.body.sequentialIndex || 0;
-      selected = links[seqIdx % links.length];
-    } else {
-      selected = links[Math.floor(Math.random() * links.length)];
-    }
-
-    // RESPOND IMMEDIATELY with the URL
-    res.json({
-      url: selected.url,
-      campaign: campData,
-      link: { id: selected.id, name: selected.name }
-    });
-
-    // BACKGROUND: Record click, update counts, check alerts (non-blocking)
+    // Background processing
     var v = req.body.visitor || {};
-    var campId = r0.camp_id;
-    var threshold = r0.alert_threshold || 90;
-
-    pool.query(
-      'INSERT INTO clicks (link_id, link_name, campaign_id, device, browser, os, city, country, country_code, ip, referrer) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
-      [selected.id, selected.name, campId, v.device || '', v.browser || '', v.os || '', v.city || '', v.country || '', v.countryCode || '', v.ip || req.ip, v.referrer || '']
-    ).catch(function(e) { console.error('[ROTATE] Erro ao registrar click:', e.message); });
-
-    pool.query(
-      'UPDATE links SET current_clicks = current_clicks + 1, is_full = CASE WHEN current_clicks + 1 >= max_vacancies THEN true ELSE false END, updated_at = NOW() WHERE id=$1 RETURNING current_clicks, max_vacancies, is_full',
-      [selected.id]
-    ).then(function(updResult) {
-      if (updResult.rows.length > 0) {
-        var upd = updResult.rows[0];
-        if (upd.is_full) {
-          pool.query(
-            'INSERT INTO alerts (type, campaign_name, link_name, message, read) VALUES ($1,$2,$3,$4,false)',
-            ['link_full', r0.camp_name, selected.name, 'Grupo cheio: ' + selected.name]
-          ).catch(function() {});
-        } else {
-          var fillPct = (upd.current_clicks / (upd.max_vacancies || 1)) * 100;
-          if (fillPct >= threshold) {
-            pool.query(
-              'INSERT INTO alerts (type, campaign_name, link_name, percent, message, read) VALUES ($1,$2,$3,$4,$5,false)',
-              ['link_near_full', r0.camp_name, selected.name, Math.round(fillPct), 'Grupo quase cheio: ' + selected.name + ' (' + Math.round(fillPct) + '%)']
-            ).catch(function() {});
-          }
-        }
-      }
-    }).catch(function(e) { console.error('[ROTATE] Erro ao atualizar clicks:', e.message); });
+    v.ip = v.ip || req.ip;
+    recordClickBackground(selected.id, selected.name, data.campaign.id, data.campaign.name, v, data.campaign.alertThreshold);
 
   } catch (err) {
     if (!res.headersSent) res.status(500).json({ error: err.message });
@@ -1751,6 +1888,7 @@ app.post('/api/links/:id/reactivate', authMiddleware, async function(req, res) {
       'UPDATE links SET is_active=true, health_check_failures=0, deactivated_reason=NULL, deactivated_at=NULL, updated_at=NOW() WHERE id=$1',
       [req.params.id]
     );
+    invalidateRotateCache();
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
