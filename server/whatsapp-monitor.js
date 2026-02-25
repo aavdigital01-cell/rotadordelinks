@@ -362,11 +362,59 @@ async function restart() {
   initialize(pool);
 }
 
+// ===== HEALTH CHECK HELPERS =====
+
+/**
+ * Verifica se um grupo ainda existe via WhatsApp client
+ */
+async function checkGroupExists(groupId) {
+  if (!client || !connectionStatus.ready) return null;
+  try {
+    var chat = await client.getChatById(groupId);
+    if (chat && chat.name) {
+      return { exists: true, name: chat.name, participants: chat.participants ? chat.participants.length : 0 };
+    }
+    return { exists: false };
+  } catch (err) {
+    return { exists: false, error: err.message };
+  }
+}
+
+/**
+ * Verifica se um código de convite do WhatsApp é válido
+ */
+async function checkInviteCode(inviteCode) {
+  if (!client || !connectionStatus.ready) return null;
+  try {
+    var info = await client.getInviteInfo(inviteCode);
+    return { valid: true, groupName: info.subject, size: info.size };
+  } catch (err) {
+    return { valid: false, error: err.message };
+  }
+}
+
+/**
+ * Retorna lista de IDs dos grupos ativos no WhatsApp
+ */
+async function getLiveGroupIds() {
+  if (!client || !connectionStatus.ready) return null;
+  try {
+    var chats = await client.getChats();
+    var groups = chats.filter(function(c) { return c.isGroup; });
+    return groups.map(function(g) { return g.id._serialized; });
+  } catch (err) {
+    return null;
+  }
+}
+
 module.exports = {
   initialize: initialize,
   getStatus: getStatus,
   getQR: getQR,
   getGroups: getGroups,
   getGroupMembers: getGroupMembers,
-  restart: restart
+  restart: restart,
+  checkGroupExists: checkGroupExists,
+  checkInviteCode: checkInviteCode,
+  getLiveGroupIds: getLiveGroupIds
 };

@@ -896,6 +896,31 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
 /* Meta Ads filters bar */
 .filters-bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
 .filters-bar select, .filters-bar input[type="text"] { padding:6px 10px; font-size:12px; background:var(--bg-secondary); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text-primary); }
+
+/* Health Check */
+.health-panel { display:flex; gap:12px; margin-bottom:16px; flex-wrap:wrap; }
+.health-stat { flex:1; min-width:120px; background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-sm); padding:14px 16px; text-align:center; }
+.health-stat .health-number { font-size:24px; font-weight:700; line-height:1.2; }
+.health-stat .health-label { font-size:11px; color:var(--text-secondary); margin-top:4px; }
+.health-stat.healthy .health-number { color:var(--accent); }
+.health-stat.warning .health-number { color:var(--warning); }
+.health-stat.broken .health-number { color:var(--danger); }
+.health-stat.total .health-number { color:var(--info); }
+
+.health-result { display:flex; align-items:center; gap:12px; padding:10px 14px; border-bottom:1px solid var(--border); font-size:13px; }
+.health-result:last-child { border-bottom:none; }
+.health-result .health-icon { width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:12px; flex-shrink:0; }
+.health-result .health-icon.ok { background:rgba(37,211,102,0.15); color:var(--accent); }
+.health-result .health-icon.warn { background:var(--warning-bg); color:var(--warning); }
+.health-result .health-icon.err { background:var(--danger-bg); color:var(--danger); }
+.health-result .health-info { flex:1; }
+.health-result .health-name { font-weight:600; }
+.health-result .health-issues { font-size:11px; color:var(--text-secondary); margin-top:2px; }
+.health-result .health-badge { font-size:10px; padding:3px 8px; border-radius:10px; font-weight:600; }
+
+.health-running { display:flex; align-items:center; gap:8px; padding:16px; color:var(--text-secondary); font-size:13px; }
+.health-running .spinner-sm { width:16px; height:16px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin 0.8s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
 </style>
 </head>
 <body>
@@ -1296,6 +1321,43 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
 
     <!-- ===== LINKS VIEW ===== -->
     <div class="view" id="view-links">
+      <!-- Health Check Panel -->
+      <div class="card" style="margin-bottom:16px" id="healthCheckCard">
+        <div class="card-header">
+          <div style="display:flex;align-items:center;gap:10px">
+            <i class="fas fa-heartbeat" style="color:var(--accent)"></i>
+            <span class="card-title">Saúde dos Links & Grupos</span>
+            <span id="healthLastCheck" style="font-size:11px;color:var(--text-muted)"></span>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-secondary btn-sm" id="btnHealthCheck" onclick="runHealthCheck()">
+              <i class="fas fa-stethoscope"></i> Verificar Agora
+            </button>
+          </div>
+        </div>
+        <div class="card-body" id="healthCheckBody">
+          <div class="health-panel" id="healthSummary">
+            <div class="health-stat total">
+              <div class="health-number" id="healthTotal">-</div>
+              <div class="health-label">Links Verificados</div>
+            </div>
+            <div class="health-stat healthy">
+              <div class="health-number" id="healthHealthy">-</div>
+              <div class="health-label">Saudáveis</div>
+            </div>
+            <div class="health-stat warning">
+              <div class="health-number" id="healthWarning">-</div>
+              <div class="health-label">Avisos</div>
+            </div>
+            <div class="health-stat broken">
+              <div class="health-number" id="healthBroken">-</div>
+              <div class="health-label">Problemas</div>
+            </div>
+          </div>
+          <div id="healthResults" style="display:none;max-height:300px;overflow-y:auto"></div>
+        </div>
+      </div>
+
       <div class="card">
         <div class="card-header">
           <div style="display:flex;align-items:center;gap:12px">
@@ -1320,12 +1382,13 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
                 <th>Membros Reais</th>
                 <th>Taxa Fuga</th>
                 <th>Peso</th>
+                <th>Saúde</th>
                 <th>Status</th>
                 <th>Acoes</th>
               </tr>
             </thead>
             <tbody id="linksTable">
-              <tr><td colspan="8" class="empty-state"><i class="fas fa-link"></i><h3>Nenhum link</h3><p>Adicione links de grupos WhatsApp</p></td></tr>
+              <tr><td colspan="11" class="empty-state"><i class="fas fa-link"></i><h3>Nenhum link</h3><p>Adicione links de grupos WhatsApp</p></td></tr>
             </tbody>
           </table>
         </div>
@@ -2528,6 +2591,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     document.getElementById('pageTitle').textContent = titles[viewName] || viewName;
 
     // Carrega dados específicos da view
+    if (viewName === 'links') loadHealthStatus();
     if (viewName === 'metaads') loadMetaCampaigns();
     if (viewName === 'whatsapp') loadWhatsAppData();
     if (viewName === 'analytics') loadAnalytics();
@@ -2753,7 +2817,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     var filtered = filter ? links.filter(function(l) { return l.campaignId === filter; }) : links;
 
     if (filtered.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="10"><div class="empty-state"><i class="fas fa-link"></i><h3>Nenhum link</h3><p>Adicione links de grupos WhatsApp</p></div></td></tr>';
+      tbody.innerHTML = '<tr><td colspan="11"><div class="empty-state"><i class="fas fa-link"></i><h3>Nenhum link</h3><p>Adicione links de grupos WhatsApp</p></div></td></tr>';
       return;
     }
 
@@ -2768,6 +2832,19 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
                         l.isActive ? '<span class="badge badge-success">Ativo</span>' :
                         '<span class="badge badge-warning">Inativo</span>';
 
+      // Health badge
+      var healthBadge = '';
+      var failures = l.healthCheckFailures || 0;
+      if (l.deactivatedReason && l.deactivatedReason.toLowerCase().indexOf('banido') >= 0) {
+        healthBadge = '<span class="badge badge-danger" title="Link desativado automaticamente"><i class="fas fa-heart-broken"></i> Banido</span>';
+      } else if (failures >= 3) {
+        healthBadge = '<span class="badge badge-danger" title="' + failures + ' falhas"><i class="fas fa-exclamation-triangle"></i> Crítico</span>';
+      } else if (failures >= 1) {
+        healthBadge = '<span class="badge badge-warning" title="' + failures + ' falha(s)"><i class="fas fa-exclamation-circle"></i> Alerta</span>';
+      } else {
+        healthBadge = '<span class="badge badge-success"><i class="fas fa-check-circle"></i> OK</span>';
+      }
+
       // Real members from whatsapp group (cached from group_members collection)
       var realMembers = '-';
       var fugaRate = '-';
@@ -2779,6 +2856,10 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
           fugaRate = Math.max(0, fuga) + '%';
         }
       }
+
+      // Reactivate button for deactivated links
+      var reactivateBtn = (l.deactivatedReason && !l.isActive) ?
+        ' <button class="btn btn-secondary btn-sm btn-icon" onclick="reactivateLink(\'' + l.id + '\')" title="Reativar link"><i class="fas fa-heart"></i></button>' : '';
 
       html += '<tr>' +
         '<td><strong>' + escHtml(l.name || 'Sem nome') + '</strong></td>' +
@@ -2793,11 +2874,13 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
         '<td style="font-weight:600;color:' + (realMembers !== '-' ? 'var(--accent)' : 'var(--text-muted)') + '">' + realMembers + '</td>' +
         '<td style="font-size:12px;color:var(--text-muted)">' + fugaRate + '</td>' +
         '<td>' + (l.weight || 1) + '</td>' +
+        '<td>' + healthBadge + '</td>' +
         '<td>' + statusBadge + '</td>' +
         '<td style="white-space:nowrap">' +
         '<button class="btn btn-secondary btn-sm btn-icon" onclick="editLink(\'' + l.id + '\')" title="Editar"><i class="fas fa-pen"></i></button> ' +
         '<button class="btn btn-secondary btn-sm btn-icon" onclick="resetLinkClicks(\'' + l.id + '\')" title="Resetar clicks"><i class="fas fa-redo"></i></button> ' +
         '<button class="btn btn-secondary btn-sm btn-icon" onclick="toggleLinkStatus(\'' + l.id + '\')" title="' + (l.isActive ? 'Desativar' : 'Ativar') + '"><i class="fas fa-' + (l.isActive ? 'pause' : 'play') + '"></i></button> ' +
+        reactivateBtn +
         '<button class="btn btn-danger btn-sm btn-icon" onclick="deleteLink(\'' + l.id + '\')" title="Excluir"><i class="fas fa-trash"></i></button>' +
         '</td></tr>';
     });
@@ -2818,6 +2901,103 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
       renderLinksTable();
     } catch(e) {}
   }
+
+  // ===== HEALTH CHECK =====
+
+  window.runHealthCheck = async function() {
+    var btn = document.getElementById('btnHealthCheck');
+    var body = document.getElementById('healthResults');
+    btn.disabled = true;
+    btn.innerHTML = '<div class="spinner-sm" style="display:inline-block;width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite;vertical-align:middle"></div> Verificando...';
+    body.style.display = 'block';
+    body.innerHTML = '<div class="health-running"><div class="spinner-sm"></div> Verificando saúde dos links e grupos... Isso pode levar alguns segundos.</div>';
+
+    try {
+      var data = await serverPost('/api/health-check/run', {});
+      renderHealthResults(data);
+      // Reload links to refresh health badges
+      await loadAllLinks();
+      enrichLinksWithGroupData();
+    } catch (err) {
+      body.innerHTML = '<div style="padding:16px;color:var(--danger);font-size:13px"><i class="fas fa-exclamation-triangle"></i> Erro ao executar varredura: ' + escHtml(err.message) + '</div>';
+    }
+
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-stethoscope"></i> Verificar Agora';
+  };
+
+  async function loadHealthStatus() {
+    try {
+      var data = await serverFetch('/api/health-check/status');
+      if (data && data.timestamp) {
+        renderHealthResults(data);
+      }
+    } catch(e) {}
+  }
+
+  function renderHealthResults(data) {
+    if (!data) return;
+
+    var s = data.summary || {};
+    document.getElementById('healthTotal').textContent = s.total || 0;
+    document.getElementById('healthHealthy').textContent = s.healthy || 0;
+    document.getElementById('healthWarning').textContent = s.warning || 0;
+    document.getElementById('healthBroken').textContent = s.broken || 0;
+
+    if (data.timestamp) {
+      var d = new Date(data.timestamp);
+      document.getElementById('healthLastCheck').textContent = 'Última verificação: ' + d.toLocaleString('pt-BR');
+    }
+
+    var resultsDiv = document.getElementById('healthResults');
+    if (!data.results || data.results.length === 0) {
+      resultsDiv.style.display = 'none';
+      return;
+    }
+
+    // Only show warnings and broken items
+    var issues = data.results.filter(function(r) { return r.status !== 'healthy'; });
+    if (issues.length === 0) {
+      resultsDiv.style.display = 'block';
+      resultsDiv.innerHTML = '<div style="padding:12px 14px;font-size:13px;color:var(--accent)"><i class="fas fa-check-circle"></i> Todos os links e grupos estão saudáveis!</div>';
+      return;
+    }
+
+    resultsDiv.style.display = 'block';
+    var html = '';
+    issues.forEach(function(r) {
+      var iconClass = r.status === 'broken' ? 'err' : 'warn';
+      var icon = r.status === 'broken' ? 'fa-times' : 'fa-exclamation';
+      var name = r.linkName || r.groupName || 'Desconhecido';
+      var typeLabel = r.type === 'group' ? '<span class="badge badge-info" style="font-size:9px;margin-left:6px">Grupo</span>' : '';
+      var badgeClass = r.status === 'broken' ? 'badge-danger' : 'badge-warning';
+      var badgeText = r.status === 'broken' ? 'Problema' : 'Aviso';
+
+      html += '<div class="health-result">' +
+        '<div class="health-icon ' + iconClass + '"><i class="fas ' + icon + '"></i></div>' +
+        '<div class="health-info">' +
+          '<div class="health-name">' + escHtml(name) + typeLabel + '</div>' +
+          '<div class="health-issues">' + escHtml((r.issues || []).join(' | ')) + '</div>' +
+        '</div>' +
+        '<span class="health-badge badge ' + badgeClass + '">' + badgeText + '</span>' +
+        (r.autoDeactivated ? '<span class="badge badge-danger" style="font-size:9px;margin-left:4px">Desativado</span>' : '') +
+        '</div>';
+    });
+    resultsDiv.innerHTML = html;
+  }
+
+  window.reactivateLink = async function(linkId) {
+    showConfirm('Reativar este link? O contador de falhas será zerado.', async function() {
+      try {
+        await serverPost('/api/links/' + linkId + '/reactivate', {});
+        showToast('Link reativado com sucesso!', 'success');
+        await loadAllLinks();
+        enrichLinksWithGroupData();
+      } catch (err) {
+        showToast('Erro ao reativar: ' + err.message, 'error');
+      }
+    });
+  };
 
   async function loadWhatsappGroupsDropdown() {
     var select = document.getElementById('linkWhatsappGroup');

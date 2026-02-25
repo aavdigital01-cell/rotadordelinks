@@ -1311,6 +1311,19 @@ app.get('/api/analytics/smart-alerts', authMiddleware, async function(req, res) 
       }
     });
 
+    // 5. Links with health issues (broken/banned)
+    var unhealthyLinksR = await pool.query("SELECT name, health_check_failures, deactivated_reason FROM links WHERE health_check_failures > 0 OR (deactivated_reason IS NOT NULL AND deactivated_reason LIKE '%banido%')");
+    unhealthyLinksR.rows.forEach(function(l) {
+      var sev = l.health_check_failures >= 3 || l.deactivated_reason ? 'danger' : 'warning';
+      alerts.push({
+        type: 'link_health',
+        severity: sev,
+        title: 'Link com problema',
+        message: l.name + (l.deactivated_reason ? ' - ' + l.deactivated_reason : ' - ' + l.health_check_failures + ' falha(s) detectada(s)'),
+        linkName: l.name
+      });
+    });
+
     // Sort: danger first, then warning, then info
     var severityOrder = { danger: 0, warning: 1, info: 2 };
     alerts.sort(function(a, b) { return (severityOrder[a.severity] || 3) - (severityOrder[b.severity] || 3); });
@@ -1417,6 +1430,247 @@ function extractCostPerResult(costPerAction) {
 // Auto-sync Meta every 5 minutes
 setInterval(syncMetaToDB, 5 * 60 * 1000);
 
+// ===== HEALTH CHECK SYSTEM =====
+
+var lastHealthCheck = { timestamp: null, results: [], summary: {}, running: false };
+
+function extractInviteCode(url) {
+  if (!url) return null;
+  var match = url.match(/chat\.whatsapp\.com\/([A-Za-z0-9_-]+)/);
+  return match ? match[1] : null;
+}
+
+async function runHealthCheck() {
+  if (lastHealthCheck.running) {
+    console.log('[HEALTH] Varredura já em andamento, ignorando...');
+    return lastHealthCheck;
+  }
+
+  lastHealthCheck.running = true;
+  console.log('[HEALTH] Iniciando varredura de saúde dos links e grupos...');
+
+  var results = [];
+  var summary = { total: 0, healthy: 0, warning: 0, broken: 0 };
+
+  try {
+    // 1. Check all active links
+    var linksR = await pool.query('SELECT * FROM links WHERE is_active=true');
+    summary.total = linksR.rows.length;
+
+    var whatsappReady = whatsappMonitor.getStatus().ready;
+
+    for (var link of linksR.rows) {
+      var result = { type: 'link', linkId: link.id, linkName: link.name, url: link.url, status: 'healthy', issues: [] };
+
+      // a) Check WhatsApp invite link via client
+      var inviteCode = extractInviteCode(link.url);
+      if (inviteCode && whatsappReady) {
+        var inviteCheck = await whatsappMonitor.checkInviteCode(inviteCode);
+        if (inviteCheck !== null) {
+          if (!inviteCheck.valid) {
+            result.status = 'broken';
+            result.issues.push('Link de convite inválido ou expirado');
+          }
+        }
+      } else if (inviteCode && !whatsappReady) {
+        // Fallback: HTTP check
+        try {
+          var resp = await fetch('https://chat.whatsapp.com/' + inviteCode, {
+            method: 'GET',
+            redirect: 'follow',
+            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; LinkRotatorBot/1.0)' }
+          });
+          var body = await resp.text();
+          // Check for invalid group indicators in meta tags
+          if (resp.status === 404 || body.includes('invite_link_revoke') || body.includes('"invite_link_is_revoked":true')) {
+            result.status = 'broken';
+            result.issues.push('Link de convite revogado ou grupo banido');
+          } else if (!body.includes('og:title') || body.includes('<title>WhatsApp</title>')) {
+            // Generic WhatsApp page without group info = possibly invalid
+            result.status = 'warning';
+            result.issues.push('Link pode estar inválido (sem informações do grupo)');
+          }
+        } catch (err) {
+          result.status = 'warning';
+          result.issues.push('Erro ao verificar URL: ' + err.message);
+        }
+      }
+
+      // b) Check linked WhatsApp group exists
+      if (link.whatsapp_group_id && whatsappReady) {
+        var groupCheck = await whatsappMonitor.checkGroupExists(link.whatsapp_group_id);
+        if (groupCheck !== null && !groupCheck.exists) {
+          result.status = 'broken';
+          result.issues.push('Grupo vinculado não encontrado no WhatsApp');
+        }
+      }
+
+      // c) Check accumulated health_check_failures
+      if (link.health_check_failures >= 3) {
+        result.status = 'broken';
+        result.issues.push(link.health_check_failures + ' falhas consecutivas reportadas por usuários');
+      } else if (link.health_check_failures >= 1) {
+        if (result.status === 'healthy') result.status = 'warning';
+        result.issues.push(link.health_check_failures + ' falha(s) reportada(s) por usuários');
+      }
+
+      // Update counters
+      summary[result.status]++;
+
+      // Create alert and update DB for broken links
+      if (result.status === 'broken') {
+        var recentAlert = await pool.query(
+          "SELECT id FROM alerts WHERE type='link_health' AND link_name=$1 AND timestamp >= NOW() - INTERVAL '6 hours' LIMIT 1",
+          [link.name]
+        );
+        if (recentAlert.rows.length === 0) {
+          var campName = '';
+          if (link.campaign_id) {
+            var cn = await pool.query('SELECT name FROM campaigns WHERE id=$1', [link.campaign_id]);
+            if (cn.rows.length > 0) campName = cn.rows[0].name;
+          }
+          await pool.query(
+            'INSERT INTO alerts (type, link_name, campaign_name, message, read) VALUES ($1,$2,$3,$4,false)',
+            ['link_health', link.name, campName, 'Link com problema detectado: ' + result.issues.join('; ')]
+          );
+
+          // Increment health check failures
+          await pool.query(
+            'UPDATE links SET health_check_failures = health_check_failures + 1, updated_at = NOW() WHERE id=$1',
+            [link.id]
+          );
+
+          // Auto-deactivate if 3+ failures
+          if ((link.health_check_failures || 0) + 1 >= 3) {
+            await pool.query(
+              "UPDATE links SET is_active=false, deactivated_reason='Desativado automaticamente - link quebrado ou grupo banido (health check)', deactivated_at=NOW() WHERE id=$1",
+              [link.id]
+            );
+            result.autoDeactivated = true;
+          }
+        }
+      } else if (result.status === 'healthy' && link.health_check_failures > 0) {
+        // Link recovered - reset failures
+        await pool.query('UPDATE links SET health_check_failures=0, updated_at=NOW() WHERE id=$1', [link.id]);
+      }
+
+      results.push(result);
+
+      // Small delay to avoid rate limiting
+      await new Promise(function(resolve) { setTimeout(resolve, 500); });
+    }
+
+    // 2. Check for disappeared groups (banned)
+    if (whatsappReady) {
+      var liveGroupIds = await whatsappMonitor.getLiveGroupIds();
+      if (liveGroupIds) {
+        var dbGroupsR = await pool.query('SELECT id, group_name, current_members FROM whatsapp_groups');
+
+        for (var dbGroup of dbGroupsR.rows) {
+          if (liveGroupIds.indexOf(dbGroup.id) === -1) {
+            // Group disappeared from WhatsApp
+            results.push({
+              type: 'group', groupId: dbGroup.id, groupName: dbGroup.group_name,
+              status: 'broken', issues: ['Grupo não encontrado no WhatsApp - possível banimento']
+            });
+            summary.broken++;
+
+            // Create alert if not recent
+            var recentGrpAlert = await pool.query(
+              "SELECT id FROM alerts WHERE type='group_banned' AND whatsapp_group_id=$1 AND timestamp >= NOW() - INTERVAL '24 hours' LIMIT 1",
+              [dbGroup.id]
+            );
+            if (recentGrpAlert.rows.length === 0) {
+              await pool.query(
+                'INSERT INTO alerts (type, whatsapp_group_id, group_name, message, read) VALUES ($1,$2,$3,$4,false)',
+                ['group_banned', dbGroup.id, dbGroup.group_name, 'Grupo possivelmente banido: ' + dbGroup.group_name + ' - não encontrado no WhatsApp']
+              );
+
+              // Deactivate all links linked to this group
+              await pool.query(
+                "UPDATE links SET is_active=false, deactivated_reason='Grupo banido/removido do WhatsApp', deactivated_at=NOW() WHERE whatsapp_group_id=$1 AND is_active=true",
+                [dbGroup.id]
+              );
+            }
+          } else {
+            // 3. Check for sudden member drops (>50% drop)
+            var liveGroups = await whatsappMonitor.getGroups();
+            var liveGroup = liveGroups.find(function(g) { return g.id === dbGroup.id; });
+            var liveMembers = liveGroup ? (liveGroup.participants || liveGroup.currentMembers || 0) : 0;
+            var dbMembers = dbGroup.current_members || 0;
+
+            if (dbMembers > 10 && liveMembers > 0 && liveMembers < dbMembers * 0.5) {
+              results.push({
+                type: 'group', groupId: dbGroup.id, groupName: dbGroup.group_name,
+                status: 'warning', issues: ['Queda brusca de membros: ' + dbMembers + ' → ' + liveMembers + ' (-' + Math.round((1 - liveMembers / dbMembers) * 100) + '%)']
+              });
+              summary.warning++;
+
+              var recentDropAlert = await pool.query(
+                "SELECT id FROM alerts WHERE type='member_drop' AND whatsapp_group_id=$1 AND timestamp >= NOW() - INTERVAL '6 hours' LIMIT 1",
+                [dbGroup.id]
+              );
+              if (recentDropAlert.rows.length === 0) {
+                await pool.query(
+                  'INSERT INTO alerts (type, whatsapp_group_id, group_name, message, read) VALUES ($1,$2,$3,$4,false)',
+                  ['member_drop', dbGroup.id, dbGroup.group_name, 'Queda brusca de membros em ' + dbGroup.group_name + ': ' + dbMembers + ' → ' + liveMembers]
+                );
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // 3. Also check inactive links that were auto-deactivated
+    var deactivatedR = await pool.query("SELECT COUNT(*) as cnt FROM links WHERE is_active=false AND deactivated_reason IS NOT NULL");
+    summary.deactivated = parseInt(deactivatedR.rows[0].cnt);
+
+    lastHealthCheck = { timestamp: new Date().toISOString(), results: results, summary: summary, running: false };
+    console.log('[HEALTH] Varredura concluída: ' + summary.healthy + ' OK, ' + summary.warning + ' avisos, ' + summary.broken + ' problemas');
+
+  } catch (err) {
+    console.error('[HEALTH] Erro na varredura:', err.message);
+    lastHealthCheck = { timestamp: new Date().toISOString(), results: results, summary: summary, error: err.message, running: false };
+  }
+
+  return lastHealthCheck;
+}
+
+// Health check endpoints
+app.post('/api/health-check/run', authMiddleware, async function(req, res) {
+  try {
+    var result = await runHealthCheck();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/health-check/status', authMiddleware, async function(req, res) {
+  res.json(lastHealthCheck);
+});
+
+// Reactivate a link that was auto-deactivated
+app.post('/api/links/:id/reactivate', authMiddleware, async function(req, res) {
+  try {
+    await pool.query(
+      'UPDATE links SET is_active=true, health_check_failures=0, deactivated_reason=NULL, deactivated_at=NULL, updated_at=NOW() WHERE id=$1',
+      [req.params.id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Auto health check every 30 minutes
+setInterval(function() {
+  runHealthCheck().catch(function(err) {
+    console.error('[HEALTH] Erro no auto-check:', err.message);
+  });
+}, 30 * 60 * 1000);
+
 // ===== START SERVER =====
 app.listen(PORT, async function() {
   console.log('');
@@ -1455,4 +1709,12 @@ app.listen(PORT, async function() {
   } else {
     console.log('[META] Token não configurado. Configure via Configurações no painel ou META_ACCESS_TOKEN no .env');
   }
+
+  // First health check after 2 minutes (give WhatsApp time to connect)
+  setTimeout(function() {
+    console.log('[HEALTH] Iniciando primeira varredura de saúde...');
+    runHealthCheck().catch(function(err) {
+      console.error('[HEALTH] Erro na primeira varredura:', err.message);
+    });
+  }, 2 * 60 * 1000);
 });
