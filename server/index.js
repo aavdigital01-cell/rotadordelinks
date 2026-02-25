@@ -1418,7 +1418,7 @@ function extractCostPerResult(costPerAction) {
 setInterval(syncMetaToDB, 5 * 60 * 1000);
 
 // ===== START SERVER =====
-app.listen(PORT, function() {
+app.listen(PORT, async function() {
   console.log('');
   console.log('===========================================');
   console.log('  LinkRotator Pro - Servidor Backend');
@@ -1430,11 +1430,29 @@ app.listen(PORT, function() {
   // Initialize WhatsApp Monitor with pg pool
   whatsappMonitor.initialize(pool);
 
+  // Load Meta credentials from database (saved via frontend settings)
+  try {
+    var settingsR = await pool.query("SELECT value FROM settings WHERE key='general'");
+    if (settingsR.rows.length > 0 && settingsR.rows[0].value && settingsR.rows[0].value.meta) {
+      var meta = settingsR.rows[0].value.meta;
+      if (meta.accessToken && meta.accessToken !== 'SEU_TOKEN_META_AQUI') {
+        process.env.META_ACCESS_TOKEN = meta.accessToken;
+        console.log('[META] Token carregado do banco de dados');
+      }
+      if (meta.adAccountId) process.env.META_AD_ACCOUNT_ID = meta.adAccountId;
+      if (meta.appId) process.env.META_APP_ID = meta.appId;
+      if (meta.appSecret) process.env.META_APP_SECRET = meta.appSecret;
+    }
+  } catch(e) {
+    console.error('[META] Erro ao carregar credenciais do banco:', e.message);
+  }
+
   // First Meta sync
   if (process.env.META_ACCESS_TOKEN && process.env.META_ACCESS_TOKEN !== 'SEU_TOKEN_META_AQUI') {
     console.log('[META] Iniciando primeira sincronização...');
+    console.log('[META] Ad Account: ' + process.env.META_AD_ACCOUNT_ID);
     syncMetaToDB();
   } else {
-    console.log('[META] Token não configurado. Configure META_ACCESS_TOKEN no .env');
+    console.log('[META] Token não configurado. Configure via Configurações no painel ou META_ACCESS_TOKEN no .env');
   }
 });
