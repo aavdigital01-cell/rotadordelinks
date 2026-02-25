@@ -678,6 +678,24 @@ app.put('/api/alerts/read-all', authMiddleware, async function(req, res) {
   }
 });
 
+app.delete('/api/alerts/:id', authMiddleware, async function(req, res) {
+  try {
+    await pool.query('DELETE FROM alerts WHERE id=$1', [req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/alerts/clear-all', authMiddleware, async function(req, res) {
+  try {
+    await pool.query('DELETE FROM alerts WHERE read=true');
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ===== META CAMPAIGNS (from DB) =====
 
 app.get('/api/meta-campaigns', authMiddleware, async function(req, res) {
@@ -757,6 +775,64 @@ app.post('/api/meta/sync', authMiddleware, async function(req, res) {
   try {
     await syncMetaToDB();
     res.json({ success: true, message: 'Dados sincronizados' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Batch insights - fetch all campaigns with insights in parallel (fast)
+app.get('/api/meta/insights-batch', authMiddleware, async function(req, res) {
+  try {
+    var dateRange = req.query.date_range || 'today';
+
+    // For "today", return DB cache (instant)
+    if (dateRange === 'today') {
+      var dbResult = await pool.query('SELECT * FROM meta_campaigns ORDER BY name');
+      var mapped = dbResult.rows.map(function(r) {
+        return {
+          id: r.id, name: r.name, status: r.status, objective: r.objective,
+          dailyBudget: parseFloat(r.daily_budget || 0),
+          spend: parseFloat(r.spend || 0), impressions: parseInt(r.impressions || 0),
+          clicks: parseInt(r.clicks || 0), cpc: parseFloat(r.cpc || 0),
+          cpm: parseFloat(r.cpm || 0), ctr: parseFloat(r.ctr || 0),
+          reach: parseInt(r.reach || 0), conversions: parseInt(r.conversions || 0),
+          costPerResult: parseFloat(r.cost_per_result || 0)
+        };
+      });
+      return res.json({ campaigns: mapped, source: 'cache' });
+    }
+
+    // For other ranges, fetch from Meta API in parallel
+    var campaigns = await metaApi.getCampaigns();
+    if (!campaigns || !campaigns.data) return res.json({ campaigns: [], source: 'api' });
+
+    var promises = campaigns.data.map(function(camp) {
+      return metaApi.getCampaignInsights(camp.id, dateRange).then(function(insights) {
+        var d = insights && insights.data && insights.data[0] ? insights.data[0] : {};
+        var conversions = 0, costPerResult = 0;
+        if (d.actions) {
+          conversions = extractConversions(d.actions);
+        }
+        if (d.cost_per_action_type) {
+          costPerResult = extractCostPerResult(d.cost_per_action_type);
+        }
+        return {
+          id: camp.id, name: camp.name, status: camp.effective_status || camp.status || 'N/A',
+          spend: parseFloat(d.spend || 0), impressions: parseInt(d.impressions || 0),
+          clicks: parseInt(d.clicks || 0), cpc: parseFloat(d.cpc || 0),
+          cpm: parseFloat(d.cpm || 0), ctr: parseFloat(d.ctr || 0),
+          conversions: conversions, costPerResult: costPerResult
+        };
+      }).catch(function() {
+        return {
+          id: camp.id, name: camp.name, status: camp.effective_status || camp.status || 'N/A',
+          spend: 0, impressions: 0, clicks: 0, cpc: 0, cpm: 0, ctr: 0, conversions: 0, costPerResult: 0
+        };
+      });
+    });
+
+    var results = await Promise.all(promises);
+    res.json({ campaigns: results, source: 'api' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

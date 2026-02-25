@@ -2002,9 +2002,14 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
       <div class="card">
         <div class="card-header">
           <span class="card-title">Alertas</span>
-          <button class="btn btn-secondary btn-sm" onclick="markAllAlertsRead()">
-            <i class="fas fa-check-double"></i> Marcar todos como lidos
-          </button>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-secondary btn-sm" onclick="markAllAlertsRead()">
+              <i class="fas fa-check-double"></i> Marcar todos como lidos
+            </button>
+            <button class="btn btn-danger btn-sm" onclick="clearReadAlerts()">
+              <i class="fas fa-trash"></i> Limpar lidos
+            </button>
+          </div>
         </div>
         <div id="alertsList" class="card-body">
           <div class="empty-state"><i class="fas fa-bell"></i><h3>Nenhum alerta</h3><p>Alertas aparecerão aqui quando grupos estiverem cheios</p></div>
@@ -3715,6 +3720,26 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
           color = 'var(--danger)';
           title = 'Link Banido/Expirado: ' + (a.linkName || 'N/A');
           break;
+        case 'link_health':
+          icon = 'fa-heartbeat';
+          color = 'var(--danger)';
+          title = 'Link com Problema: ' + (a.linkName || 'N/A');
+          break;
+        case 'group_banned':
+          icon = 'fa-ban';
+          color = 'var(--danger)';
+          title = 'Grupo Banido: ' + (a.groupName || 'N/A');
+          break;
+        case 'member_drop':
+          icon = 'fa-arrow-down';
+          color = 'var(--warning)';
+          title = 'Queda de Membros: ' + (a.groupName || 'N/A');
+          break;
+        case 'member_joined':
+          icon = 'fa-user-plus';
+          color = 'var(--accent)';
+          title = 'Novo Membro: ' + (a.groupName || 'N/A');
+          break;
         case 'link_full':
           icon = 'fa-ban';
           color = 'var(--danger)';
@@ -3736,10 +3761,13 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
           title = a.type;
       }
 
-      html += '<div class="notif-item ' + (a.read ? '' : 'unread') + '" onclick="markAlertRead(\'' + a.id + '\')">' +
-        '<div class="notif-title"><i class="fas ' + icon + '" style="color:' + color + ';margin-right:6px"></i>' + escHtml(title) + '</div>' +
-        '<div class="notif-text">Campanha: ' + escHtml(a.campaignName || 'N/A') + '</div>' +
-        '<div class="notif-time">' + time + '</div>' +
+      html += '<div class="notif-item ' + (a.read ? '' : 'unread') + '" style="position:relative">' +
+        '<div style="flex:1;cursor:pointer" onclick="markAlertRead(\'' + a.id + '\')">' +
+          '<div class="notif-title"><i class="fas ' + icon + '" style="color:' + color + ';margin-right:6px"></i>' + escHtml(title) + '</div>' +
+          '<div class="notif-text">' + escHtml(a.message || ('Campanha: ' + (a.campaignName || 'N/A'))) + '</div>' +
+          '<div class="notif-time">' + time + '</div>' +
+        '</div>' +
+        '<button class="btn btn-secondary btn-sm btn-icon" onclick="deleteAlert(' + a.id + ')" title="Excluir alerta" style="flex-shrink:0;margin-left:8px"><i class="fas fa-trash"></i></button>' +
         '</div>';
     });
     container.innerHTML = html;
@@ -3753,11 +3781,13 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     }
     // Reusa mesmo HTML dos alertas
     var html = '';
+    var iconMap = { link_broken:'fa-unlink', link_health:'fa-heartbeat', group_banned:'fa-ban', member_drop:'fa-arrow-down', member_joined:'fa-user-plus', link_full:'fa-ban', link_near_full:'fa-exclamation-triangle', all_full:'fa-exclamation-circle' };
+    var colorMap = { link_broken:'var(--danger)', link_health:'var(--danger)', group_banned:'var(--danger)', member_drop:'var(--warning)', member_joined:'var(--accent)', link_full:'var(--danger)', link_near_full:'var(--warning)', all_full:'var(--danger)' };
     alerts.slice(0, 20).forEach(function(a) {
       var time = a.timestamp ? new Date(a.timestamp.seconds * 1000).toLocaleString('pt-BR') : '';
-      var icon = a.type === 'link_full' ? 'fa-ban' : a.type === 'all_full' ? 'fa-exclamation-circle' : 'fa-exclamation-triangle';
-      var color = a.type === 'link_full' || a.type === 'all_full' ? 'var(--danger)' : 'var(--warning)';
-      var title = a.linkName || a.campaignName || a.type;
+      var icon = iconMap[a.type] || 'fa-info-circle';
+      var color = colorMap[a.type] || 'var(--info)';
+      var title = a.linkName || a.groupName || a.campaignName || a.type;
 
       html += '<div class="notif-item ' + (a.read ? '' : 'unread') + '" onclick="markAlertRead(\'' + a.id + '\')">' +
         '<div class="notif-title"><i class="fas ' + icon + '" style="color:' + color + ';margin-right:6px"></i>' + escHtml(title) + '</div>' +
@@ -3779,6 +3809,28 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     await serverPut('/api/alerts/read-all', {});
     showToast('Todos os alertas marcados como lidos', 'success');
     await loadAlerts();
+  };
+
+  window.deleteAlert = async function(id) {
+    try {
+      await serverDelete('/api/alerts/' + id);
+      alerts = alerts.filter(function(a) { return a.id !== id; });
+      updateAlertsBadge();
+      renderAlerts();
+      renderNotifications();
+    } catch (err) {
+      showToast('Erro ao excluir alerta', 'error');
+    }
+  };
+
+  window.clearReadAlerts = async function() {
+    try {
+      await serverDelete('/api/alerts/clear-all');
+      showToast('Alertas lidos removidos', 'success');
+      await loadAlerts();
+    } catch (err) {
+      showToast('Erro ao limpar alertas', 'error');
+    }
   };
 
   window.toggleNotifPanel = function() {
@@ -4268,45 +4320,23 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
       document.getElementById('metaContent').style.display = 'block';
 
       // Busca cotação apenas se está no modo automático
-      await fetchExchangeRate();
+      fetchExchangeRate();
 
       var dateRange = document.getElementById('metaDateRange').value;
-      var campaigns = await serverFetch('/api/meta/campaigns');
+
+      // Use batch endpoint: instant for "today" (DB cache), parallel for other ranges
+      var batch = await serverFetch('/api/meta/insights-batch?date_range=' + dateRange);
 
       metaCampaignsRendered = [];
-      if (campaigns && campaigns.data) {
-        for (var camp of campaigns.data) {
-          try {
-            var insights = await serverFetch('/api/meta/campaigns/' + camp.id + '/insights?date_range=' + dateRange);
-            var d = insights && insights.data && insights.data[0] ? insights.data[0] : {};
-
-            var status = camp.effective_status || camp.status || 'N/A';
-            var conversions = 0, costPerResult = 0;
-            if (d.actions) {
-              var conv = d.actions.find(function(a) { return a.action_type === 'lead' || a.action_type.includes('lead') || a.action_type.includes('conversion'); });
-              if (conv) conversions = parseInt(conv.value);
-            }
-            if (d.cost_per_action_type) {
-              var cpr = d.cost_per_action_type.find(function(a) { return a.action_type === 'lead' || a.action_type.includes('lead') || a.action_type.includes('conversion'); });
-              if (cpr) costPerResult = parseFloat(cpr.value);
-            }
-
-            metaCampaignsRendered.push({
-              id: camp.id, name: camp.name, status: status,
-              spend: parseFloat(d.spend || 0), impressions: parseInt(d.impressions || 0),
-              clicks: parseInt(d.clicks || 0), cpc: parseFloat(d.cpc || 0),
-              cpm: parseFloat(d.cpm || 0), ctr: parseFloat(d.ctr || 0),
-              conversions: conversions, costPerResult: costPerResult
-            });
-          } catch(e) {
-            metaCampaignsRendered.push({
-              id: camp.id, name: camp.name,
-              status: camp.effective_status || camp.status || 'N/A',
-              spend: 0, impressions: 0, clicks: 0, cpc: 0, cpm: 0, ctr: 0,
-              conversions: 0, costPerResult: 0
-            });
-          }
-        }
+      if (batch && batch.campaigns) {
+        batch.campaigns.forEach(function(c) {
+          metaCampaignsRendered.push({
+            id: c.id, name: c.name || 'N/A', status: c.status || 'N/A',
+            spend: c.spend || 0, impressions: c.impressions || 0, clicks: c.clicks || 0,
+            cpc: c.cpc || 0, cpm: c.cpm || 0, ctr: c.ctr || 0,
+            conversions: c.conversions || 0, costPerResult: c.costPerResult || 0
+          });
+        });
       }
 
       saveMetaPreferences();
