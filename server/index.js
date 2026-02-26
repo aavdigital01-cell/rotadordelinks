@@ -2149,13 +2149,12 @@ app.post('/api/broadcast/send', authMiddleware, async function(req, res) {
             await new Promise(function(resolve) { setTimeout(resolve, 60000); }); // Wait 1 minute
           }
 
-          // Anti-ban: check active hours (8am - 10pm)
-          var hour = new Date().getHours();
-          if (hour < 8 || hour >= 22) {
-            console.log('[BROADCAST] Fora do horário ativo, pausando até 8h');
-            // Skip rather than wait hours
+          // Anti-ban: check active hours in Brazil timezone (8am - 11pm BRT)
+          var brasilHour = parseInt(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo', hour: 'numeric', hour12: false }));
+          if (brasilHour < 7 || brasilHour >= 23) {
+            console.log('[BROADCAST] Fora do horário ativo (Brasil: ' + brasilHour + 'h), pulando...');
             await pool.query(
-              "INSERT INTO broadcast_logs (broadcast_id, target_id, target_name, status, error_message) VALUES ($1,$2,$3,'skipped','Fora do horário ativo (8h-22h)')",
+              "INSERT INTO broadcast_logs (broadcast_id, target_id, target_name, status, error_message) VALUES ($1,$2,$3,'skipped','Fora do horário ativo (7h-23h BRT)')",
               [broadcastId, targetId, '']
             );
             failed++;
