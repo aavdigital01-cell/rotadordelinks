@@ -2332,7 +2332,7 @@ app.get('/api/shopee/products', authMiddleware, async function(req, res) {
       keyword: req.query.keyword || '',
       page: parseInt(req.query.page) || 1,
       limit: parseInt(req.query.limit) || 20,
-      sortType: req.query.sort || 'relevance'
+      sortType: parseInt(req.query.sort) || 1
     });
     res.json(result);
   } catch (err) {
@@ -2346,7 +2346,7 @@ app.get('/api/shopee/top-offers', authMiddleware, async function(req, res) {
     var result = await shopeeApi.getTopOffers({
       page: parseInt(req.query.page) || 1,
       limit: parseInt(req.query.limit) || 20,
-      sortType: req.query.sort || 'commission_rate'
+      sortType: parseInt(req.query.sort) || 5
     });
     res.json(result);
   } catch (err) {
