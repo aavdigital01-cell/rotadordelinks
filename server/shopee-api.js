@@ -90,7 +90,6 @@ async function searchProducts(options) {
     '      ratingStar\n' +
     '      shopName\n' +
     '      shopId\n' +
-    '      categoryName\n' +
     '    }\n' +
     '    pageInfo {\n' +
     '      page\n' +
@@ -132,7 +131,6 @@ async function getTopOffers(options) {
     '      sales\n' +
     '      ratingStar\n' +
     '      shopName\n' +
-    '      categoryName\n' +
     '    }\n' +
     '    pageInfo {\n' +
     '      page\n' +
