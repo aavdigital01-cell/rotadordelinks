@@ -65,14 +65,15 @@ async function searchProducts(options) {
   var keyword = options.keyword || '';
   var page = options.page || 1;
   var limit = options.limit || 20;
-  var sortType = options.sortType || 'relevance';
+  // sortType: 1=relevance, 2=sales, 3=price_asc, 4=newest, 5=commission
+  var sortType = parseInt(options.sortType) || 1;
 
   var query = '{\n' +
     '  productOfferV2(\n' +
     '    keyword: "' + keyword.replace(/"/g, '\\"') + '",\n' +
+    '    sortType: ' + sortType + ',\n' +
     '    page: ' + page + ',\n' +
-    '    limit: ' + limit + ',\n' +
-    '    sortType: ' + sortType + '\n' +
+    '    limit: ' + limit + '\n' +
     '  ) {\n' +
     '    nodes {\n' +
     '      itemId\n' +
@@ -110,14 +111,14 @@ async function getTopOffers(options) {
   options = options || {};
   var page = options.page || 1;
   var limit = options.limit || 20;
-  var sortType = options.sortType || 'commission_rate';
+  // sortType: 5=commission (best for top offers)
+  var sortType = parseInt(options.sortType) || 5;
 
   var query = '{\n' +
     '  productOfferV2(\n' +
-    '    keyword: "",\n' +
+    '    sortType: ' + sortType + ',\n' +
     '    page: ' + page + ',\n' +
-    '    limit: ' + limit + ',\n' +
-    '    sortType: ' + sortType + '\n' +
+    '    limit: ' + limit + '\n' +
     '  ) {\n' +
     '    nodes {\n' +
     '      itemId\n' +
@@ -191,7 +192,7 @@ async function searchShops(options) {
 async function generateAffiliateLink(originalUrl, subId) {
   subId = subId || 'whatsapp';
 
-  var query = '{\n' +
+  var query = 'mutation {\n' +
     '  generateShortLink(\n' +
     '    input: {\n' +
     '      originUrl: "' + originalUrl.replace(/"/g, '\\"') + '",\n' +

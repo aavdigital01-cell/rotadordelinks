@@ -2272,10 +2272,10 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
             <div style="display:flex;gap:8px">
               <input type="text" id="shopeeSearchInput" placeholder="Buscar produto..." class="form-control" style="width:250px;font-size:12px;padding:6px 10px" onkeydown="if(event.key==='Enter')searchShopeeProducts()">
               <select class="form-control" id="shopeeSortBy" style="width:150px;font-size:12px;padding:6px 10px">
-                <option value="relevance">Relevância</option>
-                <option value="commission_rate">Maior Comissão</option>
-                <option value="sales">Mais Vendidos</option>
-                <option value="price">Menor Preço</option>
+                <option value="1">Relevância</option>
+                <option value="5">Maior Comissão</option>
+                <option value="2">Mais Vendidos</option>
+                <option value="3">Menor Preço</option>
               </select>
               <button class="btn btn-primary btn-sm" onclick="searchShopeeProducts()" style="background:#EE4D2D;border-color:#EE4D2D">
                 <i class="fas fa-search"></i> Buscar
