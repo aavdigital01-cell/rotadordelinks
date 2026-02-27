@@ -2,9 +2,6 @@
  * Shopee Affiliate API Module
  * Integração com a API GraphQL da Shopee para afiliados
  * Docs: https://www.affiliateshopee.com.br/documentacao
- *
- * All exported functions accept a `credentials` object as the last parameter:
- *   { appId: 'xxx', secret: 'yyy' }
  */
 
 const crypto = require('crypto');
@@ -12,26 +9,38 @@ const fetch = require('node-fetch');
 
 const BASE_URL = 'https://open-api.affiliate.shopee.com.br/graphql';
 
-function generateSignature(payload, credentials) {
+var appId = '';
+var secret = '';
+
+function configure(config) {
+  if (config.appId) appId = config.appId;
+  if (config.secret) secret = config.secret;
+}
+
+function isConfigured() {
+  return !!(appId && secret);
+}
+
+function generateSignature(payload) {
   var timestamp = Math.floor(Date.now() / 1000);
-  var signatureString = credentials.appId + timestamp.toString() + payload + credentials.secret;
+  var signatureString = appId + timestamp.toString() + payload + secret;
   var signature = crypto.createHash('sha256').update(signatureString).digest('hex');
   return { timestamp: timestamp, signature: signature };
 }
 
-async function graphqlRequest(query, credentials) {
-  if (!credentials || !credentials.appId || !credentials.secret) {
+async function graphqlRequest(query) {
+  if (!isConfigured()) {
     throw new Error('Shopee API não configurada. Configure App ID e Secret nas Configurações.');
   }
 
   var payload = JSON.stringify({ query: query });
-  var auth = generateSignature(payload, credentials);
+  var auth = generateSignature(payload);
 
   var response = await fetch(BASE_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': 'SHA256 Credential=' + credentials.appId + ', Timestamp=' + auth.timestamp + ', Signature=' + auth.signature
+      'Authorization': 'SHA256 Credential=' + appId + ', Timestamp=' + auth.timestamp + ', Signature=' + auth.signature
     },
     body: payload,
     timeout: 15000
@@ -53,7 +62,7 @@ async function graphqlRequest(query, credentials) {
  * sortType: 1=Relevância, 2=Mais vendidos, 3=Maior preço, 4=Menor preço, 5=Maior comissão
  * listType: 0=Recomendados, 1=Maior comissão, 2=Top performance
  */
-async function searchProducts(options, credentials) {
+async function searchProducts(options) {
   options = options || {};
   var keyword = options.keyword || '';
   var page = parseInt(options.page) || 1;
@@ -76,14 +85,14 @@ async function searchProducts(options, credentials) {
     'pageInfo { page limit hasNextPage } ' +
   '} }';
 
-  var data = await graphqlRequest(query, credentials);
+  var data = await graphqlRequest(query);
   return data.productOfferV2;
 }
 
 /**
  * Busca melhores ofertas (maior comissão)
  */
-async function getTopOffers(options, credentials) {
+async function getTopOffers(options) {
   options = options || {};
   var page = parseInt(options.page) || 1;
   var limit = parseInt(options.limit) || 20;
@@ -99,7 +108,7 @@ async function getTopOffers(options, credentials) {
     'pageInfo { page limit hasNextPage } ' +
   '} }';
 
-  var data = await graphqlRequest(query, credentials);
+  var data = await graphqlRequest(query);
   return data.productOfferV2;
 }
 
@@ -107,7 +116,7 @@ async function getTopOffers(options, credentials) {
  * Busca lojas com comissões diferenciadas
  * sortType: 1=Mais recentes, 2=Maior comissão, 3=Populares
  */
-async function searchShops(options, credentials) {
+async function searchShops(options) {
   options = options || {};
   var keyword = options.keyword || '';
   var page = parseInt(options.page) || 1;
@@ -122,7 +131,7 @@ async function searchShops(options, credentials) {
     'pageInfo { page limit hasNextPage } ' +
   '} }';
 
-  var data = await graphqlRequest(query, credentials);
+  var data = await graphqlRequest(query);
   return data.shopOfferV2;
 }
 
@@ -130,7 +139,7 @@ async function searchShops(options, credentials) {
  * Busca campanhas e ofertas especiais da Shopee
  * sortType: 1=Mais recentes, 2=Maior comissão
  */
-async function getShopeeOffers(options, credentials) {
+async function getShopeeOffers(options) {
   options = options || {};
   var page = parseInt(options.page) || 1;
   var limit = parseInt(options.limit) || 20;
@@ -144,7 +153,7 @@ async function getShopeeOffers(options, credentials) {
     'pageInfo { page limit hasNextPage } ' +
   '} }';
 
-  var data = await graphqlRequest(query, credentials);
+  var data = await graphqlRequest(query);
   return data.shopeeOfferV2;
 }
 
@@ -154,9 +163,8 @@ async function getShopeeOffers(options, credentials) {
  * Gera link de afiliado a partir de URL da Shopee
  * @param {string} originalUrl - URL original do produto
  * @param {string[]} subIds - SubIDs para rastreamento (até 5)
- * @param {object} credentials - { appId, secret }
  */
-async function generateAffiliateLink(originalUrl, subIds, credentials) {
+async function generateAffiliateLink(originalUrl, subIds) {
   if (typeof subIds === 'string') subIds = [subIds];
   subIds = subIds || ['whatsapp'];
 
@@ -167,7 +175,7 @@ async function generateAffiliateLink(originalUrl, subIds, credentials) {
     'subIds: [' + subIdsStr + '] ' +
   '}) { shortLink } }';
 
-  var data = await graphqlRequest(query, credentials);
+  var data = await graphqlRequest(query);
   return data.generateShortLink;
 }
 
@@ -177,9 +185,8 @@ async function generateAffiliateLink(originalUrl, subIds, credentials) {
  * Busca relatório de conversões
  * @param {object} options - purchaseTimeStart, purchaseTimeEnd (Unix timestamps), orderStatus, limit, scrollId
  * orderStatus: UNPAID, PENDING, COMPLETED, CANCELLED
- * @param {object} credentials - { appId, secret }
  */
-async function getConversionReport(options, credentials) {
+async function getConversionReport(options) {
   options = options || {};
 
   // Default: últimos 30 dias
@@ -212,16 +219,15 @@ async function getConversionReport(options, credentials) {
     'pageInfo { limit hasNextPage scrollId } ' +
   '} }';
 
-  var data = await graphqlRequest(query, credentials);
+  var data = await graphqlRequest(query);
   return data.conversionReport;
 }
 
 /**
  * Busca relatório validado de comissões
  * @param {object} options - validationId, limit, scrollId
- * @param {object} credentials - { appId, secret }
  */
-async function getValidatedReport(options, credentials) {
+async function getValidatedReport(options) {
   options = options || {};
   var validationId = parseInt(options.validationId) || 0;
   var limit = parseInt(options.limit) || 100;
@@ -239,11 +245,13 @@ async function getValidatedReport(options, credentials) {
     'pageInfo { hasNextPage scrollId } ' +
   '} }';
 
-  var data = await graphqlRequest(query, credentials);
+  var data = await graphqlRequest(query);
   return data.validatedReport;
 }
 
 module.exports = {
+  configure: configure,
+  isConfigured: isConfigured,
   searchProducts: searchProducts,
   getTopOffers: getTopOffers,
   searchShops: searchShops,
