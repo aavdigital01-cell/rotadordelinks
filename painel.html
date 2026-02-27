@@ -859,6 +859,111 @@ select.form-control {
 
 @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
 
+/* ===== TOP OFFERS TAB ===== */
+.to-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  align-items: center;
+}
+.to-filters .form-control { width: auto; min-width: 120px; font-size: 12px; padding: 6px 10px; }
+.to-filters .to-view-toggle {
+  display: flex; gap: 2px; margin-left: auto;
+  background: var(--bg-primary); border-radius: var(--radius-sm); padding: 2px; border: 1px solid var(--border);
+}
+.to-filters .to-view-toggle button {
+  background: none; border: none; color: var(--text-muted); padding: 4px 8px;
+  border-radius: 6px; cursor: pointer; font-size: 12px; transition: var(--transition);
+}
+.to-filters .to-view-toggle button.active { background: var(--bg-secondary); color: var(--text-primary); }
+.to-status-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 16px; font-size: 11px; color: var(--text-muted); border-bottom: 1px solid var(--border);
+}
+.to-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px; padding: 16px;
+}
+.to-grid.list-view { grid-template-columns: 1fr; gap: 0; padding: 0; }
+.top-offer-card {
+  background: var(--bg-secondary); border-radius: var(--radius-sm);
+  border: 1px solid var(--border); overflow: hidden;
+  transition: var(--transition); position: relative;
+  animation: toCardIn .3s ease both;
+}
+.top-offer-card:hover { border-color: var(--border-light); transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.2); }
+@keyframes toCardIn { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+.top-offer-card .to-check {
+  position: absolute; top: 8px; left: 8px; z-index: 2;
+  width: 20px; height: 20px; border-radius: 4px;
+  border: 2px solid rgba(255,255,255,0.6); background: rgba(0,0,0,0.3);
+  cursor: pointer; display: flex; align-items: center; justify-content: center; transition: var(--transition);
+}
+.top-offer-card .to-check:hover { border-color: #EE4D2D; }
+.top-offer-card .to-check.checked { background: #EE4D2D; border-color: #EE4D2D; }
+.top-offer-card .to-check.checked::after { content: '\2713'; color: #fff; font-size: 12px; font-weight: 700; }
+.top-offer-card .to-discount {
+  position: absolute; top: 8px; right: 8px; background: #ff424e; color: #fff;
+  padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; z-index: 2;
+}
+.top-offer-card .to-image {
+  height: 160px; overflow: hidden; background: #fff;
+  display: flex; align-items: center; justify-content: center; position: relative;
+}
+.top-offer-card .to-image img { max-height: 100%; max-width: 100%; object-fit: contain; }
+.top-offer-card .to-body { padding: 12px; }
+.top-offer-card .to-name { font-size: 12px; font-weight: 600; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.top-offer-card .to-shop { font-size: 11px; color: var(--text-muted); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+.to-shop-badge { font-size: 9px; padding: 1px 5px; border-radius: 3px; font-weight: 600; text-transform: uppercase; }
+.to-shop-badge.mall { background: #ee4d2d; color: #fff; }
+.to-shop-badge.preferred { background: rgba(238,77,45,0.15); color: #ee4d2d; }
+.top-offer-card .to-price-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.top-offer-card .to-price { font-size: 14px; font-weight: 700; color: #EE4D2D; }
+.top-offer-card .to-price-original { font-size: 10px; color: var(--text-muted); text-decoration: line-through; margin-left: 4px; }
+.top-offer-card .to-commission-badge { font-size: 11px; background: rgba(37,211,102,0.15); color: var(--accent); padding: 2px 6px; border-radius: 4px; font-weight: 600; }
+.top-offer-card .to-commission-detail { font-size: 9px; color: var(--text-muted); margin-bottom: 6px; display: flex; gap: 8px; }
+.top-offer-card .to-stats { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-muted); margin-bottom: 8px; }
+.top-offer-card .to-actions { display: flex; gap: 4px; }
+.top-offer-card .to-actions .btn { flex: 1; }
+/* List view */
+.to-grid.list-view .top-offer-card { border-radius: 0; border-bottom: 1px solid var(--border); border-left: none; border-right: none; border-top: none; display: flex; flex-direction: row; animation: none; }
+.to-grid.list-view .top-offer-card:hover { transform: none; box-shadow: none; background: var(--bg-hover); }
+.to-grid.list-view .top-offer-card .to-image { width: 80px; height: 80px; min-width: 80px; }
+.to-grid.list-view .top-offer-card .to-body { flex: 1; display: flex; align-items: center; gap: 16px; padding: 10px 16px; }
+.to-grid.list-view .top-offer-card .to-name { flex: 1; min-width: 0; margin-bottom: 0; }
+.to-grid.list-view .top-offer-card .to-shop,
+.to-grid.list-view .top-offer-card .to-commission-detail { display: none; }
+.to-grid.list-view .top-offer-card .to-price-row { margin-bottom: 0; min-width: 100px; justify-content: flex-end; }
+.to-grid.list-view .top-offer-card .to-stats { margin-bottom: 0; min-width: 140px; justify-content: flex-end; gap: 12px; }
+.to-grid.list-view .top-offer-card .to-actions { min-width: 120px; }
+.to-grid.list-view .top-offer-card .to-discount { position: static; display: inline-block; }
+.to-grid.list-view .top-offer-card .to-check { position: static; margin: auto 0; margin-right: 8px; margin-left: 12px; }
+/* Skeleton */
+.to-skeleton-card { background: var(--bg-secondary); border-radius: var(--radius-sm); border: 1px solid var(--border); overflow: hidden; }
+.to-skeleton-card .to-skel-img { height: 160px; }
+.to-skeleton-card .to-skel-body { padding: 12px; }
+.to-skeleton-card .to-skel-line { height: 12px; margin-bottom: 8px; border-radius: 4px; }
+.to-skeleton-card .to-skel-line.w60 { width: 60%; }
+.to-skeleton-card .to-skel-line.w40 { width: 40%; }
+.to-skeleton-card .to-skel-line.w80 { width: 80%; }
+.to-skeleton-card .to-skel-line.w100 { width: 100%; height: 28px; }
+/* Batch bar */
+.to-batch-bar {
+  display: none; position: sticky; bottom: 0;
+  background: var(--bg-card); border-top: 2px solid #EE4D2D;
+  padding: 12px 16px; align-items: center; justify-content: space-between;
+  gap: 12px; z-index: 10; box-shadow: 0 -4px 16px rgba(0,0,0,0.2);
+}
+.to-batch-bar.active { display: flex; }
+@media (max-width: 640px) {
+  .to-filters { gap: 6px; }
+  .to-filters .form-control { min-width: 100px; flex: 1; }
+  .to-grid.list-view .top-offer-card .to-body { flex-wrap: wrap; gap: 8px; }
+  .to-grid.list-view .top-offer-card .to-stats { min-width: auto; }
+}
+
 /* Toggle switch */
 .toggle {
   position: relative;
@@ -2390,12 +2495,62 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
         <div class="card">
           <div class="card-header">
             <span class="card-title"><i class="fas fa-fire" style="margin-right:6px;color:#EE4D2D"></i>Melhores Ofertas e Comissões</span>
-            <button class="btn btn-primary btn-sm" onclick="loadTopOffers()" style="background:#EE4D2D;border-color:#EE4D2D">
+            <button class="btn btn-primary btn-sm" onclick="loadTopOffers(true)" style="background:#EE4D2D;border-color:#EE4D2D">
               <i class="fas fa-sync"></i> Atualizar
             </button>
           </div>
-          <div id="shopeeTopOffersGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px;padding:16px">
-            <div class="empty-state" style="grid-column:1/-1"><i class="fas fa-fire"></i><p>Clique em Atualizar para ver as melhores ofertas</p></div>
+          <div class="to-filters">
+            <select class="form-control" id="topOffersSort" onchange="loadTopOffers(true)" title="Ordenar por">
+              <option value="5">Maior Comissão</option>
+              <option value="2">Mais Vendidos</option>
+              <option value="4">Menor Preço</option>
+              <option value="3">Maior Preço</option>
+            </select>
+            <select class="form-control" id="topOffersMinComm" onchange="applyTopOffersClientFilter()" title="Comissão mínima">
+              <option value="0">Todas comissões</option>
+              <option value="5">Comissão ≥ 5%</option>
+              <option value="10">Comissão ≥ 10%</option>
+              <option value="15">Comissão ≥ 15%</option>
+              <option value="20">Comissão ≥ 20%</option>
+            </select>
+            <select class="form-control" id="topOffersMinRating" onchange="applyTopOffersClientFilter()" title="Avaliação mínima">
+              <option value="0">Todas avaliações</option>
+              <option value="3">&#9733; 3+</option>
+              <option value="4">&#9733; 4+</option>
+              <option value="4.5">&#9733; 4.5+</option>
+            </select>
+            <select class="form-control" id="topOffersPerPage" onchange="loadTopOffers(true)" title="Itens por página">
+              <option value="12">12 itens</option>
+              <option value="20" selected>20 itens</option>
+              <option value="40">40 itens</option>
+            </select>
+            <select class="form-control" id="topOffersSubId" title="SubID para links">
+              <option value="whatsapp">whatsapp</option>
+              <option value="telegram">telegram</option>
+              <option value="instagram">instagram</option>
+              <option value="site">site</option>
+            </select>
+            <div class="to-view-toggle">
+              <button onclick="toggleTopOffersView('grid')" class="active" title="Grade"><i class="fas fa-th"></i></button>
+              <button onclick="toggleTopOffersView('list')" title="Lista"><i class="fas fa-list"></i></button>
+            </div>
+          </div>
+          <div class="to-status-bar">
+            <span id="topOffersCount">Carregando ofertas...</span>
+            <span id="topOffersUpdatedAt"></span>
+          </div>
+          <div class="to-grid" id="shopeeTopOffersGrid"></div>
+          <div style="padding:12px 16px;text-align:center;display:none" id="topOffersLoadMore">
+            <button class="btn btn-secondary btn-sm" onclick="loadTopOffers(false)">
+              <i class="fas fa-chevron-down"></i> Carregar mais
+            </button>
+          </div>
+          <div class="to-batch-bar" id="topOffersBatchBar">
+            <span id="topOffersBatchCount" style="font-size:13px;font-weight:600"></span>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-secondary btn-sm" onclick="clearTopOffersSelection()"><i class="fas fa-times"></i> Limpar</button>
+              <button class="btn btn-primary btn-sm" onclick="batchGenerateLinks()" style="background:#EE4D2D;border-color:#EE4D2D"><i class="fas fa-link"></i> Gerar Links em Lote</button>
+            </div>
           </div>
         </div>
       </div>
@@ -5867,6 +6022,11 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     document.querySelector('[data-tab="' + tabId + '"]').style.background = '#EE4D2D';
     document.querySelector('[data-tab="' + tabId + '"]').style.color = '#fff';
     document.getElementById(tabId).style.display = 'block';
+
+    if (tabId === 'shopee-top' && !topOffersLoaded) {
+      restoreTopOffersPrefs();
+      loadTopOffers(true);
+    }
   };
 
   window.searchShopeeProducts = async function() {
@@ -6051,40 +6211,281 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     } catch(e) { showToast('Erro: ' + e.message, 'error'); }
   };
 
-  window.loadTopOffers = async function() {
+  // ===== TOP OFFERS STATE =====
+  var topOffersPage = 1;
+  var topOffersAllData = [];
+  var topOffersLoaded = false;
+  var topOffersSelected = {};
+
+  function getTopOffersPrefs() {
+    try { return JSON.parse(localStorage.getItem('rl_topOffers_prefs') || '{}'); } catch(e) { return {}; }
+  }
+
+  function saveTopOffersPrefs() {
+    var activeBtn = document.querySelector('.to-view-toggle button.active');
+    var prefs = {
+      sort: document.getElementById('topOffersSort').value,
+      minComm: document.getElementById('topOffersMinComm').value,
+      minRating: document.getElementById('topOffersMinRating').value,
+      perPage: document.getElementById('topOffersPerPage').value,
+      subId: document.getElementById('topOffersSubId').value,
+      viewMode: activeBtn && activeBtn.title === 'Lista' ? 'list' : 'grid'
+    };
+    localStorage.setItem('rl_topOffers_prefs', JSON.stringify(prefs));
+  }
+
+  function restoreTopOffersPrefs() {
+    var prefs = getTopOffersPrefs();
+    if (prefs.sort) document.getElementById('topOffersSort').value = prefs.sort;
+    if (prefs.minComm) document.getElementById('topOffersMinComm').value = prefs.minComm;
+    if (prefs.minRating) document.getElementById('topOffersMinRating').value = prefs.minRating;
+    if (prefs.perPage) document.getElementById('topOffersPerPage').value = prefs.perPage;
+    if (prefs.subId) document.getElementById('topOffersSubId').value = prefs.subId;
+    if (prefs.viewMode) toggleTopOffersView(prefs.viewMode, true);
+  }
+
+  function showTopOffersSkeleton() {
+    var grid = document.getElementById('shopeeTopOffersGrid');
+    var count = parseInt(document.getElementById('topOffersPerPage').value) || 12;
+    var html = '';
+    for (var i = 0; i < Math.min(count, 12); i++) {
+      html += '<div class="to-skeleton-card"><div class="to-skel-img skeleton"></div><div class="to-skel-body">' +
+        '<div class="to-skel-line w80 skeleton"></div><div class="to-skel-line w40 skeleton"></div>' +
+        '<div class="to-skel-line w60 skeleton"></div><div class="to-skel-line w100 skeleton"></div></div></div>';
+    }
+    grid.innerHTML = html;
+  }
+
+  function escTopAttr(str) {
+    return (str || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function renderTopOfferCard(p, idx) {
+    var price = parseFloat(p.priceMin || p.priceMax || 0);
+    var priceMax = parseFloat(p.priceMax || 0);
+    var discount = parseFloat(p.priceDiscountRate || 0);
+    var commRate = parseFloat(p.commissionRate || 0);
+    var sellerComm = parseFloat(p.sellerCommissionRate || 0);
+    var shopeeComm = parseFloat(p.shopeeCommissionRate || 0);
+    var commission = parseFloat(p.commission || 0);
+    var rating = parseFloat(p.ratingStar || 0);
+    var sales = p.sales || 0;
+    var itemId = p.itemId || idx;
+    var isChecked = topOffersSelected[itemId] ? ' checked' : '';
+
+    var shopType = (p.shopType || '').toLowerCase();
+    var shopBadge = '';
+    if (shopType.indexOf('mall') >= 0) shopBadge = '<span class="to-shop-badge mall">Mall</span>';
+    else if (shopType.indexOf('preferred') >= 0 || shopType.indexOf('star') >= 0) shopBadge = '<span class="to-shop-badge preferred">Star</span>';
+
+    var discountBadge = discount > 0 ? '<span class="to-discount">-' + discount.toFixed(0) + '%</span>' : '';
+    var originalPrice = discount > 0 && priceMax > price ? '<span class="to-price-original">R$ ' + priceMax.toFixed(2) + '</span>' : '';
+
+    var commDetail = '';
+    if (sellerComm > 0 || shopeeComm > 0) {
+      commDetail = '<div class="to-commission-detail">' +
+        (sellerComm > 0 ? '<span>Seller: ' + sellerComm.toFixed(1) + '%</span>' : '') +
+        (shopeeComm > 0 ? '<span>Shopee: ' + shopeeComm.toFixed(1) + '%</span>' : '') + '</div>';
+    }
+
+    var productUrl = escTopAttr(p.productLink || p.offerLink || '');
+    var productName = escTopAttr(p.productName || 'Sem nome');
+
+    return '<div class="top-offer-card" data-item-id="' + itemId + '" style="animation-delay:' + (idx * 0.03) + 's">' +
+      '<div class="to-check' + isChecked + '" onclick="toggleTopOfferSelect(\'' + itemId + '\',this)"></div>' +
+      discountBadge +
+      '<div class="to-image">' +
+        (p.imageUrl ? '<img src="' + escTopAttr(p.imageUrl) + '" loading="lazy" alt="' + productName + '">' : '<i class="fas fa-image" style="font-size:40px;color:#ddd"></i>') +
+      '</div>' +
+      '<div class="to-body">' +
+        '<div class="to-name" title="' + productName + '">' + (p.productName || 'Sem nome') + '</div>' +
+        '<div class="to-shop">' + escTopAttr(p.shopName || '') + ' ' + shopBadge + '</div>' +
+        '<div class="to-price-row">' +
+          '<span><span class="to-price">R$ ' + price.toFixed(2) + '</span>' + originalPrice + '</span>' +
+          '<span class="to-commission-badge">' + commRate.toFixed(1) + '%</span>' +
+        '</div>' +
+        commDetail +
+        '<div class="to-stats">' +
+          '<span><i class="fas fa-coins"></i> R$ ' + commission.toFixed(2) + '</span>' +
+          '<span><i class="fas fa-star" style="color:var(--warning)"></i> ' + rating.toFixed(1) + '</span>' +
+          '<span><i class="fas fa-shopping-cart"></i> ' + sales + '</span>' +
+        '</div>' +
+        '<div class="to-actions">' +
+          '<button class="btn btn-primary btn-sm" style="background:#EE4D2D;border-color:#EE4D2D;font-size:11px" onclick="quickGenerateTopLink(this,\'' + productUrl + '\',\'' + productName + '\',' + price + ',' + commRate + ')">' +
+            '<i class="fas fa-link"></i> Gerar Link' +
+          '</button>' +
+          '<button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="window.open(\'' + productUrl + '\',\'_blank\')" title="Abrir na Shopee">' +
+            '<i class="fas fa-external-link-alt"></i>' +
+          '</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  window.loadTopOffers = async function(reset) {
+    if (reset) { topOffersPage = 1; topOffersAllData = []; }
+    var grid = document.getElementById('shopeeTopOffersGrid');
+    var loadMoreBtn = document.getElementById('topOffersLoadMore');
+    var sort = document.getElementById('topOffersSort').value;
+    var limit = document.getElementById('topOffersPerPage').value;
+
+    if (topOffersPage === 1) showTopOffersSkeleton();
+    saveTopOffersPrefs();
+
     try {
-      var result = await serverFetch('/api/shopee/top-offers');
-      var grid = document.getElementById('shopeeTopOffersGrid');
+      var result = await serverFetch('/api/shopee/top-offers?sort=' + sort + '&limit=' + limit + '&page=' + topOffersPage);
       if (!result || !result.nodes || result.nodes.length === 0) {
-        grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><p>Nenhuma oferta encontrada</p></div>';
+        if (topOffersPage === 1) {
+          grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><i class="fas fa-fire"></i><p>Nenhuma oferta encontrada</p></div>';
+          document.getElementById('topOffersCount').textContent = '0 ofertas';
+        }
+        loadMoreBtn.style.display = 'none';
         return;
       }
-      var html = '';
-      result.nodes.forEach(function(p) {
-        html += '<div style="background:var(--bg-secondary);border-radius:var(--radius-sm);border:1px solid var(--border);overflow:hidden">' +
-          '<div style="height:160px;overflow:hidden;background:#fff;display:flex;align-items:center;justify-content:center">' +
-            (p.imageUrl ? '<img src="' + p.imageUrl + '" style="max-height:100%;max-width:100%;object-fit:contain">' : '<i class="fas fa-image" style="font-size:40px;color:#ddd"></i>') +
-          '</div>' +
-          '<div style="padding:12px">' +
-            '<div style="font-size:12px;font-weight:600;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + (p.productName || '').replace(/"/g, '&quot;') + '">' + (p.productName || 'Sem nome') + '</div>' +
-            '<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">' + (p.shopName || '') + '</div>' +
-            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
-              '<span style="font-size:14px;font-weight:700;color:#EE4D2D">R$ ' + parseFloat(p.priceMin || p.priceMax || 0).toFixed(2) + '</span>' +
-              '<span style="font-size:11px;background:rgba(37,211,102,0.15);color:var(--accent);padding:2px 6px;border-radius:4px;font-weight:600">' + parseFloat(p.commissionRate || 0).toFixed(1) + '%</span>' +
-            '</div>' +
-            '<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-muted);margin-bottom:8px">' +
-              '<span><i class="fas fa-coins"></i> R$ ' + parseFloat(p.commission || 0).toFixed(2) + '</span>' +
-              '<span><i class="fas fa-star" style="color:var(--warning)"></i> ' + parseFloat(p.ratingStar || 0).toFixed(1) + '</span>' +
-              '<span><i class="fas fa-shopping-cart"></i> ' + (p.sales || 0) + '</span>' +
-            '</div>' +
-            '<button class="btn btn-primary btn-sm" style="width:100%;background:#EE4D2D;border-color:#EE4D2D;font-size:11px" onclick="quickGenerateLink(\'' + (p.productLink || p.offerLink || '').replace(/'/g, "\\'") + '\',\'' + (p.productName || '').replace(/'/g, "\\'") + '\',' + (p.priceMin || p.priceMax || 0) + ',' + (p.commissionRate || 0) + ')">' +
-              '<i class="fas fa-link"></i> Gerar Link Afiliado' +
-            '</button>' +
-          '</div>' +
-        '</div>';
-      });
-      grid.innerHTML = html;
-    } catch(e) { showToast('Erro: ' + e.message, 'error'); }
+
+      topOffersAllData = topOffersAllData.concat(result.nodes);
+      topOffersPage++;
+      topOffersLoaded = true;
+
+      applyTopOffersClientFilter();
+
+      if (result.pageInfo && result.pageInfo.hasNextPage) {
+        loadMoreBtn.style.display = 'block';
+      } else {
+        loadMoreBtn.style.display = 'none';
+      }
+
+      var now = new Date();
+      document.getElementById('topOffersUpdatedAt').textContent = 'Atualizado \u00e0s ' + now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    } catch(e) {
+      if (topOffersPage === 1) {
+        grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><i class="fas fa-exclamation-triangle"></i><p>Erro ao carregar ofertas</p><p style="font-size:11px">' + escTopAttr(e.message) + '</p></div>';
+      }
+      showToast('Erro ao carregar ofertas: ' + e.message, 'error');
+    }
+  };
+
+  window.applyTopOffersClientFilter = function() {
+    var minComm = parseFloat(document.getElementById('topOffersMinComm').value) || 0;
+    var minRating = parseFloat(document.getElementById('topOffersMinRating').value) || 0;
+    var grid = document.getElementById('shopeeTopOffersGrid');
+
+    var filtered = topOffersAllData.filter(function(p) {
+      return parseFloat(p.commissionRate || 0) >= minComm && parseFloat(p.ratingStar || 0) >= minRating;
+    });
+
+    if (filtered.length === 0) {
+      grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><i class="fas fa-filter"></i><p>Nenhuma oferta corresponde aos filtros</p></div>';
+      document.getElementById('topOffersCount').textContent = '0 de ' + topOffersAllData.length + ' ofertas';
+      return;
+    }
+
+    var html = '';
+    filtered.forEach(function(p, i) { html += renderTopOfferCard(p, i); });
+    grid.innerHTML = html;
+    document.getElementById('topOffersCount').textContent = filtered.length + (filtered.length < topOffersAllData.length ? ' de ' + topOffersAllData.length : '') + ' ofertas';
+    saveTopOffersPrefs();
+  };
+
+  window.toggleTopOffersView = function(mode, silent) {
+    var grid = document.getElementById('shopeeTopOffersGrid');
+    var buttons = document.querySelectorAll('.to-view-toggle button');
+    buttons.forEach(function(b) { b.classList.remove('active'); });
+    if (mode === 'list') {
+      grid.classList.add('list-view');
+      if (buttons[1]) buttons[1].classList.add('active');
+    } else {
+      grid.classList.remove('list-view');
+      if (buttons[0]) buttons[0].classList.add('active');
+    }
+    if (!silent) saveTopOffersPrefs();
+  };
+
+  window.toggleTopOfferSelect = function(itemId, el) {
+    if (topOffersSelected[itemId]) {
+      delete topOffersSelected[itemId];
+      el.classList.remove('checked');
+    } else {
+      var product = topOffersAllData.find(function(p) { return (p.itemId || '') == itemId; });
+      if (product) { topOffersSelected[itemId] = product; el.classList.add('checked'); }
+    }
+    updateTopOffersBatchBar();
+  };
+
+  function updateTopOffersBatchBar() {
+    var count = Object.keys(topOffersSelected).length;
+    var bar = document.getElementById('topOffersBatchBar');
+    var countEl = document.getElementById('topOffersBatchCount');
+    if (count > 0) {
+      bar.classList.add('active');
+      countEl.textContent = count + ' produto' + (count > 1 ? 's' : '') + ' selecionado' + (count > 1 ? 's' : '');
+    } else {
+      bar.classList.remove('active');
+    }
+  }
+
+  window.clearTopOffersSelection = function() {
+    topOffersSelected = {};
+    document.querySelectorAll('.to-check.checked').forEach(function(el) { el.classList.remove('checked'); });
+    updateTopOffersBatchBar();
+  };
+
+  window.batchGenerateLinks = async function() {
+    var items = Object.values(topOffersSelected);
+    if (items.length === 0) return;
+    var subId = document.getElementById('topOffersSubId').value || 'whatsapp';
+    var generated = [];
+    var errors = 0;
+
+    showToast('Gerando ' + items.length + ' link' + (items.length > 1 ? 's' : '') + '...', 'info');
+
+    for (var i = 0; i < items.length; i++) {
+      try {
+        var p = items[i];
+        var result = await serverPost('/api/shopee/generate-link', {
+          url: p.productLink || p.offerLink || '', subId: subId,
+          productName: p.productName || '', price: p.priceMin || p.priceMax || 0, commissionRate: p.commissionRate || 0
+        });
+        if (result && result.affiliateUrl) generated.push(result.affiliateUrl);
+      } catch(e) { errors++; }
+    }
+
+    if (generated.length > 0) {
+      var allLinks = generated.join('\n');
+      navigator.clipboard.writeText(allLinks).then(function() {
+        showToast(generated.length + ' link' + (generated.length > 1 ? 's' : '') + ' gerado' + (generated.length > 1 ? 's' : '') + ' e copiado' + (generated.length > 1 ? 's' : '') + '!', 'success');
+      }).catch(function() { prompt('Links gerados:', allLinks); });
+    }
+    if (errors > 0) showToast(errors + ' link' + (errors > 1 ? 's' : '') + ' falharam', 'warning');
+    clearTopOffersSelection();
+  };
+
+  window.quickGenerateTopLink = async function(btnEl, url, name, price, rate) {
+    var origHtml = btnEl.innerHTML;
+    btnEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    btnEl.disabled = true;
+    try {
+      var subId = document.getElementById('topOffersSubId').value || 'whatsapp';
+      var result = await serverPost('/api/shopee/generate-link', { url: url, subId: subId, productName: name, price: price, commissionRate: rate });
+      if (result && result.affiliateUrl) {
+        btnEl.innerHTML = '<i class="fas fa-check"></i> Copiado!';
+        btnEl.style.background = 'var(--accent)';
+        btnEl.style.borderColor = 'var(--accent)';
+        navigator.clipboard.writeText(result.affiliateUrl).then(function() {
+          showToast('Link copiado!', 'success');
+        }).catch(function() { prompt('Link gerado:', result.affiliateUrl); });
+        setTimeout(function() {
+          btnEl.innerHTML = origHtml;
+          btnEl.style.background = '#EE4D2D';
+          btnEl.style.borderColor = '#EE4D2D';
+          btnEl.disabled = false;
+        }, 2000);
+      }
+    } catch(e) {
+      btnEl.innerHTML = origHtml;
+      btnEl.disabled = false;
+      showToast('Erro: ' + e.message, 'error');
+    }
   };
 
   // ===== SHOPEE CONFIG =====
