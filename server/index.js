@@ -56,6 +56,16 @@ async function authMiddleware(req, res, next) {
   }
 }
 
+// ===== MULTI-TENANT HELPERS =====
+function getOwnerUid(req) {
+  return req.user ? req.user.uid : null;
+}
+
+async function getUserSettings(uid) {
+  var r = await pool.query("SELECT value FROM settings WHERE key='general' AND owner_uid=$1", [uid]);
+  return r.rows.length > 0 ? r.rows[0].value : {};
+}
+
 // ===== HELPER: map campaign row to camelCase =====
 function mapCampaign(r) {
   return {
@@ -133,7 +143,8 @@ function validateDays(input, defaultVal) {
 
 app.get('/api/campaigns', authMiddleware, async function(req, res) {
   try {
-    var result = await pool.query('SELECT * FROM campaigns ORDER BY created_at DESC');
+    var uid = getOwnerUid(req);
+    var result = await pool.query('SELECT * FROM campaigns WHERE owner_uid=$1 ORDER BY created_at DESC', [uid]);
     res.json(result.rows.map(mapCampaign));
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -145,15 +156,16 @@ app.post('/api/campaigns', authMiddleware, async function(req, res) {
     var b = req.body;
     var id = b.id || ('camp_' + Date.now());
     await pool.query(
-      `INSERT INTO campaigns (id, name, slug, rotation_mode, alert_threshold, is_active, fb_pixel_id, fb_event_name, tt_pixel_id, tt_event_name, gtm_id, gtm_event_name, gads_id, gads_conversion_label, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+      `INSERT INTO campaigns (id, name, slug, rotation_mode, alert_threshold, is_active, fb_pixel_id, fb_event_name, tt_pixel_id, tt_event_name, gtm_id, gtm_event_name, gads_id, gads_conversion_label, created_by, owner_uid)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
        ON CONFLICT (id) DO UPDATE SET name=$2, slug=$3, rotation_mode=$4, alert_threshold=$5, is_active=$6, fb_pixel_id=$7, fb_event_name=$8, tt_pixel_id=$9, tt_event_name=$10, gtm_id=$11, gtm_event_name=$12, gads_id=$13, gads_conversion_label=$14, updated_at=NOW()`,
       [id, b.name, b.slug || '', b.rotationMode || 'random', b.alertThreshold || 90,
        b.isActive !== false, b.fbPixelId || '', b.fbEventName || 'Lead',
        b.ttPixelId || '', b.ttEventName || 'SubmitForm',
        b.gtmId || '', b.gtmEventName || 'whatsapp_click',
        b.gadsId || '', b.gadsConversionLabel || '',
-       b.createdBy || (req.user ? req.user.uid : '')]
+       b.createdBy || (req.user ? req.user.uid : ''),
+       getOwnerUid(req)]
     );
     invalidateRotateCache();
     res.json({ success: true, id: id });
@@ -185,8 +197,10 @@ app.put('/api/campaigns/:id', authMiddleware, async function(req, res) {
     }
     fields.push('updated_at=NOW()');
     values.push(req.params.id);
+    var uid = getOwnerUid(req);
+    values.push(uid);
     if (fields.length > 1) {
-      await pool.query('UPDATE campaigns SET ' + fields.join(',') + ' WHERE id=$' + idx, values);
+      await pool.query('UPDATE campaigns SET ' + fields.join(',') + ' WHERE id=$' + idx + ' AND owner_uid=$' + (idx + 1), values);
     }
     invalidateRotateCache();
     res.json({ success: true });
@@ -197,9 +211,10 @@ app.put('/api/campaigns/:id', authMiddleware, async function(req, res) {
 
 app.delete('/api/campaigns/:id', authMiddleware, async function(req, res) {
   try {
+    var uid = getOwnerUid(req);
     // Also delete associated links
-    await pool.query('DELETE FROM links WHERE campaign_id=$1', [req.params.id]);
-    await pool.query('DELETE FROM campaigns WHERE id=$1', [req.params.id]);
+    await pool.query('DELETE FROM links WHERE campaign_id=$1 AND owner_uid=$2', [req.params.id, uid]);
+    await pool.query('DELETE FROM campaigns WHERE id=$1 AND owner_uid=$2', [req.params.id, uid]);
     invalidateRotateCache();
     res.json({ success: true });
   } catch (err) {
@@ -211,7 +226,8 @@ app.delete('/api/campaigns/:id', authMiddleware, async function(req, res) {
 
 app.get('/api/links', authMiddleware, async function(req, res) {
   try {
-    var result = await pool.query('SELECT * FROM links ORDER BY created_at DESC');
+    var uid = getOwnerUid(req);
+    var result = await pool.query('SELECT * FROM links WHERE owner_uid=$1 ORDER BY created_at DESC', [uid]);
     res.json(result.rows.map(mapLink));
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -223,8 +239,8 @@ app.post('/api/links', authMiddleware, async function(req, res) {
     var b = req.body;
     var id = b.id || ('link_' + Date.now());
     await pool.query(
-      `INSERT INTO links (id, name, url, campaign_id, whatsapp_group_id, current_clicks, max_vacancies, weight, is_active, is_full, redirect_type, created_by, order_num)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+      `INSERT INTO links (id, name, url, campaign_id, whatsapp_group_id, current_clicks, max_vacancies, weight, is_active, is_full, redirect_type, created_by, order_num, owner_uid)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
       [id, b.name, b.url || '',
        b.campaignId || b.campaign_id || null,
        b.whatsappGroupId || b.whatsapp_group_id || null,
@@ -235,7 +251,8 @@ app.post('/api/links', authMiddleware, async function(req, res) {
        b.isFull || false,
        b.redirectType || b.redirect_type || 'whatsapp',
        b.createdBy || (req.user ? req.user.uid : ''),
-       b.order || b.order_num || 0]
+       b.order || b.order_num || 0,
+       getOwnerUid(req)]
     );
     invalidateRotateCache();
     res.json({ success: true, id: id });
@@ -288,8 +305,10 @@ app.put('/api/links/:id', authMiddleware, async function(req, res) {
     }
     fields.push('updated_at=NOW()');
     values.push(req.params.id);
+    var uid = getOwnerUid(req);
+    values.push(uid);
     if (fields.length > 1) {
-      await pool.query('UPDATE links SET ' + fields.join(',') + ' WHERE id=$' + idx, values);
+      await pool.query('UPDATE links SET ' + fields.join(',') + ' WHERE id=$' + idx + ' AND owner_uid=$' + (idx + 1), values);
     }
     invalidateRotateCache();
     res.json({ success: true });
@@ -300,7 +319,8 @@ app.put('/api/links/:id', authMiddleware, async function(req, res) {
 
 app.delete('/api/links/:id', authMiddleware, async function(req, res) {
   try {
-    await pool.query('DELETE FROM links WHERE id=$1', [req.params.id]);
+    var uid = getOwnerUid(req);
+    await pool.query('DELETE FROM links WHERE id=$1 AND owner_uid=$2', [req.params.id, uid]);
     invalidateRotateCache();
     res.json({ success: true });
   } catch (err) {
@@ -312,8 +332,9 @@ app.delete('/api/links/:id', authMiddleware, async function(req, res) {
 
 app.get('/api/clicks/today', authMiddleware, async function(req, res) {
   try {
+    var uid = getOwnerUid(req);
     var result = await pool.query(
-      "SELECT * FROM clicks WHERE timestamp >= CURRENT_DATE ORDER BY timestamp DESC"
+      "SELECT * FROM clicks WHERE timestamp >= CURRENT_DATE AND owner_uid=$1 ORDER BY timestamp DESC", [uid]
     );
     var hourly = new Array(24).fill(0);
     var devices = { Mobile: 0, Desktop: 0, Tablet: 0 };
@@ -332,7 +353,8 @@ app.get('/api/clicks/today', authMiddleware, async function(req, res) {
 
 app.get('/api/clicks/recent', authMiddleware, async function(req, res) {
   try {
-    var result = await pool.query('SELECT * FROM clicks ORDER BY timestamp DESC LIMIT 10');
+    var uid = getOwnerUid(req);
+    var result = await pool.query('SELECT * FROM clicks WHERE owner_uid=$1 ORDER BY timestamp DESC LIMIT 10', [uid]);
     res.json(result.rows.map(mapClick));
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -342,9 +364,10 @@ app.get('/api/clicks/recent', authMiddleware, async function(req, res) {
 app.get('/api/clicks/range', authMiddleware, async function(req, res) {
   try {
     var days = validateDays(req.query.days, 30);
+    var uid = getOwnerUid(req);
     var result = await pool.query(
-      "SELECT * FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') ORDER BY timestamp DESC",
-      [days]
+      "SELECT * FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') AND owner_uid=$2 ORDER BY timestamp DESC",
+      [days, uid]
     );
     var todayStart = new Date(); todayStart.setHours(0,0,0,0);
     var weekStart = new Date(); weekStart.setDate(weekStart.getDate() - 7);
@@ -384,22 +407,23 @@ app.get('/api/clicks/leads', authMiddleware, async function(req, res) {
     var limit = parseInt(req.query.limit) || 50;
     var offset = parseInt(req.query.offset) || 0;
     var days = validateDays(req.query.days, 0);
+    var uid = getOwnerUid(req);
     var result, countResult;
     if (days > 0) {
       result = await pool.query(
-        "SELECT * FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') ORDER BY timestamp DESC LIMIT $2 OFFSET $3",
-        [days, limit, offset]
+        "SELECT * FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') AND owner_uid=$4 ORDER BY timestamp DESC LIMIT $2 OFFSET $3",
+        [days, limit, offset, uid]
       );
       countResult = await pool.query(
-        "SELECT COUNT(*) as total FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day')",
-        [days]
+        "SELECT COUNT(*) as total FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') AND owner_uid=$2",
+        [days, uid]
       );
     } else {
       result = await pool.query(
-        'SELECT * FROM clicks ORDER BY timestamp DESC LIMIT $1 OFFSET $2',
-        [limit, offset]
+        'SELECT * FROM clicks WHERE owner_uid=$3 ORDER BY timestamp DESC LIMIT $1 OFFSET $2',
+        [limit, offset, uid]
       );
-      countResult = await pool.query('SELECT COUNT(*) as total FROM clicks');
+      countResult = await pool.query('SELECT COUNT(*) as total FROM clicks WHERE owner_uid=$1', [uid]);
     }
     res.json({
       clicks: result.rows.map(mapClick),
@@ -427,6 +451,7 @@ async function getCampaignData(slug) {
     `SELECT c.id as camp_id, c.name as camp_name, c.slug, c.rotation_mode, c.alert_threshold,
             c.fb_pixel_id, c.fb_event_name, c.tt_pixel_id, c.tt_event_name,
             c.gtm_id, c.gtm_event_name, c.gads_id, c.gads_conversion_label,
+            c.owner_uid,
             l.id as link_id, l.name as link_name, l.url as link_url,
             l.current_clicks, l.max_vacancies, l.weight, l.order_num
      FROM campaigns c
@@ -448,7 +473,8 @@ async function getCampaignData(slug) {
       fbPixelId: r0.fb_pixel_id || '', fbEventName: r0.fb_event_name || 'Lead',
       ttPixelId: r0.tt_pixel_id || '', ttEventName: r0.tt_event_name || 'SubmitForm',
       gtmId: r0.gtm_id || '', gtmEventName: r0.gtm_event_name || 'whatsapp_click',
-      gadsId: r0.gads_id || '', gadsConversionLabel: r0.gads_conversion_label || ''
+      gadsId: r0.gads_id || '', gadsConversionLabel: r0.gads_conversion_label || '',
+      ownerUid: r0.owner_uid
     },
     links: result.rows.map(function(r) {
       return { id: r.link_id, name: r.link_name, url: r.link_url, currentClicks: r.current_clicks, maxVacancies: r.max_vacancies, weight: r.weight || 1, order: r.order_num || 0 };
@@ -525,10 +551,10 @@ setInterval(function() {
 }, 5 * 60 * 1000);
 
 // Background click recording (fire and forget)
-function recordClickBackground(linkId, linkName, campId, campName, visitor, threshold) {
+function recordClickBackground(linkId, linkName, campId, campName, visitor, threshold, ownerUid) {
   pool.query(
-    'INSERT INTO clicks (link_id, link_name, campaign_id, device, browser, os, city, country, country_code, ip, referrer) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
-    [linkId, linkName, campId, visitor.device||'', visitor.browser||'', visitor.os||'', visitor.city||'', visitor.country||'', visitor.countryCode||'', visitor.ip||'', visitor.referrer||'']
+    'INSERT INTO clicks (link_id, link_name, campaign_id, device, browser, os, city, country, country_code, ip, referrer, owner_uid) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',
+    [linkId, linkName, campId, visitor.device||'', visitor.browser||'', visitor.os||'', visitor.city||'', visitor.country||'', visitor.countryCode||'', visitor.ip||'', visitor.referrer||'', ownerUid||null]
   ).catch(function(e) { console.error('[ROTATE] Click error:', e.message); });
 
   pool.query(
@@ -540,13 +566,13 @@ function recordClickBackground(linkId, linkName, campId, campName, visitor, thre
     // Invalidate cache if link became full
     if (upd.is_full) {
       rotateCache = {}; // force refresh
-      pool.query('INSERT INTO alerts (type, campaign_name, link_name, message, read) VALUES ($1,$2,$3,$4,false)',
-        ['link_full', campName, linkName, 'Grupo cheio: ' + linkName]).catch(function(){});
+      pool.query('INSERT INTO alerts (type, campaign_name, link_name, message, read, owner_uid) VALUES ($1,$2,$3,$4,false,$5)',
+        ['link_full', campName, linkName, 'Grupo cheio: ' + linkName, ownerUid||null]).catch(function(){});
     } else {
       var fillPct = (upd.current_clicks / (upd.max_vacancies || 1)) * 100;
       if (fillPct >= threshold) {
-        pool.query('INSERT INTO alerts (type, campaign_name, link_name, percent, message, read) VALUES ($1,$2,$3,$4,$5,false)',
-          ['link_near_full', campName, linkName, Math.round(fillPct), 'Grupo quase cheio: ' + linkName + ' (' + Math.round(fillPct) + '%)']).catch(function(){});
+        pool.query('INSERT INTO alerts (type, campaign_name, link_name, percent, message, read, owner_uid) VALUES ($1,$2,$3,$4,$5,false,$6)',
+          ['link_near_full', campName, linkName, Math.round(fillPct), 'Grupo quase cheio: ' + linkName + ' (' + Math.round(fillPct) + '%)', ownerUid||null]).catch(function(){});
       }
     }
   }).catch(function(e) { console.error('[ROTATE] Update error:', e.message); });
@@ -579,7 +605,7 @@ app.get('/r/:slug', async function(req, res) {
     visitor.referrer = req.headers.referer || '';
 
     // Record click in background
-    recordClickBackground(selected.id, selected.name, data.campaign.id, data.campaign.name, visitor, data.campaign.alertThreshold);
+    recordClickBackground(selected.id, selected.name, data.campaign.id, data.campaign.name, visitor, data.campaign.alertThreshold, data.campaign.ownerUid);
 
     // If campaign has pixels configured, serve inline HTML with pixels + redirect
     if (data.hasPixels) {
@@ -653,7 +679,7 @@ app.post('/api/rotate', async function(req, res) {
     // Background processing
     var v = req.body.visitor || {};
     v.ip = v.ip || req.ip;
-    recordClickBackground(selected.id, selected.name, data.campaign.id, data.campaign.name, v, data.campaign.alertThreshold);
+    recordClickBackground(selected.id, selected.name, data.campaign.id, data.campaign.name, v, data.campaign.alertThreshold, data.campaign.ownerUid);
 
   } catch (err) {
     if (!res.headersSent) res.status(500).json({ error: err.message });
@@ -668,10 +694,11 @@ app.post('/api/report-broken-link', async function(req, res) {
     if (!linkId) return res.status(400).json({ error: 'linkId obrigatório' });
 
     var result = await pool.query(
-      'UPDATE links SET health_check_failures = health_check_failures + 1, updated_at = NOW() WHERE id=$1 RETURNING health_check_failures, name, campaign_id',
+      'UPDATE links SET health_check_failures = health_check_failures + 1, updated_at = NOW() WHERE id=$1 RETURNING health_check_failures, name, campaign_id, owner_uid',
       [linkId]
     );
     if (result.rows.length > 0 && result.rows[0].health_check_failures >= 3) {
+      var linkOwner = result.rows[0].owner_uid;
       await pool.query(
         "UPDATE links SET is_active=false, deactivated_reason='Link possivelmente banido/expirado (3 falhas consecutivas)', deactivated_at=NOW() WHERE id=$1",
         [linkId]
@@ -682,8 +709,8 @@ app.post('/api/report-broken-link', async function(req, res) {
         if (cn.rows.length > 0) campName = cn.rows[0].name;
       }
       await pool.query(
-        'INSERT INTO alerts (type, link_name, campaign_name, message, read) VALUES ($1,$2,$3,$4,false)',
-        ['link_broken', result.rows[0].name, campName, 'Link desativado automaticamente - possivelmente banido ou expirado']
+        'INSERT INTO alerts (type, link_name, campaign_name, message, read, owner_uid) VALUES ($1,$2,$3,$4,false,$5)',
+        ['link_broken', result.rows[0].name, campName, 'Link desativado automaticamente - possivelmente banido ou expirado', linkOwner]
       );
     }
     res.json({ success: true });
@@ -696,9 +723,15 @@ app.post('/api/report-broken-link', async function(req, res) {
 app.post('/api/clicks', async function(req, res) {
   try {
     var b = req.body;
+    // Derive owner_uid from the campaign
+    var ownerUid = null;
+    if (b.campaignId) {
+      var campR = await pool.query('SELECT owner_uid FROM campaigns WHERE id=$1', [b.campaignId]);
+      if (campR.rows.length > 0) ownerUid = campR.rows[0].owner_uid;
+    }
     await pool.query(
-      'INSERT INTO clicks (link_id, link_name, campaign_id, device, browser, os, city, country, country_code, ip, referrer) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
-      [b.linkId, b.linkName, b.campaignId, b.device, b.browser, b.os || '', b.city, b.country, b.countryCode, b.ip || req.ip, b.referrer]
+      'INSERT INTO clicks (link_id, link_name, campaign_id, device, browser, os, city, country, country_code, ip, referrer, owner_uid) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',
+      [b.linkId, b.linkName, b.campaignId, b.device, b.browser, b.os || '', b.city, b.country, b.countryCode, b.ip || req.ip, b.referrer, ownerUid]
     );
     // Increment link clicks
     if (b.linkId) {
@@ -715,7 +748,7 @@ app.post('/api/clicks', async function(req, res) {
 app.get('/api/member-events/today', authMiddleware, async function(req, res) {
   try {
     var result = await pool.query(
-      "SELECT * FROM member_events WHERE timestamp >= CURRENT_DATE ORDER BY timestamp DESC"
+      "SELECT * FROM member_events WHERE timestamp >= CURRENT_DATE AND owner_uid=$1 ORDER BY timestamp DESC", [getOwnerUid(req)]
     );
     var joins = 0, leaves = 0;
     result.rows.forEach(function(r) {
@@ -741,8 +774,9 @@ app.get('/api/member-events/today', authMiddleware, async function(req, res) {
 
 app.get('/api/member-events/by-group', authMiddleware, async function(req, res) {
   try {
+    var uid = getOwnerUid(req);
     var result = await pool.query(
-      "SELECT whatsapp_group_id, group_name, action, COUNT(*) as cnt FROM member_events WHERE timestamp >= CURRENT_DATE GROUP BY whatsapp_group_id, group_name, action"
+      "SELECT whatsapp_group_id, group_name, action, COUNT(*) as cnt FROM member_events WHERE timestamp >= CURRENT_DATE AND owner_uid=$1 GROUP BY whatsapp_group_id, group_name, action", [uid]
     );
     var groupStats = {};
     result.rows.forEach(function(r) {
@@ -760,9 +794,10 @@ app.get('/api/member-events/by-group', authMiddleware, async function(req, res) 
 app.get('/api/member-events/range', authMiddleware, async function(req, res) {
   try {
     var days = validateDays(req.query.days, 7);
+    var uid = getOwnerUid(req);
     var result = await pool.query(
-      "SELECT * FROM member_events WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') ORDER BY timestamp DESC",
-      [days]
+      "SELECT * FROM member_events WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') AND owner_uid=$2 ORDER BY timestamp DESC",
+      [days, uid]
     );
     var dailyStats = {};
     var groupStats = {};
@@ -790,10 +825,11 @@ app.get('/api/member-events/range', authMiddleware, async function(req, res) {
 
 app.get('/api/stats/dashboard', authMiddleware, async function(req, res) {
   try {
+    var uid = getOwnerUid(req);
     var [groupsR, eventsR, clicksR] = await Promise.all([
-      pool.query('SELECT COALESCE(SUM(current_members),0) as total FROM whatsapp_groups'),
-      pool.query("SELECT action, COUNT(*) as cnt FROM member_events WHERE timestamp >= CURRENT_DATE GROUP BY action"),
-      pool.query("SELECT COUNT(*) as cnt FROM clicks WHERE timestamp >= CURRENT_DATE")
+      pool.query('SELECT COALESCE(SUM(current_members),0) as total FROM whatsapp_groups WHERE owner_uid=$1', [uid]),
+      pool.query("SELECT action, COUNT(*) as cnt FROM member_events WHERE timestamp >= CURRENT_DATE AND owner_uid=$1 GROUP BY action", [uid]),
+      pool.query("SELECT COUNT(*) as cnt FROM clicks WHERE timestamp >= CURRENT_DATE AND owner_uid=$1", [uid])
     ]);
     var totalMembers = parseInt(groupsR.rows[0].total);
     var joins = 0, leaves = 0;
@@ -819,7 +855,8 @@ app.get('/api/stats/dashboard', authMiddleware, async function(req, res) {
 
 app.get('/api/alerts', authMiddleware, async function(req, res) {
   try {
-    var result = await pool.query('SELECT * FROM alerts ORDER BY timestamp DESC LIMIT 50');
+    var uid = getOwnerUid(req);
+    var result = await pool.query('SELECT * FROM alerts WHERE owner_uid=$1 ORDER BY timestamp DESC LIMIT 50', [uid]);
     res.json(result.rows.map(mapAlert));
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -828,7 +865,8 @@ app.get('/api/alerts', authMiddleware, async function(req, res) {
 
 app.get('/api/alerts/unread-count', authMiddleware, async function(req, res) {
   try {
-    var result = await pool.query('SELECT COUNT(*) as cnt FROM alerts WHERE read=false');
+    var uid = getOwnerUid(req);
+    var result = await pool.query('SELECT COUNT(*) as cnt FROM alerts WHERE read=false AND owner_uid=$1', [uid]);
     res.json({ count: parseInt(result.rows[0].cnt) });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -837,7 +875,7 @@ app.get('/api/alerts/unread-count', authMiddleware, async function(req, res) {
 
 app.put('/api/alerts/:id/read', authMiddleware, async function(req, res) {
   try {
-    await pool.query('UPDATE alerts SET read=true WHERE id=$1', [req.params.id]);
+    await pool.query('UPDATE alerts SET read=true WHERE id=$1 AND owner_uid=$2', [req.params.id, getOwnerUid(req)]);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -846,7 +884,7 @@ app.put('/api/alerts/:id/read', authMiddleware, async function(req, res) {
 
 app.put('/api/alerts/read-all', authMiddleware, async function(req, res) {
   try {
-    await pool.query('UPDATE alerts SET read=true WHERE read=false');
+    await pool.query('UPDATE alerts SET read=true WHERE read=false AND owner_uid=$1', [getOwnerUid(req)]);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -855,7 +893,7 @@ app.put('/api/alerts/read-all', authMiddleware, async function(req, res) {
 
 app.delete('/api/alerts/:id', authMiddleware, async function(req, res) {
   try {
-    await pool.query('DELETE FROM alerts WHERE id=$1', [req.params.id]);
+    await pool.query('DELETE FROM alerts WHERE id=$1 AND owner_uid=$2', [req.params.id, getOwnerUid(req)]);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -864,7 +902,7 @@ app.delete('/api/alerts/:id', authMiddleware, async function(req, res) {
 
 app.delete('/api/alerts/clear-all', authMiddleware, async function(req, res) {
   try {
-    await pool.query('DELETE FROM alerts WHERE read=true');
+    await pool.query('DELETE FROM alerts WHERE read=true AND owner_uid=$1', [getOwnerUid(req)]);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -875,7 +913,8 @@ app.delete('/api/alerts/clear-all', authMiddleware, async function(req, res) {
 
 app.get('/api/meta-campaigns', authMiddleware, async function(req, res) {
   try {
-    var result = await pool.query('SELECT * FROM meta_campaigns ORDER BY last_synced DESC');
+    var uid = getOwnerUid(req);
+    var result = await pool.query('SELECT * FROM meta_campaigns WHERE owner_uid=$1 ORDER BY last_synced DESC', [uid]);
     res.json(result.rows.map(function(r) {
       return {
         id: r.id, name: r.name, status: r.status, objective: r.objective,
@@ -894,7 +933,10 @@ app.get('/api/meta-campaigns', authMiddleware, async function(req, res) {
 
 app.get('/api/meta/campaigns', authMiddleware, async function(req, res) {
   try {
-    var campaigns = await metaApi.getCampaigns();
+    var uid = getOwnerUid(req);
+    var settings = await getUserSettings(uid);
+    if (!settings.meta || !settings.meta.accessToken) return res.status(400).json({ error: 'Configure Meta Ads nas Configurações' });
+    var campaigns = await metaApi.getCampaigns(settings.meta);
     res.json(campaigns);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -903,7 +945,10 @@ app.get('/api/meta/campaigns', authMiddleware, async function(req, res) {
 
 app.get('/api/meta/campaigns/:id/insights', authMiddleware, async function(req, res) {
   try {
-    var insights = await metaApi.getCampaignInsights(req.params.id, req.query.date_range || 'last_7d');
+    var uid = getOwnerUid(req);
+    var settings = await getUserSettings(uid);
+    if (!settings.meta || !settings.meta.accessToken) return res.status(400).json({ error: 'Configure Meta Ads nas Configurações' });
+    var insights = await metaApi.getCampaignInsights(req.params.id, req.query.date_range || 'last_7d', settings.meta);
     res.json(insights);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -912,7 +957,10 @@ app.get('/api/meta/campaigns/:id/insights', authMiddleware, async function(req, 
 
 app.get('/api/meta/account/insights', authMiddleware, async function(req, res) {
   try {
-    var insights = await metaApi.getAccountInsights(req.query.date_range || 'today');
+    var uid = getOwnerUid(req);
+    var settings = await getUserSettings(uid);
+    if (!settings.meta || !settings.meta.accessToken) return res.status(400).json({ error: 'Configure Meta Ads nas Configurações' });
+    var insights = await metaApi.getAccountInsights(req.query.date_range || 'today', settings.meta);
     res.json(insights);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -921,7 +969,10 @@ app.get('/api/meta/account/insights', authMiddleware, async function(req, res) {
 
 app.post('/api/meta/campaigns/:id/status', authMiddleware, async function(req, res) {
   try {
-    var result = await metaApi.updateCampaignStatus(req.params.id, req.body.status);
+    var uid = getOwnerUid(req);
+    var settings = await getUserSettings(uid);
+    if (!settings.meta || !settings.meta.accessToken) return res.status(400).json({ error: 'Configure Meta Ads nas Configurações' });
+    var result = await metaApi.updateCampaignStatus(req.params.id, req.body.status, settings.meta);
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -930,7 +981,10 @@ app.post('/api/meta/campaigns/:id/status', authMiddleware, async function(req, r
 
 app.post('/api/meta/campaigns/:id/budget', authMiddleware, async function(req, res) {
   try {
-    var result = await metaApi.updateCampaignBudget(req.params.id, req.body.budget, req.body.type);
+    var uid = getOwnerUid(req);
+    var settings = await getUserSettings(uid);
+    if (!settings.meta || !settings.meta.accessToken) return res.status(400).json({ error: 'Configure Meta Ads nas Configurações' });
+    var result = await metaApi.updateCampaignBudget(req.params.id, req.body.budget, req.body.type, settings.meta);
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -939,7 +993,10 @@ app.post('/api/meta/campaigns/:id/budget', authMiddleware, async function(req, r
 
 app.get('/api/meta/campaigns/:id/adsets', authMiddleware, async function(req, res) {
   try {
-    var adsets = await metaApi.getAdsets(req.params.id);
+    var uid = getOwnerUid(req);
+    var settings = await getUserSettings(uid);
+    if (!settings.meta || !settings.meta.accessToken) return res.status(400).json({ error: 'Configure Meta Ads nas Configurações' });
+    var adsets = await metaApi.getAdsets(req.params.id, settings.meta);
     res.json(adsets);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -948,7 +1005,10 @@ app.get('/api/meta/campaigns/:id/adsets', authMiddleware, async function(req, re
 
 app.post('/api/meta/sync', authMiddleware, async function(req, res) {
   try {
-    await syncMetaToDB();
+    var uid = getOwnerUid(req);
+    var settings = await getUserSettings(uid);
+    if (!settings.meta || !settings.meta.accessToken) return res.status(400).json({ error: 'Configure Meta Ads nas Configurações' });
+    await syncMetaForUser(uid, settings.meta);
     res.json({ success: true, message: 'Dados sincronizados' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -962,7 +1022,8 @@ app.get('/api/meta/insights-batch', authMiddleware, async function(req, res) {
 
     // For "today", return DB cache (instant)
     if (dateRange === 'today') {
-      var dbResult = await pool.query('SELECT * FROM meta_campaigns ORDER BY name');
+      var uid = getOwnerUid(req);
+      var dbResult = await pool.query('SELECT * FROM meta_campaigns WHERE owner_uid=$1 ORDER BY name', [uid]);
       var mapped = dbResult.rows.map(function(r) {
         return {
           id: r.id, name: r.name, status: r.status, objective: r.objective,
@@ -977,12 +1038,14 @@ app.get('/api/meta/insights-batch', authMiddleware, async function(req, res) {
       return res.json({ campaigns: mapped, source: 'cache' });
     }
 
-    // For other ranges, fetch from Meta API in parallel
-    var campaigns = await metaApi.getCampaigns();
+    // For other ranges, fetch from Meta API in parallel (per-user credentials)
+    var userSettings = await getUserSettings(uid);
+    if (!userSettings.meta || !userSettings.meta.accessToken) return res.json({ campaigns: [], source: 'api', error: 'Meta não configurado' });
+    var campaigns = await metaApi.getCampaigns(userSettings.meta);
     if (!campaigns || !campaigns.data) return res.json({ campaigns: [], source: 'api' });
 
     var promises = campaigns.data.map(function(camp) {
-      return metaApi.getCampaignInsights(camp.id, dateRange).then(function(insights) {
+      return metaApi.getCampaignInsights(camp.id, dateRange, userSettings.meta).then(function(insights) {
         var d = insights && insights.data && insights.data[0] ? insights.data[0] : {};
         var conversions = 0, costPerResult = 0;
         if (d.actions) {
@@ -1062,19 +1125,42 @@ app.get('/api/exchange-rate', authMiddleware, async function(req, res) {
 // ===== WHATSAPP ROUTES =====
 
 app.get('/api/whatsapp/status', authMiddleware, function(req, res) {
-  res.json(whatsappMonitor.getStatus());
+  var uid = getOwnerUid(req);
+  res.json(whatsappMonitor.getStatus(uid));
 });
 
 app.get('/api/whatsapp/qr', authMiddleware, function(req, res) {
-  var qr = whatsappMonitor.getQR();
+  var uid = getOwnerUid(req);
+  var qr = whatsappMonitor.getQR(uid);
   if (qr) res.json({ qr: qr, status: 'waiting_scan' });
-  else if (whatsappMonitor.getStatus().connected) res.json({ qr: null, status: 'connected' });
+  else if (whatsappMonitor.getStatus(uid).connected) res.json({ qr: null, status: 'connected' });
   else res.json({ qr: null, status: 'initializing' });
+});
+
+app.post('/api/whatsapp/connect', authMiddleware, async function(req, res) {
+  try {
+    var uid = getOwnerUid(req);
+    await whatsappMonitor.connectUser(uid);
+    res.json({ success: true, message: 'Iniciando conexão WhatsApp...' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/whatsapp/disconnect', authMiddleware, async function(req, res) {
+  try {
+    var uid = getOwnerUid(req);
+    await whatsappMonitor.disconnectUser(uid);
+    res.json({ success: true, message: 'WhatsApp desconectado' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get('/api/whatsapp/groups', authMiddleware, async function(req, res) {
   try {
-    var groups = await whatsappMonitor.getGroups();
+    var uid = getOwnerUid(req);
+    var groups = await whatsappMonitor.getGroups(uid);
     res.json(groups);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1083,7 +1169,8 @@ app.get('/api/whatsapp/groups', authMiddleware, async function(req, res) {
 
 app.get('/api/whatsapp/groups/:id/members', authMiddleware, async function(req, res) {
   try {
-    var members = await whatsappMonitor.getGroupMembers(req.params.id);
+    var uid = getOwnerUid(req);
+    var members = await whatsappMonitor.getGroupMembers(uid, req.params.id);
     res.json(members);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1092,7 +1179,8 @@ app.get('/api/whatsapp/groups/:id/members', authMiddleware, async function(req, 
 
 app.post('/api/whatsapp/groups/:groupId/link', authMiddleware, async function(req, res) {
   try {
-    await pool.query('UPDATE links SET whatsapp_group_id=$1, updated_at=NOW() WHERE id=$2', [req.params.groupId, req.body.linkId]);
+    var uid = getOwnerUid(req);
+    await pool.query('UPDATE links SET whatsapp_group_id=$1, updated_at=NOW() WHERE id=$2 AND owner_uid=$3', [req.params.groupId, req.body.linkId, uid]);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1101,7 +1189,8 @@ app.post('/api/whatsapp/groups/:groupId/link', authMiddleware, async function(re
 
 app.post('/api/whatsapp/restart', authMiddleware, async function(req, res) {
   try {
-    await whatsappMonitor.restart();
+    var uid = getOwnerUid(req);
+    await whatsappMonitor.restart(uid);
     res.json({ success: true, message: 'WhatsApp reiniciado' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1112,7 +1201,8 @@ app.post('/api/whatsapp/restart', authMiddleware, async function(req, res) {
 
 app.get('/api/settings', authMiddleware, async function(req, res) {
   try {
-    var result = await pool.query("SELECT value FROM settings WHERE key='general'");
+    var uid = getOwnerUid(req);
+    var result = await pool.query("SELECT value FROM settings WHERE key='general' AND owner_uid=$1", [uid]);
     res.json(result.rows.length > 0 ? result.rows[0].value : {});
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1121,13 +1211,14 @@ app.get('/api/settings', authMiddleware, async function(req, res) {
 
 app.post('/api/settings', authMiddleware, async function(req, res) {
   try {
+    var uid = getOwnerUid(req);
     // Merge with existing settings
-    var current = await pool.query("SELECT value FROM settings WHERE key='general'");
+    var current = await pool.query("SELECT value FROM settings WHERE key='general' AND owner_uid=$1", [uid]);
     var existing = current.rows.length > 0 ? current.rows[0].value : {};
     var merged = Object.assign({}, existing, req.body);
     await pool.query(
-      "INSERT INTO settings (key, value, updated_at) VALUES ('general', $1, NOW()) ON CONFLICT (key) DO UPDATE SET value=$1, updated_at=NOW()",
-      [JSON.stringify(merged)]
+      "INSERT INTO settings (key, value, updated_at, owner_uid) VALUES ('general', $1, NOW(), $2) ON CONFLICT (key, owner_uid) DO UPDATE SET value=$1, updated_at=NOW()",
+      [JSON.stringify(merged), uid]
     );
     res.json({ success: true });
   } catch (err) {
@@ -1137,20 +1228,18 @@ app.post('/api/settings', authMiddleware, async function(req, res) {
 
 app.post('/api/settings/meta', authMiddleware, async function(req, res) {
   try {
+    var uid = getOwnerUid(req);
     var meta = req.body;
-    var current = await pool.query("SELECT value FROM settings WHERE key='general'");
+    var current = await pool.query("SELECT value FROM settings WHERE key='general' AND owner_uid=$1", [uid]);
     var settings = current.rows.length > 0 ? current.rows[0].value : {};
     settings.meta = meta;
     await pool.query(
-      "INSERT INTO settings (key, value, updated_at) VALUES ('general', $1, NOW()) ON CONFLICT (key) DO UPDATE SET value=$1, updated_at=NOW()",
-      [JSON.stringify(settings)]
+      "INSERT INTO settings (key, value, updated_at, owner_uid) VALUES ('general', $1, NOW(), $2) ON CONFLICT (key, owner_uid) DO UPDATE SET value=$1, updated_at=NOW()",
+      [JSON.stringify(settings), uid]
     );
-    if (meta.accessToken) process.env.META_ACCESS_TOKEN = meta.accessToken;
-    if (meta.adAccountId) process.env.META_AD_ACCOUNT_ID = meta.adAccountId;
-    if (meta.appId) process.env.META_APP_ID = meta.appId;
-    if (meta.appSecret) process.env.META_APP_SECRET = meta.appSecret;
-    console.log('[META] Credenciais atualizadas');
-    syncMetaToDB();
+    console.log('[META] Credenciais atualizadas para usuário ' + uid);
+    // Sync Meta data for this user
+    syncMetaForUser(uid, meta);
     res.json({ success: true, message: 'Credenciais Meta atualizadas' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1273,6 +1362,21 @@ app.delete('/api/users/:uid', authMiddleware, async function(req, res) {
       return res.status(403).json({ error: 'Apenas Super Admin' });
     }
     if (req.params.uid === req.user.uid) return res.status(400).json({ error: 'Não pode deletar a si mesmo' });
+    // Cascade delete user data
+    await pool.query('DELETE FROM clicks WHERE owner_uid=$1', [req.params.uid]);
+    await pool.query('DELETE FROM alerts WHERE owner_uid=$1', [req.params.uid]);
+    await pool.query('DELETE FROM member_events WHERE owner_uid=$1', [req.params.uid]);
+    await pool.query('DELETE FROM broadcast_logs WHERE owner_uid=$1', [req.params.uid]);
+    await pool.query('DELETE FROM broadcast_messages WHERE owner_uid=$1', [req.params.uid]);
+    await pool.query('DELETE FROM lead_contacts WHERE owner_uid=$1', [req.params.uid]);
+    await pool.query('DELETE FROM shopee_links WHERE owner_uid=$1', [req.params.uid]);
+    await pool.query('DELETE FROM shopee_commissions WHERE owner_uid=$1', [req.params.uid]);
+    await pool.query('DELETE FROM meta_campaigns WHERE owner_uid=$1', [req.params.uid]);
+    await pool.query('DELETE FROM whatsapp_numbers WHERE owner_uid=$1', [req.params.uid]);
+    await pool.query('DELETE FROM whatsapp_groups WHERE owner_uid=$1', [req.params.uid]);
+    await pool.query('DELETE FROM links WHERE owner_uid=$1', [req.params.uid]);
+    await pool.query('DELETE FROM campaigns WHERE owner_uid=$1', [req.params.uid]);
+    await pool.query('DELETE FROM settings WHERE owner_uid=$1', [req.params.uid]);
     await admin.auth().deleteUser(req.params.uid);
     await pool.query('DELETE FROM users WHERE uid=$1', [req.params.uid]);
     res.json({ success: true });
@@ -1287,17 +1391,18 @@ app.delete('/api/users/:uid', authMiddleware, async function(req, res) {
 app.get('/api/analytics/summary', authMiddleware, async function(req, res) {
   try {
     var days = validateDays(req.query.days, 1);
+    var uid = getOwnerUid(req);
 
     var [clicksR, eventsR, groupsR, metaR, metaSpendR] = await Promise.all([
       days === 1
-        ? pool.query("SELECT COUNT(*) as total FROM clicks WHERE timestamp >= CURRENT_DATE")
-        : pool.query("SELECT COUNT(*) as total FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day')", [days]),
+        ? pool.query("SELECT COUNT(*) as total FROM clicks WHERE timestamp >= CURRENT_DATE AND owner_uid=$1", [uid])
+        : pool.query("SELECT COUNT(*) as total FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') AND owner_uid=$2", [days, uid]),
       days === 1
-        ? pool.query("SELECT action, COUNT(*) as cnt FROM member_events WHERE timestamp >= CURRENT_DATE GROUP BY action")
-        : pool.query("SELECT action, COUNT(*) as cnt FROM member_events WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') GROUP BY action", [days]),
-      pool.query('SELECT COALESCE(SUM(current_members),0) as total, COUNT(*) as cnt FROM whatsapp_groups'),
-      pool.query('SELECT COALESCE(SUM(clicks),0) as clicks, COALESCE(SUM(impressions),0) as impressions, COALESCE(SUM(conversions),0) as conversions FROM meta_campaigns'),
-      pool.query('SELECT COALESCE(SUM(spend),0) as spend FROM meta_campaigns')
+        ? pool.query("SELECT action, COUNT(*) as cnt FROM member_events WHERE timestamp >= CURRENT_DATE AND owner_uid=$1 GROUP BY action", [uid])
+        : pool.query("SELECT action, COUNT(*) as cnt FROM member_events WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') AND owner_uid=$2 GROUP BY action", [days, uid]),
+      pool.query('SELECT COALESCE(SUM(current_members),0) as total, COUNT(*) as cnt FROM whatsapp_groups WHERE owner_uid=$1', [uid]),
+      pool.query('SELECT COALESCE(SUM(clicks),0) as clicks, COALESCE(SUM(impressions),0) as impressions, COALESCE(SUM(conversions),0) as conversions FROM meta_campaigns WHERE owner_uid=$1', [uid]),
+      pool.query('SELECT COALESCE(SUM(spend),0) as spend FROM meta_campaigns WHERE owner_uid=$1', [uid])
     ]);
 
     var clicks = parseInt(clicksR.rows[0].total);
@@ -1338,15 +1443,16 @@ app.get('/api/analytics/summary', authMiddleware, async function(req, res) {
 app.get('/api/analytics/heatmap', authMiddleware, async function(req, res) {
   try {
     var days = validateDays(req.query.days, 7);
+    var uid = getOwnerUid(req);
 
     var [clicksR, eventsR] = await Promise.all([
       pool.query(
-        "SELECT EXTRACT(HOUR FROM timestamp) as hour, EXTRACT(DOW FROM timestamp) as dow, COUNT(*) as cnt FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') GROUP BY hour, dow ORDER BY dow, hour",
-        [days]
+        "SELECT EXTRACT(HOUR FROM timestamp) as hour, EXTRACT(DOW FROM timestamp) as dow, COUNT(*) as cnt FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') AND owner_uid=$2 GROUP BY hour, dow ORDER BY dow, hour",
+        [days, uid]
       ),
       pool.query(
-        "SELECT EXTRACT(HOUR FROM timestamp) as hour, EXTRACT(DOW FROM timestamp) as dow, action, COUNT(*) as cnt FROM member_events WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') GROUP BY hour, dow, action ORDER BY dow, hour",
-        [days]
+        "SELECT EXTRACT(HOUR FROM timestamp) as hour, EXTRACT(DOW FROM timestamp) as dow, action, COUNT(*) as cnt FROM member_events WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') AND owner_uid=$2 GROUP BY hour, dow, action ORDER BY dow, hour",
+        [days, uid]
       )
     ]);
 
@@ -1390,26 +1496,28 @@ app.get('/api/analytics/heatmap', authMiddleware, async function(req, res) {
 app.get('/api/analytics/attribution', authMiddleware, async function(req, res) {
   try {
     var days = validateDays(req.query.days, 30);
+    var uid = getOwnerUid(req);
 
     // Get clicks grouped by campaign
     var clicksR = await pool.query(
-      "SELECT campaign_id, COUNT(*) as clicks FROM clicks WHERE campaign_id IS NOT NULL AND timestamp >= NOW() - ($1 * INTERVAL '1 day') GROUP BY campaign_id",
-      [days]
+      "SELECT campaign_id, COUNT(*) as clicks FROM clicks WHERE campaign_id IS NOT NULL AND timestamp >= NOW() - ($1 * INTERVAL '1 day') AND owner_uid=$2 GROUP BY campaign_id",
+      [days, uid]
     );
 
     // Get member events for correlation
     var eventsR = await pool.query(
-      "SELECT whatsapp_group_id, action, COUNT(*) as cnt FROM member_events WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') GROUP BY whatsapp_group_id, action",
-      [days]
+      "SELECT whatsapp_group_id, action, COUNT(*) as cnt FROM member_events WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') AND owner_uid=$2 GROUP BY whatsapp_group_id, action",
+      [days, uid]
     );
 
     // Get links to map campaign → whatsapp group
     var linksR = await pool.query(
-      'SELECT campaign_id, whatsapp_group_id FROM links WHERE campaign_id IS NOT NULL AND whatsapp_group_id IS NOT NULL'
+      'SELECT campaign_id, whatsapp_group_id FROM links WHERE campaign_id IS NOT NULL AND whatsapp_group_id IS NOT NULL AND owner_uid=$1',
+      [uid]
     );
 
     // Get meta spend per campaign
-    var metaR = await pool.query('SELECT id, name, spend, clicks as meta_clicks, conversions FROM meta_campaigns');
+    var metaR = await pool.query('SELECT id, name, spend, clicks as meta_clicks, conversions FROM meta_campaigns WHERE owner_uid=$1', [uid]);
 
     // Build campaign → groups mapping
     var campToGroups = {};
@@ -1441,7 +1549,7 @@ app.get('/api/analytics/attribution', authMiddleware, async function(req, res) {
     });
 
     // Get all campaign names
-    var campNamesR = await pool.query('SELECT id, name FROM campaigns');
+    var campNamesR = await pool.query('SELECT id, name FROM campaigns WHERE owner_uid=$1', [uid]);
     var campNames = {};
     campNamesR.rows.forEach(function(c) { campNames[c.id] = c.name; });
 
@@ -1491,10 +1599,11 @@ app.get('/api/analytics/attribution', authMiddleware, async function(req, res) {
 // Smart alerts check
 app.get('/api/analytics/smart-alerts', authMiddleware, async function(req, res) {
   try {
+    var uid = getOwnerUid(req);
     var alerts = [];
 
     // 1. Campaigns spending without conversions (last 6h)
-    var metaR = await pool.query('SELECT id, name, spend, conversions, status FROM meta_campaigns WHERE status = $1', ['ACTIVE']);
+    var metaR = await pool.query('SELECT id, name, spend, conversions, status FROM meta_campaigns WHERE status = $1 AND owner_uid=$2', ['ACTIVE', uid]);
     metaR.rows.forEach(function(c) {
       if (parseFloat(c.spend) > 0 && parseInt(c.conversions) === 0) {
         alerts.push({
@@ -1509,7 +1618,8 @@ app.get('/api/analytics/smart-alerts', authMiddleware, async function(req, res) 
 
     // 2. High exit rate groups (>30% leave rate today)
     var eventsR = await pool.query(
-      "SELECT whatsapp_group_id, group_name, action, COUNT(*) as cnt FROM member_events WHERE timestamp >= CURRENT_DATE GROUP BY whatsapp_group_id, group_name, action"
+      "SELECT whatsapp_group_id, group_name, action, COUNT(*) as cnt FROM member_events WHERE timestamp >= CURRENT_DATE AND owner_uid=$1 GROUP BY whatsapp_group_id, group_name, action",
+      [uid]
     );
     var groupStats = {};
     eventsR.rows.forEach(function(r) {
@@ -1538,7 +1648,7 @@ app.get('/api/analytics/smart-alerts', authMiddleware, async function(req, res) 
     var activeMeta = metaR.rows.filter(function(c) { return parseInt(c.spend) > 0; });
     if (activeMeta.length > 1) {
       var cpcs = [];
-      var metaDetailsR = await pool.query('SELECT id, name, cpc, spend FROM meta_campaigns WHERE spend > 0');
+      var metaDetailsR = await pool.query('SELECT id, name, cpc, spend FROM meta_campaigns WHERE spend > 0 AND owner_uid=$1', [uid]);
       metaDetailsR.rows.forEach(function(c) { cpcs.push({ id: c.id, name: c.name, cpc: parseFloat(c.cpc) }); });
       var avgCpc = cpcs.reduce(function(s, c) { return s + c.cpc; }, 0) / cpcs.length;
       cpcs.forEach(function(c) {
@@ -1555,7 +1665,7 @@ app.get('/api/analytics/smart-alerts', authMiddleware, async function(req, res) 
     }
 
     // 4. Links near full
-    var linksR = await pool.query('SELECT name, current_clicks, max_vacancies FROM links WHERE is_active=true AND is_full=false');
+    var linksR = await pool.query('SELECT name, current_clicks, max_vacancies FROM links WHERE is_active=true AND is_full=false AND owner_uid=$1', [uid]);
     linksR.rows.forEach(function(l) {
       var pct = (l.current_clicks / (l.max_vacancies || 1)) * 100;
       if (pct >= 85) {
@@ -1570,7 +1680,7 @@ app.get('/api/analytics/smart-alerts', authMiddleware, async function(req, res) 
     });
 
     // 5. Links with health issues (only show truly broken or deactivated links)
-    var unhealthyLinksR = await pool.query("SELECT name, health_check_failures, deactivated_reason FROM links WHERE health_check_failures >= 3 OR (deactivated_reason IS NOT NULL AND deactivated_reason != '')");
+    var unhealthyLinksR = await pool.query("SELECT name, health_check_failures, deactivated_reason FROM links WHERE (health_check_failures >= 3 OR (deactivated_reason IS NOT NULL AND deactivated_reason != '')) AND owner_uid=$1", [uid]);
     unhealthyLinksR.rows.forEach(function(l) {
       alerts.push({
         type: 'link_health',
@@ -1595,11 +1705,12 @@ app.get('/api/analytics/smart-alerts', authMiddleware, async function(req, res) 
 app.get('/api/analytics/breakdown', authMiddleware, async function(req, res) {
   try {
     var days = validateDays(req.query.days, 7);
+    var uid = getOwnerUid(req);
     var [refR, osR, cityR, browserR] = await Promise.all([
-      pool.query("SELECT referrer, COUNT(*) as cnt FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') AND referrer IS NOT NULL AND referrer != '' GROUP BY referrer ORDER BY cnt DESC LIMIT 20", [days]),
-      pool.query("SELECT os, COUNT(*) as cnt FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') AND os IS NOT NULL AND os != '' GROUP BY os ORDER BY cnt DESC LIMIT 10", [days]),
-      pool.query("SELECT city, COUNT(*) as cnt FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') AND city IS NOT NULL AND city != '' GROUP BY city ORDER BY cnt DESC LIMIT 20", [days]),
-      pool.query("SELECT browser, COUNT(*) as cnt FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') AND browser IS NOT NULL AND browser != '' GROUP BY browser ORDER BY cnt DESC LIMIT 10", [days])
+      pool.query("SELECT referrer, COUNT(*) as cnt FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') AND referrer IS NOT NULL AND referrer != '' AND owner_uid=$2 GROUP BY referrer ORDER BY cnt DESC LIMIT 20", [days, uid]),
+      pool.query("SELECT os, COUNT(*) as cnt FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') AND os IS NOT NULL AND os != '' AND owner_uid=$2 GROUP BY os ORDER BY cnt DESC LIMIT 10", [days, uid]),
+      pool.query("SELECT city, COUNT(*) as cnt FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') AND city IS NOT NULL AND city != '' AND owner_uid=$2 GROUP BY city ORDER BY cnt DESC LIMIT 20", [days, uid]),
+      pool.query("SELECT browser, COUNT(*) as cnt FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') AND browser IS NOT NULL AND browser != '' AND owner_uid=$2 GROUP BY browser ORDER BY cnt DESC LIMIT 10", [days, uid])
     ]);
 
     res.json({
@@ -1618,9 +1729,12 @@ app.get('/api/analytics/breakdown', authMiddleware, async function(req, res) {
 
 app.get('/api/stats/overview', authMiddleware, async function(req, res) {
   try {
+    var uid = getOwnerUid(req);
+    var userSettings = await getUserSettings(uid);
+    var metaCreds = userSettings.meta && userSettings.meta.accessToken ? userSettings.meta : null;
     var [metaInsights, groupsR] = await Promise.all([
-      metaApi.getAccountInsights('today').catch(function() { return null; }),
-      pool.query('SELECT COALESCE(SUM(current_members),0) as total, COUNT(*) as cnt FROM whatsapp_groups')
+      metaCreds ? metaApi.getAccountInsights('today', metaCreds).catch(function() { return null; }) : Promise.resolve(null),
+      pool.query('SELECT COALESCE(SUM(current_members),0) as total, COUNT(*) as cnt FROM whatsapp_groups WHERE owner_uid=$1', [uid])
     ]);
     res.json({
       meta: metaInsights,
@@ -1634,19 +1748,21 @@ app.get('/api/stats/overview', authMiddleware, async function(req, res) {
 
 // ===== SYNC META → DB =====
 
-async function syncMetaToDB() {
+// Sync Meta campaigns for a specific user
+async function syncMetaForUser(ownerUid, credentials) {
   try {
-    var campaigns = await metaApi.getCampaigns();
+    if (!credentials || !credentials.accessToken) return;
+    var campaigns = await metaApi.getCampaigns(credentials);
     if (!campaigns || !campaigns.data) return;
 
     for (var camp of campaigns.data) {
-      var insights = await metaApi.getCampaignInsights(camp.id, 'today');
+      var insights = await metaApi.getCampaignInsights(camp.id, 'today', credentials);
       var d = insights && insights.data && insights.data[0] ? insights.data[0] : {};
 
       await pool.query(
-        `INSERT INTO meta_campaigns (id, name, status, objective, daily_budget, spend, impressions, clicks, cpc, cpm, ctr, reach, conversions, cost_per_result, last_synced)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW())
-         ON CONFLICT (id) DO UPDATE SET name=$2, status=$3, objective=$4, daily_budget=$5, spend=$6, impressions=$7, clicks=$8, cpc=$9, cpm=$10, ctr=$11, reach=$12, conversions=$13, cost_per_result=$14, last_synced=NOW()`,
+        `INSERT INTO meta_campaigns (id, name, status, objective, daily_budget, spend, impressions, clicks, cpc, cpm, ctr, reach, conversions, cost_per_result, last_synced, owner_uid)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW(),$15)
+         ON CONFLICT (id) DO UPDATE SET name=$2, status=$3, objective=$4, daily_budget=$5, spend=$6, impressions=$7, clicks=$8, cpc=$9, cpm=$10, ctr=$11, reach=$12, conversions=$13, cost_per_result=$14, last_synced=NOW(), owner_uid=$15`,
         [
           camp.id, camp.name, camp.status || camp.effective_status, camp.objective,
           camp.daily_budget ? parseFloat(camp.daily_budget) / 100 : 0,
@@ -1658,13 +1774,28 @@ async function syncMetaToDB() {
           d.ctr ? parseFloat(d.ctr) : 0,
           d.reach ? parseInt(d.reach) : 0,
           d.actions ? extractConversions(d.actions) : 0,
-          d.cost_per_action_type ? extractCostPerResult(d.cost_per_action_type) : 0
+          d.cost_per_action_type ? extractCostPerResult(d.cost_per_action_type) : 0,
+          ownerUid
         ]
       );
     }
-    console.log('[META] Sincronizados ' + campaigns.data.length + ' campanhas');
+    console.log('[META] Sincronizados ' + campaigns.data.length + ' campanhas para ' + ownerUid);
   } catch (err) {
-    console.error('[META] Erro na sincronização:', err.message);
+    console.error('[META] Erro na sincronização para ' + ownerUid + ':', err.message);
+  }
+}
+
+// Sync Meta for all users with configured credentials
+async function syncMetaToDB() {
+  try {
+    var usersWithMeta = await pool.query(
+      "SELECT owner_uid, value->'meta' as meta FROM settings WHERE key='general' AND value->'meta'->>'accessToken' IS NOT NULL AND value->'meta'->>'accessToken' != ''"
+    );
+    for (var row of usersWithMeta.rows) {
+      await syncMetaForUser(row.owner_uid, row.meta);
+    }
+  } catch (err) {
+    console.error('[META] Erro no sync global:', err.message);
   }
 }
 
@@ -1714,15 +1845,17 @@ async function runHealthCheck() {
     var linksR = await pool.query('SELECT * FROM links WHERE is_active=true');
     summary.total = linksR.rows.length;
 
-    var whatsappReady = whatsappMonitor.getStatus().ready;
+    var connectedUsers = whatsappMonitor.getConnectedUsers ? whatsappMonitor.getConnectedUsers() : [];
+    var whatsappReady = connectedUsers.length > 0;
 
     for (var link of linksR.rows) {
       var result = { type: 'link', linkId: link.id, linkName: link.name, url: link.url, status: 'healthy', issues: [] };
 
       // a) Check linked WhatsApp group exists (do this FIRST for cross-check)
+      var linkOwnerUid = link.owner_uid;
       var groupConfirmedActive = false;
       if (link.whatsapp_group_id && whatsappReady) {
-        var groupCheck = await whatsappMonitor.checkGroupExists(link.whatsapp_group_id);
+        var groupCheck = await whatsappMonitor.checkGroupExists(linkOwnerUid, link.whatsapp_group_id);
         if (groupCheck !== null) {
           if (groupCheck.exists) {
             groupConfirmedActive = true;
@@ -1736,7 +1869,7 @@ async function runHealthCheck() {
       // b) Check WhatsApp invite link via client
       var inviteCode = extractInviteCode(link.url);
       if (inviteCode && whatsappReady) {
-        var inviteCheck = await whatsappMonitor.checkInviteCode(inviteCode);
+        var inviteCheck = await whatsappMonitor.checkInviteCode(linkOwnerUid, inviteCode);
         if (inviteCheck !== null && !inviteCheck.valid) {
           if (inviteCheck.definitive) {
             // Definitively invalid invite code
@@ -1791,8 +1924,8 @@ async function runHealthCheck() {
             if (cn.rows.length > 0) campName = cn.rows[0].name;
           }
           await pool.query(
-            'INSERT INTO alerts (type, link_name, campaign_name, message, read) VALUES ($1,$2,$3,$4,false)',
-            ['link_health', link.name, campName, 'Link com problema detectado: ' + result.issues.join('; ')]
+            'INSERT INTO alerts (type, link_name, campaign_name, message, read, owner_uid) VALUES ($1,$2,$3,$4,false,$5)',
+            ['link_health', link.name, campName, 'Link com problema detectado: ' + result.issues.join('; '), link.owner_uid]
           );
 
           // Increment health check failures
@@ -1821,14 +1954,22 @@ async function runHealthCheck() {
       await new Promise(function(resolve) { setTimeout(resolve, 500); });
     }
 
-    // 2. Check for disappeared groups (banned)
+    // 2. Check for disappeared groups (banned) - iterate per connected user
     if (whatsappReady) {
-      var liveGroupIds = await whatsappMonitor.getLiveGroupIds();
-      if (liveGroupIds) {
-        var dbGroupsR = await pool.query('SELECT id, group_name, current_members FROM whatsapp_groups');
+      // Collect all live group IDs from all connected users
+      var allLiveGroupIds = [];
+      var allLiveGroups = [];
+      for (var cUid of connectedUsers) {
+        var userLiveIds = await whatsappMonitor.getLiveGroupIds(cUid);
+        if (userLiveIds) allLiveGroupIds = allLiveGroupIds.concat(userLiveIds);
+        var userLiveGroups = await whatsappMonitor.getGroups(cUid);
+        if (userLiveGroups) allLiveGroups = allLiveGroups.concat(userLiveGroups);
+      }
 
-        for (var dbGroup of dbGroupsR.rows) {
-          if (liveGroupIds.indexOf(dbGroup.id) === -1) {
+      var dbGroupsR = await pool.query('SELECT id, group_name, current_members, owner_uid FROM whatsapp_groups');
+
+      for (var dbGroup of dbGroupsR.rows) {
+        if (allLiveGroupIds.indexOf(dbGroup.id) === -1) {
             // Group disappeared from WhatsApp
             results.push({
               type: 'group', groupId: dbGroup.id, groupName: dbGroup.group_name,
@@ -1842,9 +1983,14 @@ async function runHealthCheck() {
               [dbGroup.id]
             );
             if (recentGrpAlert.rows.length === 0) {
+              var groupOwnerUid = dbGroup.owner_uid;
+              if (!groupOwnerUid) {
+                var groupOwnerR = await pool.query('SELECT owner_uid FROM links WHERE whatsapp_group_id=$1 LIMIT 1', [dbGroup.id]);
+                groupOwnerUid = groupOwnerR.rows.length > 0 ? groupOwnerR.rows[0].owner_uid : null;
+              }
               await pool.query(
-                'INSERT INTO alerts (type, whatsapp_group_id, group_name, message, read) VALUES ($1,$2,$3,$4,false)',
-                ['group_banned', dbGroup.id, dbGroup.group_name, 'Grupo possivelmente banido: ' + dbGroup.group_name + ' - não encontrado no WhatsApp']
+                'INSERT INTO alerts (type, whatsapp_group_id, group_name, message, read, owner_uid) VALUES ($1,$2,$3,$4,false,$5)',
+                ['group_banned', dbGroup.id, dbGroup.group_name, 'Grupo possivelmente banido: ' + dbGroup.group_name + ' - não encontrado no WhatsApp', groupOwnerUid]
               );
 
               // Deactivate all links linked to this group
@@ -1853,30 +1999,33 @@ async function runHealthCheck() {
                 [dbGroup.id]
               );
             }
-          } else {
-            // 3. Check for sudden member drops (>50% drop)
-            var liveGroups = await whatsappMonitor.getGroups();
-            var liveGroup = liveGroups.find(function(g) { return g.id === dbGroup.id; });
-            var liveMembers = liveGroup ? (liveGroup.participants || liveGroup.currentMembers || 0) : 0;
-            var dbMembers = dbGroup.current_members || 0;
+        } else {
+          // 3. Check for sudden member drops (>50% drop)
+          var liveGroup = allLiveGroups.find(function(g) { return g.id === dbGroup.id; });
+          var liveMembers = liveGroup ? (liveGroup.participants || liveGroup.currentMembers || 0) : 0;
+          var dbMembers = dbGroup.current_members || 0;
 
-            if (dbMembers > 10 && liveMembers > 0 && liveMembers < dbMembers * 0.5) {
-              results.push({
-                type: 'group', groupId: dbGroup.id, groupName: dbGroup.group_name,
-                status: 'warning', issues: ['Queda brusca de membros: ' + dbMembers + ' → ' + liveMembers + ' (-' + Math.round((1 - liveMembers / dbMembers) * 100) + '%)']
-              });
-              summary.warning++;
+          if (dbMembers > 10 && liveMembers > 0 && liveMembers < dbMembers * 0.5) {
+            results.push({
+              type: 'group', groupId: dbGroup.id, groupName: dbGroup.group_name,
+              status: 'warning', issues: ['Queda brusca de membros: ' + dbMembers + ' → ' + liveMembers + ' (-' + Math.round((1 - liveMembers / dbMembers) * 100) + '%)']
+            });
+            summary.warning++;
 
-              var recentDropAlert = await pool.query(
-                "SELECT id FROM alerts WHERE type='member_drop' AND whatsapp_group_id=$1 AND timestamp >= NOW() - INTERVAL '6 hours' LIMIT 1",
-                [dbGroup.id]
-              );
-              if (recentDropAlert.rows.length === 0) {
-                await pool.query(
-                  'INSERT INTO alerts (type, whatsapp_group_id, group_name, message, read) VALUES ($1,$2,$3,$4,false)',
-                  ['member_drop', dbGroup.id, dbGroup.group_name, 'Queda brusca de membros em ' + dbGroup.group_name + ': ' + dbMembers + ' → ' + liveMembers]
-                );
+            var recentDropAlert = await pool.query(
+              "SELECT id FROM alerts WHERE type='member_drop' AND whatsapp_group_id=$1 AND timestamp >= NOW() - INTERVAL '6 hours' LIMIT 1",
+              [dbGroup.id]
+            );
+            if (recentDropAlert.rows.length === 0) {
+              var dropOwnerUid = dbGroup.owner_uid;
+              if (!dropOwnerUid) {
+                var dropOwnerR = await pool.query('SELECT owner_uid FROM links WHERE whatsapp_group_id=$1 LIMIT 1', [dbGroup.id]);
+                dropOwnerUid = dropOwnerR.rows.length > 0 ? dropOwnerR.rows[0].owner_uid : null;
               }
+              await pool.query(
+                'INSERT INTO alerts (type, whatsapp_group_id, group_name, message, read, owner_uid) VALUES ($1,$2,$3,$4,false,$5)',
+                ['member_drop', dbGroup.id, dbGroup.group_name, 'Queda brusca de membros em ' + dbGroup.group_name + ': ' + dbMembers + ' → ' + liveMembers, dropOwnerUid]
+              );
             }
           }
         }
@@ -1915,9 +2064,10 @@ app.get('/api/health-check/status', authMiddleware, async function(req, res) {
 // Reactivate a link that was auto-deactivated
 app.post('/api/links/:id/reactivate', authMiddleware, async function(req, res) {
   try {
+    var uid = getOwnerUid(req);
     await pool.query(
-      'UPDATE links SET is_active=true, health_check_failures=0, deactivated_reason=NULL, deactivated_at=NULL, updated_at=NOW() WHERE id=$1',
-      [req.params.id]
+      'UPDATE links SET is_active=true, health_check_failures=0, deactivated_reason=NULL, deactivated_at=NULL, updated_at=NOW() WHERE id=$1 AND owner_uid=$2',
+      [req.params.id, uid]
     );
     invalidateRotateCache();
     res.json({ success: true });
@@ -1934,7 +2084,7 @@ async function checkAutoCapacity() {
   try {
     // Get all active links with auto_pause enabled
     var linksR = await pool.query(
-      "SELECT l.id, l.name, l.whatsapp_group_id, l.is_active, l.auto_pause_enabled, l.auto_pause_threshold, l.auto_reactivate_below, l.max_vacancies, " +
+      "SELECT l.id, l.name, l.whatsapp_group_id, l.is_active, l.auto_pause_enabled, l.auto_pause_threshold, l.auto_reactivate_below, l.max_vacancies, l.owner_uid, " +
       "g.current_members, g.max_members, g.group_name " +
       "FROM links l LEFT JOIN whatsapp_groups g ON l.whatsapp_group_id = g.id " +
       "WHERE l.auto_pause_enabled = true AND l.whatsapp_group_id IS NOT NULL"
@@ -1958,8 +2108,8 @@ async function checkAutoCapacity() {
 
         // Create alert
         await pool.query(
-          "INSERT INTO alerts (type, link_name, group_name, message, read) VALUES ($1,$2,$3,$4,false)",
-          ['link_health', link.name, link.group_name || '', 'Link pausado automaticamente: grupo atingiu ' + capacityPercent + '% da capacidade']
+          "INSERT INTO alerts (type, link_name, group_name, message, read, owner_uid) VALUES ($1,$2,$3,$4,false,$5)",
+          ['link_health', link.name, link.group_name || '', 'Link pausado automaticamente: grupo atingiu ' + capacityPercent + '% da capacidade', link.owner_uid]
         );
       } else if (!link.is_active && link.deactivated_reason && link.deactivated_reason.startsWith('Auto-pause:') && members <= reactivateBelow) {
         // Reactivate: group dropped below reactivation threshold
@@ -1985,9 +2135,10 @@ app.put('/api/links/:id/auto-pause', authMiddleware, async function(req, res) {
     var enabled = req.body.enabled !== undefined ? req.body.enabled : true;
     var threshold = req.body.threshold || 90;
     var reactivateBelow = req.body.reactivateBelow || 500;
+    var uid = getOwnerUid(req);
     await pool.query(
-      'UPDATE links SET auto_pause_enabled=$1, auto_pause_threshold=$2, auto_reactivate_below=$3, updated_at=NOW() WHERE id=$4',
-      [enabled, threshold, reactivateBelow, req.params.id]
+      'UPDATE links SET auto_pause_enabled=$1, auto_pause_threshold=$2, auto_reactivate_below=$3, updated_at=NOW() WHERE id=$4 AND owner_uid=$5',
+      [enabled, threshold, reactivateBelow, req.params.id, uid]
     );
     res.json({ success: true });
   } catch (err) {
@@ -2009,14 +2160,15 @@ app.post('/api/settings/auto-pause', authMiddleware, async function(req, res) {
         autoPauseInterval = null;
       }
     }
-    // Save to settings
+    // Save to per-user settings
+    var uid = getOwnerUid(req);
     var current = {};
-    var r = await pool.query("SELECT value FROM settings WHERE key='general'");
+    var r = await pool.query("SELECT value FROM settings WHERE key='general' AND owner_uid=$1", [uid]);
     if (r.rows.length > 0) current = r.rows[0].value || {};
     current.autoPauseEnabled = enabled;
     await pool.query(
-      "INSERT INTO settings (key, value, updated_at) VALUES ('general', $1, NOW()) ON CONFLICT (key) DO UPDATE SET value=$1, updated_at=NOW()",
-      [JSON.stringify(current)]
+      "INSERT INTO settings (key, value, updated_at, owner_uid) VALUES ('general', $1, NOW(), $2) ON CONFLICT (key, owner_uid) DO UPDATE SET value=$1, updated_at=NOW()",
+      [JSON.stringify(current), uid]
     );
     res.json({ success: true, enabled: enabled });
   } catch (err) {
@@ -2029,12 +2181,13 @@ app.post('/api/settings/auto-pause', authMiddleware, async function(req, res) {
 // Get leads by group with real phone numbers
 app.get('/api/leads/backup', authMiddleware, async function(req, res) {
   try {
+    var uid = getOwnerUid(req);
     var groupId = req.query.group_id;
-    var query = 'SELECT lc.*, wg.group_name FROM lead_contacts lc LEFT JOIN whatsapp_groups wg ON lc.whatsapp_group_id = wg.id';
-    var params = [];
+    var query = 'SELECT lc.*, wg.group_name FROM lead_contacts lc LEFT JOIN whatsapp_groups wg ON lc.whatsapp_group_id = wg.id WHERE lc.owner_uid=$1';
+    var params = [uid];
 
     if (groupId) {
-      query += ' WHERE lc.whatsapp_group_id = $1';
+      query += ' AND lc.whatsapp_group_id = $2';
       params.push(groupId);
     }
     query += ' ORDER BY lc.joined_at DESC';
@@ -2049,13 +2202,16 @@ app.get('/api/leads/backup', authMiddleware, async function(req, res) {
 // Get lead summary by group
 app.get('/api/leads/backup/summary', authMiddleware, async function(req, res) {
   try {
+    var uid = getOwnerUid(req);
     var result = await pool.query(
       "SELECT lc.whatsapp_group_id, wg.group_name, " +
       "COUNT(*) FILTER (WHERE lc.is_active = true) as active_leads, " +
       "COUNT(*) as total_leads, " +
       "MAX(lc.joined_at) as last_join " +
       "FROM lead_contacts lc LEFT JOIN whatsapp_groups wg ON lc.whatsapp_group_id = wg.id " +
-      "GROUP BY lc.whatsapp_group_id, wg.group_name ORDER BY active_leads DESC"
+      "WHERE lc.owner_uid=$1 " +
+      "GROUP BY lc.whatsapp_group_id, wg.group_name ORDER BY active_leads DESC",
+      [uid]
     );
     res.json(result.rows);
   } catch (err) {
@@ -2066,12 +2222,13 @@ app.get('/api/leads/backup/summary', authMiddleware, async function(req, res) {
 // Download leads as CSV
 app.get('/api/leads/backup/download', authMiddleware, async function(req, res) {
   try {
+    var uid = getOwnerUid(req);
     var groupId = req.query.group_id;
-    var query = 'SELECT lc.phone, lc.whatsapp_group_id, wg.group_name, lc.joined_at, lc.left_at, lc.is_active FROM lead_contacts lc LEFT JOIN whatsapp_groups wg ON lc.whatsapp_group_id = wg.id';
-    var params = [];
+    var query = 'SELECT lc.phone, lc.whatsapp_group_id, wg.group_name, lc.joined_at, lc.left_at, lc.is_active FROM lead_contacts lc LEFT JOIN whatsapp_groups wg ON lc.whatsapp_group_id = wg.id WHERE lc.owner_uid=$1';
+    var params = [uid];
 
     if (groupId) {
-      query += ' WHERE lc.whatsapp_group_id = $1';
+      query += ' AND lc.whatsapp_group_id = $2';
       params.push(groupId);
     }
     query += ' ORDER BY lc.whatsapp_group_id, lc.joined_at DESC';
@@ -2145,16 +2302,17 @@ app.post('/api/broadcast/send', authMiddleware, async function(req, res) {
     }
 
     // Check if WhatsApp is connected
-    var status = whatsappMonitor.getStatus();
+    var uid = getOwnerUid(req);
+    var status = whatsappMonitor.getStatus(uid);
     if (!status.ready) {
       return res.status(400).json({ error: 'WhatsApp não está conectado' });
     }
 
     // Create broadcast record
     var broadcastR = await pool.query(
-      "INSERT INTO broadcast_messages (message_text, target_type, target_ids, mention_all, sent_by, status, total_targets) " +
-      "VALUES ($1, $2, $3, $4, $5, 'sending', $6) RETURNING id",
-      [message, targetType, targetIds, mentionAll, req.uid || 'admin', targetIds.length]
+      "INSERT INTO broadcast_messages (message_text, target_type, target_ids, mention_all, sent_by, status, total_targets, owner_uid) " +
+      "VALUES ($1, $2, $3, $4, $5, 'sending', $6, $7) RETURNING id",
+      [message, targetType, targetIds, mentionAll, uid, targetIds.length, uid]
     );
     var broadcastId = broadcastR.rows[0].id;
 
@@ -2165,7 +2323,7 @@ app.post('/api/broadcast/send', authMiddleware, async function(req, res) {
     (async function() {
       var sent = 0;
       var failed = 0;
-      var client = whatsappMonitor.getClient();
+      var client = whatsappMonitor.getClient(uid);
 
       for (var i = 0; i < targetIds.length; i++) {
         var targetId = targetIds[i];
@@ -2255,7 +2413,8 @@ app.post('/api/broadcast/send', authMiddleware, async function(req, res) {
 // Get broadcast history
 app.get('/api/broadcast/history', authMiddleware, async function(req, res) {
   try {
-    var result = await pool.query('SELECT * FROM broadcast_messages ORDER BY created_at DESC LIMIT 50');
+    var uid = getOwnerUid(req);
+    var result = await pool.query('SELECT * FROM broadcast_messages WHERE owner_uid=$1 ORDER BY created_at DESC LIMIT 50', [uid]);
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2265,8 +2424,9 @@ app.get('/api/broadcast/history', authMiddleware, async function(req, res) {
 // Get broadcast details
 app.get('/api/broadcast/:id', authMiddleware, async function(req, res) {
   try {
-    var broadcast = await pool.query('SELECT * FROM broadcast_messages WHERE id=$1', [req.params.id]);
-    var logs = await pool.query('SELECT * FROM broadcast_logs WHERE broadcast_id=$1 ORDER BY sent_at', [req.params.id]);
+    var uid = getOwnerUid(req);
+    var broadcast = await pool.query('SELECT * FROM broadcast_messages WHERE id=$1 AND owner_uid=$2', [req.params.id, uid]);
+    var logs = await pool.query('SELECT * FROM broadcast_logs WHERE broadcast_id=$1 AND owner_uid=$2 ORDER BY sent_at', [req.params.id, uid]);
     res.json({ broadcast: broadcast.rows[0], logs: logs.rows });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2284,15 +2444,16 @@ app.post('/api/broadcast/invite-leads', authMiddleware, async function(req, res)
       return res.status(400).json({ error: 'Grupo de origem e destino são obrigatórios' });
     }
 
-    var status = whatsappMonitor.getStatus();
+    var uid = getOwnerUid(req);
+    var status = whatsappMonitor.getStatus(uid);
     if (!status.ready) {
       return res.status(400).json({ error: 'WhatsApp não está conectado' });
     }
 
     // Get leads from source group
     var leadsR = await pool.query(
-      'SELECT phone FROM lead_contacts WHERE whatsapp_group_id=$1 AND is_active=true AND invite_sent=false',
-      [sourceGroupId]
+      'SELECT phone FROM lead_contacts WHERE whatsapp_group_id=$1 AND is_active=true AND invite_sent=false AND owner_uid=$2',
+      [sourceGroupId, uid]
     );
 
     if (leadsR.rows.length === 0) {
@@ -2300,7 +2461,7 @@ app.post('/api/broadcast/invite-leads', authMiddleware, async function(req, res)
     }
 
     // Get invite link for target group
-    var client = whatsappMonitor.getClient();
+    var client = whatsappMonitor.getClient(uid);
     var inviteCode;
     try {
       inviteCode = await client.getInviteCode(targetGroupId);
@@ -2356,12 +2517,15 @@ var shopeeApi = require('./shopee-api');
 // Search products
 app.get('/api/shopee/products', authMiddleware, async function(req, res) {
   try {
+    var uid = getOwnerUid(req);
+    var settings = await getUserSettings(uid);
+    if (!settings.shopee || !settings.shopee.appId) return res.status(400).json({ error: 'Configure Shopee API nas Configurações' });
     var result = await shopeeApi.searchProducts({
       keyword: req.query.keyword || '',
       page: parseInt(req.query.page) || 1,
       limit: parseInt(req.query.limit) || 20,
       sortType: parseInt(req.query.sort) || 1
-    });
+    }, settings.shopee);
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2371,11 +2535,14 @@ app.get('/api/shopee/products', authMiddleware, async function(req, res) {
 // Top offers / best commissions
 app.get('/api/shopee/top-offers', authMiddleware, async function(req, res) {
   try {
+    var uid = getOwnerUid(req);
+    var settings = await getUserSettings(uid);
+    if (!settings.shopee || !settings.shopee.appId) return res.status(400).json({ error: 'Configure Shopee API nas Configurações' });
     var result = await shopeeApi.getTopOffers({
       page: parseInt(req.query.page) || 1,
       limit: parseInt(req.query.limit) || 20,
       sortType: parseInt(req.query.sort) || 5
-    });
+    }, settings.shopee);
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2385,17 +2552,18 @@ app.get('/api/shopee/top-offers', authMiddleware, async function(req, res) {
 // Generate affiliate link
 app.post('/api/shopee/generate-link', authMiddleware, async function(req, res) {
   try {
+    var uid = getOwnerUid(req);
+    var settings = await getUserSettings(uid);
+    if (!settings.shopee || !settings.shopee.appId) return res.status(400).json({ error: 'Configure Shopee API nas Configurações' });
     var originalUrl = req.body.url;
     var subId = req.body.subId || 'whatsapp';
 
     if (!originalUrl) return res.status(400).json({ error: 'URL é obrigatória' });
 
-    var result = await shopeeApi.generateAffiliateLink(originalUrl, subId);
-
-    // Save to DB
+    var result = await shopeeApi.generateAffiliateLink(originalUrl, subId, settings.shopee);
     await pool.query(
-      'INSERT INTO shopee_links (original_url, affiliate_url, sub_id, product_name, price, commission_rate) VALUES ($1,$2,$3,$4,$5,$6)',
-      [originalUrl, result.shortLink, subId, req.body.productName || '', req.body.price || 0, req.body.commissionRate || 0]
+      'INSERT INTO shopee_links (original_url, affiliate_url, sub_id, product_name, price, commission_rate, owner_uid) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+      [originalUrl, result.shortLink, subId, req.body.productName || '', req.body.price || 0, req.body.commissionRate || 0, uid]
     );
 
     res.json({ affiliateUrl: result.shortLink, subId: subId });
@@ -2407,7 +2575,8 @@ app.post('/api/shopee/generate-link', authMiddleware, async function(req, res) {
 // Get saved affiliate links
 app.get('/api/shopee/links', authMiddleware, async function(req, res) {
   try {
-    var result = await pool.query('SELECT * FROM shopee_links ORDER BY created_at DESC LIMIT 100');
+    var uid = getOwnerUid(req);
+    var result = await pool.query('SELECT * FROM shopee_links WHERE owner_uid=$1 ORDER BY created_at DESC LIMIT 100', [uid]);
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2417,6 +2586,7 @@ app.get('/api/shopee/links', authMiddleware, async function(req, res) {
 // Get commission report
 app.get('/api/shopee/commissions', authMiddleware, async function(req, res) {
   try {
+    var uid = getOwnerUid(req);
     var days = validateDays(req.query.days, 30);
     var orderStatus = req.query.status || '';
 
@@ -2425,10 +2595,12 @@ app.get('/api/shopee/commissions', authMiddleware, async function(req, res) {
 
     // Try API first
     try {
+      var settings = await getUserSettings(uid);
+      if (!settings.shopee || !settings.shopee.appId) throw new Error('Shopee não configurado');
       var apiOpts = { purchaseTimeStart: startTs, purchaseTimeEnd: now, limit: 100 };
       if (orderStatus) apiOpts.orderStatus = orderStatus;
 
-      var report = await shopeeApi.getConversionReport(apiOpts);
+      var report = await shopeeApi.getConversionReport(apiOpts, settings.shopee);
 
       // Flatten nested structure for frontend and DB cache
       var flatNodes = [];
@@ -2468,9 +2640,9 @@ app.get('/api/shopee/commissions', authMiddleware, async function(req, res) {
 
                   // Save to DB cache
                   pool.query(
-                    "INSERT INTO shopee_commissions (order_id, item_id, item_name, shop_name, order_amount, commission, commission_rate, status, sub_id, order_created_at) " +
-                    "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,to_timestamp($10)) ON CONFLICT DO NOTHING",
-                    [order.orderId, item.itemId, item.itemName, item.shopName, itemPrice, itemCommission, 0, order.orderStatus || 'PENDING', conv.utmContent || '', conv.purchaseTime || now]
+                    "INSERT INTO shopee_commissions (order_id, item_id, item_name, shop_name, order_amount, commission, commission_rate, status, sub_id, order_created_at, owner_uid) " +
+                    "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,to_timestamp($10),$11) ON CONFLICT DO NOTHING",
+                    [order.orderId, item.itemId, item.itemName, item.shopName, itemPrice, itemCommission, 0, order.orderStatus || 'PENDING', conv.utmContent || '', conv.purchaseTime || now, uid]
                   ).catch(function() {});
                 });
               }
@@ -2490,6 +2662,7 @@ app.get('/api/shopee/commissions', authMiddleware, async function(req, res) {
       var conditions = [];
       var paramNum = 1;
 
+      conditions.push('owner_uid = $' + paramNum); params.push(uid); paramNum++;
       conditions.push('order_created_at >= NOW() - ($' + paramNum + " * INTERVAL '1 day')"); params.push(days); paramNum++;
       if (orderStatus) { conditions.push('status = $' + paramNum); params.push(orderStatus); paramNum++; }
 
@@ -2515,10 +2688,13 @@ app.get('/api/shopee/commissions', authMiddleware, async function(req, res) {
 // Shopee campaigns/offers
 app.get('/api/shopee/offers', authMiddleware, async function(req, res) {
   try {
+    var uid = getOwnerUid(req);
+    var settings = await getUserSettings(uid);
+    if (!settings.shopee || !settings.shopee.appId) return res.status(400).json({ error: 'Configure Shopee API nas Configurações' });
     var result = await shopeeApi.getShopeeOffers({
       page: parseInt(req.query.page) || 1,
       limit: parseInt(req.query.limit) || 20
-    });
+    }, settings.shopee);
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2528,14 +2704,17 @@ app.get('/api/shopee/offers', authMiddleware, async function(req, res) {
 // Shopee commission summary for WhatsApp subId
 app.get('/api/shopee/whatsapp-revenue', authMiddleware, async function(req, res) {
   try {
+    var uid = getOwnerUid(req);
     var result = await pool.query(
       "SELECT DATE(order_created_at) as date, COUNT(*) as orders, SUM(commission) as total_commission, SUM(order_amount) as total_sales " +
-      "FROM shopee_commissions WHERE sub_id = 'whatsapp' AND order_created_at >= NOW() - INTERVAL '30 days' " +
-      "GROUP BY DATE(order_created_at) ORDER BY date DESC"
+      "FROM shopee_commissions WHERE sub_id = 'whatsapp' AND order_created_at >= NOW() - INTERVAL '30 days' AND owner_uid=$1 " +
+      "GROUP BY DATE(order_created_at) ORDER BY date DESC",
+      [uid]
     );
     var totals = await pool.query(
       "SELECT COUNT(*) as total_orders, COALESCE(SUM(commission),0) as total_commission, COALESCE(SUM(order_amount),0) as total_sales " +
-      "FROM shopee_commissions WHERE sub_id = 'whatsapp'"
+      "FROM shopee_commissions WHERE sub_id = 'whatsapp' AND owner_uid=$1",
+      [uid]
     );
     res.json({ daily: result.rows, totals: totals.rows[0] });
   } catch (err) {
@@ -2546,8 +2725,9 @@ app.get('/api/shopee/whatsapp-revenue', authMiddleware, async function(req, res)
 // Save Shopee config
 app.post('/api/settings/shopee', authMiddleware, async function(req, res) {
   try {
+    var uid = getOwnerUid(req);
     var current = {};
-    var r = await pool.query("SELECT value FROM settings WHERE key='general'");
+    var r = await pool.query("SELECT value FROM settings WHERE key='general' AND owner_uid=$1", [uid]);
     if (r.rows.length > 0) current = r.rows[0].value || {};
 
     current.shopee = {
@@ -2556,13 +2736,11 @@ app.post('/api/settings/shopee', authMiddleware, async function(req, res) {
     };
 
     await pool.query(
-      "INSERT INTO settings (key, value, updated_at) VALUES ('general', $1, NOW()) ON CONFLICT (key) DO UPDATE SET value=$1, updated_at=NOW()",
-      [JSON.stringify(current)]
+      "INSERT INTO settings (key, value, updated_at, owner_uid) VALUES ('general', $1, NOW(), $2) ON CONFLICT (key, owner_uid) DO UPDATE SET value=$1, updated_at=NOW()",
+      [JSON.stringify(current), uid]
     );
 
-    // Configure the Shopee API module
-    shopeeApi.configure(current.shopee);
-
+    console.log('[SHOPEE] Credenciais atualizadas para usuário ' + uid);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2576,11 +2754,13 @@ app.get('/api/shopee/revenue-per-lead', authMiddleware, async function(req, res)
   try {
     var days = validateDays(req.query.days, 30);
 
+    var uid = getOwnerUid(req);
+
     // Total unique clicks with whatsapp context (leads)
     var clicksResult = await pool.query(
       "SELECT COUNT(*) as total_clicks, COUNT(DISTINCT ip) as unique_leads " +
-      "FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day')",
-      [days]
+      "FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') AND owner_uid=$2",
+      [days, uid]
     );
 
     // Total commissions from whatsapp subId
@@ -2588,8 +2768,8 @@ app.get('/api/shopee/revenue-per-lead', authMiddleware, async function(req, res)
       "SELECT COUNT(*) as total_orders, " +
       "COALESCE(SUM(commission), 0) as total_commission, " +
       "COALESCE(SUM(order_amount), 0) as total_sales " +
-      "FROM shopee_commissions WHERE sub_id = 'whatsapp' AND order_created_at >= NOW() - ($1 * INTERVAL '1 day')",
-      [days]
+      "FROM shopee_commissions WHERE sub_id = 'whatsapp' AND order_created_at >= NOW() - ($1 * INTERVAL '1 day') AND owner_uid=$2",
+      [days, uid]
     );
 
     var totalClicks = parseInt(clicksResult.rows[0].total_clicks) || 0;
@@ -2610,14 +2790,14 @@ app.get('/api/shopee/revenue-per-lead', authMiddleware, async function(req, res)
       "FROM generate_series(NOW() - ($1 * INTERVAL '1 day'), NOW(), '1 day'::interval) d(date) " +
       "LEFT JOIN ( " +
       "  SELECT DATE(timestamp) as dt, COUNT(*) as clicks, COUNT(DISTINCT ip) as unique_ips " +
-      "  FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') GROUP BY DATE(timestamp) " +
+      "  FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') AND owner_uid=$2 GROUP BY DATE(timestamp) " +
       ") c ON DATE(d.date) = c.dt " +
       "LEFT JOIN ( " +
       "  SELECT DATE(order_created_at) as dt, COUNT(*) as orders, SUM(commission) as commission, SUM(order_amount) as sales " +
-      "  FROM shopee_commissions WHERE sub_id = 'whatsapp' AND order_created_at >= NOW() - ($1 * INTERVAL '1 day') GROUP BY DATE(order_created_at) " +
+      "  FROM shopee_commissions WHERE sub_id = 'whatsapp' AND order_created_at >= NOW() - ($1 * INTERVAL '1 day') AND owner_uid=$2 GROUP BY DATE(order_created_at) " +
       ") s ON DATE(d.date) = s.dt " +
       "ORDER BY d.date",
-      [days]
+      [days, uid]
     );
 
     res.json({
@@ -2645,42 +2825,44 @@ app.get('/api/shopee/conversion-funnel', authMiddleware, async function(req, res
   try {
     var days = validateDays(req.query.days, 30);
 
+    var uid = getOwnerUid(req);
+
     var clicks = await pool.query(
       "SELECT COUNT(*) as total, COUNT(DISTINCT ip) as unique_total " +
-      "FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day')",
-      [days]
+      "FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') AND owner_uid=$2",
+      [days, uid]
     );
 
     var orders = await pool.query(
       "SELECT COUNT(*) as total, COALESCE(SUM(order_amount), 0) as total_amount " +
-      "FROM shopee_commissions WHERE sub_id = 'whatsapp' AND order_created_at >= NOW() - ($1 * INTERVAL '1 day')",
-      [days]
+      "FROM shopee_commissions WHERE sub_id = 'whatsapp' AND order_created_at >= NOW() - ($1 * INTERVAL '1 day') AND owner_uid=$2",
+      [days, uid]
     );
 
     var completedOrders = await pool.query(
       "SELECT COUNT(*) as total, COALESCE(SUM(commission), 0) as total_commission " +
-      "FROM shopee_commissions WHERE sub_id = 'whatsapp' AND status = 'COMPLETED' AND order_created_at >= NOW() - ($1 * INTERVAL '1 day')",
-      [days]
+      "FROM shopee_commissions WHERE sub_id = 'whatsapp' AND status = 'COMPLETED' AND order_created_at >= NOW() - ($1 * INTERVAL '1 day') AND owner_uid=$2",
+      [days, uid]
     );
 
     var pendingOrders = await pool.query(
       "SELECT COUNT(*) as total, COALESCE(SUM(commission), 0) as total_commission " +
-      "FROM shopee_commissions WHERE sub_id = 'whatsapp' AND status = 'PENDING' AND order_created_at >= NOW() - ($1 * INTERVAL '1 day')",
-      [days]
+      "FROM shopee_commissions WHERE sub_id = 'whatsapp' AND status = 'PENDING' AND order_created_at >= NOW() - ($1 * INTERVAL '1 day') AND owner_uid=$2",
+      [days, uid]
     );
 
     var cancelledOrders = await pool.query(
       "SELECT COUNT(*) as total " +
-      "FROM shopee_commissions WHERE sub_id = 'whatsapp' AND status = 'CANCELLED' AND order_created_at >= NOW() - ($1 * INTERVAL '1 day')",
-      [days]
+      "FROM shopee_commissions WHERE sub_id = 'whatsapp' AND status = 'CANCELLED' AND order_created_at >= NOW() - ($1 * INTERVAL '1 day') AND owner_uid=$2",
+      [days, uid]
     );
 
     // Top earning products
     var topProducts = await pool.query(
       "SELECT item_name, shop_name, COUNT(*) as order_count, SUM(commission) as total_commission, SUM(order_amount) as total_sales " +
-      "FROM shopee_commissions WHERE sub_id = 'whatsapp' AND order_created_at >= NOW() - ($1 * INTERVAL '1 day') " +
+      "FROM shopee_commissions WHERE sub_id = 'whatsapp' AND order_created_at >= NOW() - ($1 * INTERVAL '1 day') AND owner_uid=$2 " +
       "GROUP BY item_name, shop_name ORDER BY total_commission DESC LIMIT 10",
-      [days]
+      [days, uid]
     );
 
     res.json({
@@ -2706,7 +2888,8 @@ app.get('/api/shopee/conversion-funnel', authMiddleware, async function(req, res
 // WhatsApp message templates CRUD
 app.get('/api/shopee/message-templates', authMiddleware, async function(req, res) {
   try {
-    var r = await pool.query("SELECT value FROM settings WHERE key = 'shopee_msg_templates'");
+    var uid = getOwnerUid(req);
+    var r = await pool.query("SELECT value FROM settings WHERE key = 'shopee_msg_templates' AND owner_uid=$1", [uid]);
     var templates = [];
     if (r.rows.length > 0 && r.rows[0].value && r.rows[0].value.templates) {
       templates = r.rows[0].value.templates;
@@ -2752,10 +2935,11 @@ app.post('/api/shopee/message-templates', authMiddleware, async function(req, re
       };
     }).slice(0, 20);
 
+    var uid = getOwnerUid(req);
     await pool.query(
-      "INSERT INTO settings (key, value, updated_at) VALUES ('shopee_msg_templates', $1, NOW()) " +
-      "ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()",
-      [JSON.stringify({ templates: templates })]
+      "INSERT INTO settings (key, value, updated_at, owner_uid) VALUES ('shopee_msg_templates', $1, NOW(), $2) " +
+      "ON CONFLICT (key, owner_uid) DO UPDATE SET value = $1, updated_at = NOW()",
+      [JSON.stringify({ templates: templates }), uid]
     );
 
     res.json({ success: true, templates: templates });
@@ -2767,12 +2951,15 @@ app.post('/api/shopee/message-templates', authMiddleware, async function(req, re
 // Search shops endpoint
 app.get('/api/shopee/shops', authMiddleware, async function(req, res) {
   try {
+    var uid = getOwnerUid(req);
+    var settings = await getUserSettings(uid);
+    if (!settings.shopee || !settings.shopee.appId) return res.status(400).json({ error: 'Configure Shopee API nas Configurações' });
     var result = await shopeeApi.searchShops({
       keyword: req.query.keyword || '',
       page: parseInt(req.query.page) || 1,
       limit: parseInt(req.query.limit) || 20,
       sortType: parseInt(req.query.sort) || 2
-    });
+    }, settings.shopee);
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2784,10 +2971,11 @@ app.get('/api/shopee/shops', authMiddleware, async function(req, res) {
 // List connected numbers
 app.get('/api/whatsapp/numbers', authMiddleware, async function(req, res) {
   try {
-    var result = await pool.query('SELECT * FROM whatsapp_numbers ORDER BY is_primary DESC, created_at');
+    var uid = getOwnerUid(req);
+    var result = await pool.query('SELECT * FROM whatsapp_numbers WHERE owner_uid=$1 ORDER BY is_primary DESC, created_at', [uid]);
 
-    // Update primary number status from monitor
-    var status = whatsappMonitor.getStatus();
+    // Update primary number status from monitor (per-user)
+    var status = whatsappMonitor.getStatus(uid);
     var numbers = result.rows.map(function(n) {
       if (n.is_primary) {
         n.status = status.ready ? 'connected' : 'disconnected';
@@ -2796,13 +2984,14 @@ app.get('/api/whatsapp/numbers', authMiddleware, async function(req, res) {
       return n;
     });
 
-    // If no primary exists, add the current monitor as primary
+    // If no primary exists and user is connected, add current connection as primary
     if (numbers.length === 0 && status.ready) {
+      var primaryId = 'primary_' + uid;
       await pool.query(
-        "INSERT INTO whatsapp_numbers (id, phone_number, label, status, is_primary, session_data_path) VALUES ($1,$2,$3,$4,true,$5) ON CONFLICT(id) DO UPDATE SET status=$4, phone_number=$2",
-        ['primary', status.phone || '', 'Principal', 'connected', './whatsapp-session']
+        "INSERT INTO whatsapp_numbers (id, phone_number, label, status, is_primary, session_data_path, owner_uid) VALUES ($1,$2,$3,$4,true,$5,$6) ON CONFLICT(id) DO UPDATE SET status=$4, phone_number=$2",
+        [primaryId, status.phone || '', 'Principal', 'connected', './whatsapp-sessions/' + uid, uid]
       );
-      numbers.push({ id: 'primary', phone_number: status.phone || '', label: 'Principal', status: 'connected', is_primary: true, use_for_broadcast: true });
+      numbers.push({ id: primaryId, phone_number: status.phone || '', label: 'Principal', status: 'connected', is_primary: true, use_for_broadcast: true });
     }
 
     res.json(numbers);
@@ -2818,9 +3007,10 @@ app.post('/api/whatsapp/numbers', authMiddleware, async function(req, res) {
     var id = 'wn_' + Date.now();
     var sessionPath = './whatsapp-session-' + id;
 
+    var uid = getOwnerUid(req);
     await pool.query(
-      "INSERT INTO whatsapp_numbers (id, label, status, is_primary, use_for_broadcast, session_data_path) VALUES ($1,$2,'pending',$3,$4,$5)",
-      [id, label, false, true, sessionPath]
+      "INSERT INTO whatsapp_numbers (id, label, status, is_primary, use_for_broadcast, session_data_path, owner_uid) VALUES ($1,$2,'pending',$3,$4,$5,$6)",
+      [id, label, false, true, sessionPath, uid]
     );
 
     res.json({ id: id, label: label, status: 'pending', message: 'Número adicionado. Escaneie o QR code para conectar.' });
@@ -2835,7 +3025,8 @@ app.delete('/api/whatsapp/numbers/:id', authMiddleware, async function(req, res)
     if (req.params.id === 'primary') {
       return res.status(400).json({ error: 'Não é possível remover o número principal' });
     }
-    await pool.query('DELETE FROM whatsapp_numbers WHERE id=$1 AND is_primary=false', [req.params.id]);
+    var uid = getOwnerUid(req);
+    await pool.query('DELETE FROM whatsapp_numbers WHERE id=$1 AND is_primary=false AND owner_uid=$2', [req.params.id, uid]);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2859,57 +3050,20 @@ app.listen(PORT, async function() {
   console.log('===========================================');
   console.log('');
 
-  // Initialize WhatsApp Monitor with pg pool
+  // Initialize WhatsApp Monitor with pg pool (multi-client: connections are on-demand per user)
   whatsappMonitor.initialize(pool);
 
-  // Load Meta credentials from database (saved via frontend settings)
-  try {
-    var settingsR = await pool.query("SELECT value FROM settings WHERE key='general'");
-    if (settingsR.rows.length > 0 && settingsR.rows[0].value && settingsR.rows[0].value.meta) {
-      var meta = settingsR.rows[0].value.meta;
-      if (meta.accessToken && meta.accessToken !== 'SEU_TOKEN_META_AQUI') {
-        process.env.META_ACCESS_TOKEN = meta.accessToken;
-        console.log('[META] Token carregado do banco de dados');
-      }
-      if (meta.adAccountId) process.env.META_AD_ACCOUNT_ID = meta.adAccountId;
-      if (meta.appId) process.env.META_APP_ID = meta.appId;
-      if (meta.appSecret) process.env.META_APP_SECRET = meta.appSecret;
-    }
-  } catch(e) {
-    console.error('[META] Erro ao carregar credenciais do banco:', e.message);
-  }
-
-  // Load Shopee credentials from database
-  try {
-    var settingsR2 = await pool.query("SELECT value FROM settings WHERE key='general'");
-    if (settingsR2.rows.length > 0 && settingsR2.rows[0].value && settingsR2.rows[0].value.shopee) {
-      shopeeApi.configure(settingsR2.rows[0].value.shopee);
-      console.log('[SHOPEE] Credenciais carregadas do banco de dados');
-    }
-  } catch(e) {
-    console.error('[SHOPEE] Erro ao carregar credenciais:', e.message);
-  }
-
-  // Register primary WhatsApp number
-  try {
-    await pool.query(
-      "INSERT INTO whatsapp_numbers (id, label, status, is_primary, session_data_path) VALUES ('primary', 'Principal', 'connecting', true, './whatsapp-session') ON CONFLICT (id) DO NOTHING"
-    );
-  } catch(e) { /* table might not exist yet */ }
+  // Meta and Shopee credentials are now per-user (stored with owner_uid in settings table)
+  // No global credential loading needed
 
   // First auto-capacity check after 3 minutes
   setTimeout(checkAutoCapacity, 3 * 60 * 1000);
 
-  // First Meta sync
-  if (process.env.META_ACCESS_TOKEN && process.env.META_ACCESS_TOKEN !== 'SEU_TOKEN_META_AQUI') {
-    console.log('[META] Iniciando primeira sincronização...');
-    console.log('[META] Ad Account: ' + process.env.META_AD_ACCOUNT_ID);
-    syncMetaToDB();
-  } else {
-    console.log('[META] Token não configurado. Configure via Configurações no painel ou META_ACCESS_TOKEN no .env');
-  }
+  // First Meta sync for all users with configured credentials
+  console.log('[META] Iniciando primeira sincronização per-user...');
+  syncMetaToDB();
 
-  // First health check after 2 minutes (give WhatsApp time to connect)
+  // First health check after 2 minutes
   setTimeout(function() {
     console.log('[HEALTH] Iniciando primeira varredura de saúde...');
     runHealthCheck().catch(function(err) {

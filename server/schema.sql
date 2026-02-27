@@ -1,4 +1,4 @@
--- LinkRotator PostgreSQL Schema (complete)
+-- LinkRotator PostgreSQL Schema (complete - multi-tenant SaaS)
 
 CREATE TABLE IF NOT EXISTS campaigns (
     id VARCHAR(255) PRIMARY KEY,
@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
     gads_id VARCHAR(255) DEFAULT '',
     gads_conversion_label VARCHAR(255) DEFAULT '',
     created_by VARCHAR(255),
+    owner_uid VARCHAR(255) NOT NULL,
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
@@ -37,6 +38,7 @@ CREATE TABLE IF NOT EXISTS links (
     deactivated_at TIMESTAMP,
     created_by VARCHAR(255),
     order_num INTEGER DEFAULT 0,
+    owner_uid VARCHAR(255) NOT NULL,
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
@@ -54,6 +56,7 @@ CREATE TABLE IF NOT EXISTS clicks (
     country_code VARCHAR(10),
     ip VARCHAR(45),
     referrer TEXT,
+    owner_uid VARCHAR(255),
     timestamp TIMESTAMP DEFAULT NOW()
 );
 
@@ -61,7 +64,8 @@ CREATE TABLE IF NOT EXISTS whatsapp_groups (
     id VARCHAR(255) PRIMARY KEY,
     group_name VARCHAR(255),
     current_members INTEGER DEFAULT 0,
-    last_scanned TIMESTAMP DEFAULT NOW()
+    last_scanned TIMESTAMP DEFAULT NOW(),
+    owner_uid VARCHAR(255)
 );
 
 CREATE TABLE IF NOT EXISTS member_events (
@@ -71,6 +75,7 @@ CREATE TABLE IF NOT EXISTS member_events (
     phone VARCHAR(255),
     phone_partial VARCHAR(10),
     action VARCHAR(10) CHECK (action IN ('join', 'leave')),
+    owner_uid VARCHAR(255),
     timestamp TIMESTAMP DEFAULT NOW()
 );
 
@@ -89,6 +94,7 @@ CREATE TABLE IF NOT EXISTS meta_campaigns (
     reach INTEGER DEFAULT 0,
     conversions INTEGER DEFAULT 0,
     cost_per_result DECIMAL(10,4) DEFAULT 0,
+    owner_uid VARCHAR(255),
     last_synced TIMESTAMP DEFAULT NOW()
 );
 
@@ -103,6 +109,7 @@ CREATE TABLE IF NOT EXISTS alerts (
     percent INTEGER,
     message TEXT DEFAULT '',
     read BOOLEAN DEFAULT false,
+    owner_uid VARCHAR(255),
     timestamp TIMESTAMP DEFAULT NOW()
 );
 
@@ -117,9 +124,11 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE TABLE IF NOT EXISTS settings (
-    key VARCHAR(255) PRIMARY KEY,
+    key VARCHAR(255) NOT NULL,
+    owner_uid VARCHAR(255) NOT NULL,
     value JSONB DEFAULT '{}',
-    updated_at TIMESTAMP DEFAULT NOW()
+    updated_at TIMESTAMP DEFAULT NOW(),
+    PRIMARY KEY (key, owner_uid)
 );
 
 -- Performance indexes
@@ -133,3 +142,19 @@ CREATE INDEX IF NOT EXISTS idx_alerts_read ON alerts(read);
 CREATE INDEX IF NOT EXISTS idx_alerts_timestamp ON alerts(timestamp);
 CREATE INDEX IF NOT EXISTS idx_links_campaign ON links(campaign_id);
 CREATE INDEX IF NOT EXISTS idx_campaigns_slug ON campaigns(slug);
+
+-- Multi-tenant indexes
+CREATE INDEX IF NOT EXISTS idx_campaigns_owner ON campaigns(owner_uid);
+CREATE INDEX IF NOT EXISTS idx_links_owner ON links(owner_uid);
+CREATE INDEX IF NOT EXISTS idx_clicks_owner ON clicks(owner_uid);
+CREATE INDEX IF NOT EXISTS idx_clicks_owner_timestamp ON clicks(owner_uid, timestamp);
+CREATE INDEX IF NOT EXISTS idx_alerts_owner ON alerts(owner_uid);
+CREATE INDEX IF NOT EXISTS idx_alerts_owner_read ON alerts(owner_uid, read);
+CREATE INDEX IF NOT EXISTS idx_member_events_owner ON member_events(owner_uid);
+CREATE INDEX IF NOT EXISTS idx_member_events_owner_timestamp ON member_events(owner_uid, timestamp);
+CREATE INDEX IF NOT EXISTS idx_whatsapp_groups_owner ON whatsapp_groups(owner_uid);
+CREATE INDEX IF NOT EXISTS idx_meta_campaigns_owner ON meta_campaigns(owner_uid);
+CREATE INDEX IF NOT EXISTS idx_settings_owner ON settings(owner_uid);
+
+-- Slugs must be globally unique (redirect is public)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_campaigns_slug_unique ON campaigns(slug) WHERE slug IS NOT NULL AND slug != '';
