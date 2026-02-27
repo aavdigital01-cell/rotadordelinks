@@ -1,6 +1,7 @@
 /**
  * Shopee Affiliate API Module
  * Integração com a API GraphQL da Shopee para afiliados
+ * Docs: https://www.affiliateshopee.com.br/documentacao
  */
 
 const crypto = require('crypto');
@@ -27,19 +28,19 @@ function generateSignature(payload) {
   return { timestamp: timestamp, signature: signature };
 }
 
-async function graphqlRequest(query, variables) {
+async function graphqlRequest(query) {
   if (!isConfigured()) {
     throw new Error('Shopee API não configurada. Configure App ID e Secret nas Configurações.');
   }
 
-  var payload = JSON.stringify({ query: query, variables: variables || {} });
+  var payload = JSON.stringify({ query: query });
   var auth = generateSignature(payload);
 
   var response = await fetch(BASE_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': 'SHA256 Credential=' + appId + ',Timestamp=' + auth.timestamp + ',Signature=' + auth.signature
+      'Authorization': 'SHA256 Credential=' + appId + ', Timestamp=' + auth.timestamp + ', Signature=' + auth.signature
     },
     body: payload,
     timeout: 15000
@@ -58,126 +59,102 @@ async function graphqlRequest(query, variables) {
 
 /**
  * Busca produtos com comissões
- * @param {object} options - keyword, page, limit, sortType
+ * sortType: 1=Relevância, 2=Mais vendidos, 3=Maior preço, 4=Menor preço, 5=Maior comissão
+ * listType: 0=Recomendados, 1=Maior comissão, 2=Top performance
  */
 async function searchProducts(options) {
   options = options || {};
   var keyword = options.keyword || '';
-  var page = options.page || 1;
-  var limit = options.limit || 20;
-  // sortType: 1=relevance, 2=sales, 3=price_asc, 4=newest, 5=commission
+  var page = parseInt(options.page) || 1;
+  var limit = parseInt(options.limit) || 20;
   var sortType = parseInt(options.sortType) || 1;
+  var listType = parseInt(options.listType);
 
-  var query = '{\n' +
-    '  productOfferV2(\n' +
-    '    keyword: "' + keyword.replace(/"/g, '\\"') + '",\n' +
-    '    sortType: ' + sortType + ',\n' +
-    '    page: ' + page + ',\n' +
-    '    limit: ' + limit + '\n' +
-    '  ) {\n' +
-    '    nodes {\n' +
-    '      itemId\n' +
-    '      productName\n' +
-    '      productLink\n' +
-    '      offerLink\n' +
-    '      imageUrl\n' +
-    '      price\n' +
-    '      priceMin\n' +
-    '      priceMax\n' +
-    '      commission\n' +
-    '      commissionRate\n' +
-    '      sales\n' +
-    '      ratingStar\n' +
-    '      shopName\n' +
-    '      shopId\n' +
-    '    }\n' +
-    '    pageInfo {\n' +
-    '      page\n' +
-    '      limit\n' +
-    '      hasNextPage\n' +
-    '    }\n' +
-    '  }\n' +
-    '}';
+  var params = 'keyword: "' + keyword.replace(/"/g, '\\"') + '", sortType: ' + sortType + ', page: ' + page + ', limit: ' + limit;
+  if (!isNaN(listType)) {
+    params += ', listType: ' + listType;
+  }
+
+  var query = '{ productOfferV2(' + params + ') { ' +
+    'nodes { ' +
+      'itemId productName productLink offerLink imageUrl ' +
+      'priceMin priceMax priceDiscountRate sales ratingStar ' +
+      'commissionRate sellerCommissionRate shopeeCommissionRate commission ' +
+      'shopId shopName shopType periodStartTime periodEndTime ' +
+    '} ' +
+    'pageInfo { page limit hasNextPage } ' +
+  '} }';
 
   var data = await graphqlRequest(query);
   return data.productOfferV2;
 }
 
 /**
- * Busca melhores ofertas / produtos em promoção
+ * Busca melhores ofertas (maior comissão)
  */
 async function getTopOffers(options) {
   options = options || {};
-  var page = options.page || 1;
-  var limit = options.limit || 20;
-  // sortType: 5=commission (best for top offers)
+  var page = parseInt(options.page) || 1;
+  var limit = parseInt(options.limit) || 20;
   var sortType = parseInt(options.sortType) || 5;
 
-  var query = '{\n' +
-    '  productOfferV2(\n' +
-    '    sortType: ' + sortType + ',\n' +
-    '    page: ' + page + ',\n' +
-    '    limit: ' + limit + '\n' +
-    '  ) {\n' +
-    '    nodes {\n' +
-    '      itemId\n' +
-    '      productName\n' +
-    '      productLink\n' +
-    '      offerLink\n' +
-    '      imageUrl\n' +
-    '      price\n' +
-    '      commission\n' +
-    '      commissionRate\n' +
-    '      sales\n' +
-    '      ratingStar\n' +
-    '      shopName\n' +
-    '    }\n' +
-    '    pageInfo {\n' +
-    '      page\n' +
-    '      limit\n' +
-    '      hasNextPage\n' +
-    '    }\n' +
-    '  }\n' +
-    '}';
+  var query = '{ productOfferV2(sortType: ' + sortType + ', listType: 1, page: ' + page + ', limit: ' + limit + ') { ' +
+    'nodes { ' +
+      'itemId productName productLink offerLink imageUrl ' +
+      'priceMin priceMax priceDiscountRate sales ratingStar ' +
+      'commissionRate sellerCommissionRate shopeeCommissionRate commission ' +
+      'shopId shopName shopType ' +
+    '} ' +
+    'pageInfo { page limit hasNextPage } ' +
+  '} }';
 
   var data = await graphqlRequest(query);
   return data.productOfferV2;
 }
 
 /**
- * Busca lojas com comissões
+ * Busca lojas com comissões diferenciadas
+ * sortType: 1=Mais recentes, 2=Maior comissão, 3=Populares
  */
 async function searchShops(options) {
   options = options || {};
   var keyword = options.keyword || '';
-  var page = options.page || 1;
-  var limit = options.limit || 20;
+  var page = parseInt(options.page) || 1;
+  var limit = parseInt(options.limit) || 20;
+  var sortType = parseInt(options.sortType) || 2;
 
-  var query = '{\n' +
-    '  shopOfferV2(\n' +
-    '    keyword: "' + keyword.replace(/"/g, '\\"') + '",\n' +
-    '    page: ' + page + ',\n' +
-    '    limit: ' + limit + '\n' +
-    '  ) {\n' +
-    '    nodes {\n' +
-    '      shopId\n' +
-    '      shopName\n' +
-    '      commissionRate\n' +
-    '      ratingStar\n' +
-    '      shopType\n' +
-    '      imageUrl\n' +
-    '      offerLink\n' +
-    '    }\n' +
-    '    pageInfo {\n' +
-    '      page\n' +
-    '      limit\n' +
-    '      hasNextPage\n' +
-    '    }\n' +
-    '  }\n' +
-    '}';
+  var query = '{ shopOfferV2(keyword: "' + keyword.replace(/"/g, '\\"') + '", sortType: ' + sortType + ', page: ' + page + ', limit: ' + limit + ') { ' +
+    'nodes { ' +
+      'shopId shopName commissionRate ratingStar shopType imageUrl offerLink ' +
+      'remainingBudget sellerCommCoveRatio periodStartTime periodEndTime ' +
+    '} ' +
+    'pageInfo { page limit hasNextPage } ' +
+  '} }';
 
   var data = await graphqlRequest(query);
   return data.shopOfferV2;
+}
+
+/**
+ * Busca campanhas e ofertas especiais da Shopee
+ * sortType: 1=Mais recentes, 2=Maior comissão
+ */
+async function getShopeeOffers(options) {
+  options = options || {};
+  var page = parseInt(options.page) || 1;
+  var limit = parseInt(options.limit) || 20;
+  var sortType = parseInt(options.sortType) || 2;
+
+  var query = '{ shopeeOfferV2(sortType: ' + sortType + ', page: ' + page + ', limit: ' + limit + ') { ' +
+    'nodes { ' +
+      'commissionRate imageUrl offerLink originalLink offerName offerType ' +
+      'categoryId collectionId periodStartTime periodEndTime ' +
+    '} ' +
+    'pageInfo { page limit hasNextPage } ' +
+  '} }';
+
+  var data = await graphqlRequest(query);
+  return data.shopeeOfferV2;
 }
 
 // ===== GERAÇÃO DE LINKS =====
@@ -185,73 +162,91 @@ async function searchShops(options) {
 /**
  * Gera link de afiliado a partir de URL da Shopee
  * @param {string} originalUrl - URL original do produto
- * @param {string} subId - SubID para rastreamento (ex: 'whatsapp')
+ * @param {string[]} subIds - SubIDs para rastreamento (até 5)
  */
-async function generateAffiliateLink(originalUrl, subId) {
-  subId = subId || 'whatsapp';
+async function generateAffiliateLink(originalUrl, subIds) {
+  if (typeof subIds === 'string') subIds = [subIds];
+  subIds = subIds || ['whatsapp'];
 
-  var query = 'mutation {\n' +
-    '  generateShortLink(\n' +
-    '    input: {\n' +
-    '      originUrl: "' + originalUrl.replace(/"/g, '\\"') + '",\n' +
-    '      subIds: ["' + subId.replace(/"/g, '\\"') + '"]\n' +
-    '    }\n' +
-    '  ) {\n' +
-    '    shortLink\n' +
-    '  }\n' +
-    '}';
+  var subIdsStr = subIds.map(function(s) { return '"' + s.replace(/"/g, '\\"') + '"'; }).join(', ');
+
+  var query = 'mutation { generateShortLink(input: { ' +
+    'originUrl: "' + originalUrl.replace(/"/g, '\\"') + '", ' +
+    'subIds: [' + subIdsStr + '] ' +
+  '}) { shortLink } }';
 
   var data = await graphqlRequest(query);
   return data.generateShortLink;
 }
 
-// ===== RELATÓRIOS DE COMISSÃO =====
+// ===== RELATÓRIOS DE CONVERSÃO =====
 
 /**
  * Busca relatório de conversões
- * @param {object} options - startDate, endDate, subId
+ * @param {object} options - purchaseTimeStart, purchaseTimeEnd (Unix timestamps), orderStatus, limit, scrollId
+ * orderStatus: UNPAID, PENDING, COMPLETED, CANCELLED
  */
 async function getConversionReport(options) {
   options = options || {};
-  var startDate = options.startDate || new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString().split('T')[0];
-  var endDate = options.endDate || new Date().toISOString().split('T')[0];
 
-  var filters = '';
-  if (options.subId) {
-    filters = ', publisherSubId: "' + options.subId.replace(/"/g, '\\"') + '"';
+  // Default: últimos 30 dias
+  var now = Math.floor(Date.now() / 1000);
+  var thirtyDaysAgo = now - (30 * 24 * 3600);
+
+  var purchaseTimeStart = parseInt(options.purchaseTimeStart) || thirtyDaysAgo;
+  var purchaseTimeEnd = parseInt(options.purchaseTimeEnd) || now;
+  var limit = parseInt(options.limit) || 100;
+
+  var params = 'purchaseTimeStart: ' + purchaseTimeStart + ', purchaseTimeEnd: ' + purchaseTimeEnd + ', limit: ' + limit;
+
+  if (options.orderStatus) {
+    params += ', orderStatus: "' + options.orderStatus + '"';
+  }
+  if (options.scrollId) {
+    params += ', scrollId: "' + options.scrollId.replace(/"/g, '\\"') + '"';
   }
 
-  var query = '{\n' +
-    '  conversionReport(\n' +
-    '    startTime: "' + startDate + '",\n' +
-    '    endTime: "' + endDate + '"' + filters + '\n' +
-    '  ) {\n' +
-    '    nodes {\n' +
-    '      orderId\n' +
-    '      orderAmount\n' +
-    '      commission\n' +
-    '      commissionRate\n' +
-    '      status\n' +
-    '      itemName\n' +
-    '      itemId\n' +
-    '      shopName\n' +
-    '      publisherSubId\n' +
-    '      orderCreatedTime\n' +
-    '      clickTime\n' +
-    '    }\n' +
-    '    pageInfo {\n' +
-    '      hasNextPage\n' +
-    '    }\n' +
-    '    summary {\n' +
-    '      totalOrders\n' +
-    '      totalCommission\n' +
-    '      totalOrderAmount\n' +
-    '    }\n' +
-    '  }\n' +
-    '}';
+  var query = '{ conversionReport(' + params + ') { ' +
+    'nodes { ' +
+      'purchaseTime clickTime conversionId ' +
+      'totalCommission sellerCommission shopeeCommissionCapped ' +
+      'buyerType device utmContent ' +
+      'orders { ' +
+        'orderId orderStatus ' +
+        'items { itemId itemName shopName itemPrice qty itemTotalCommission } ' +
+      '} ' +
+    '} ' +
+    'pageInfo { limit hasNextPage scrollId } ' +
+  '} }';
 
   var data = await graphqlRequest(query);
   return data.conversionReport;
+}
+
+/**
+ * Busca relatório validado de comissões
+ * @param {object} options - validationId, limit, scrollId
+ */
+async function getValidatedReport(options) {
+  options = options || {};
+  var validationId = parseInt(options.validationId) || 0;
+  var limit = parseInt(options.limit) || 100;
+
+  var params = 'validationId: ' + validationId + ', limit: ' + limit;
+  if (options.scrollId) {
+    params += ', scrollId: "' + options.scrollId.replace(/"/g, '\\"') + '"';
+  }
+
+  var query = '{ validatedReport(' + params + ') { ' +
+    'nodes { ' +
+      'conversionId netCommission totalCommission ' +
+      'orders { orderId items { itemName itemTotalCommission refundAmount } } ' +
+    '} ' +
+    'pageInfo { hasNextPage scrollId } ' +
+  '} }';
+
+  var data = await graphqlRequest(query);
+  return data.validatedReport;
 }
 
 module.exports = {
@@ -260,6 +255,8 @@ module.exports = {
   searchProducts: searchProducts,
   getTopOffers: getTopOffers,
   searchShops: searchShops,
+  getShopeeOffers: getShopeeOffers,
   generateAffiliateLink: generateAffiliateLink,
-  getConversionReport: getConversionReport
+  getConversionReport: getConversionReport,
+  getValidatedReport: getValidatedReport
 };

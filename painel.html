@@ -2275,7 +2275,8 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
                 <option value="1">Relevância</option>
                 <option value="5">Maior Comissão</option>
                 <option value="2">Mais Vendidos</option>
-                <option value="3">Menor Preço</option>
+                <option value="4">Menor Preço</option>
+                <option value="3">Maior Preço</option>
               </select>
               <button class="btn btn-primary btn-sm" onclick="searchShopeeProducts()" style="background:#EE4D2D;border-color:#EE4D2D">
                 <i class="fas fa-search"></i> Buscar
@@ -2350,8 +2351,11 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
                 <option value="90">Últimos 90 dias</option>
               </select>
               <select class="form-control" id="shopeeCommSubId" style="width:130px;font-size:12px;padding:6px 10px">
-                <option value="">Todos SubIDs</option>
-                <option value="whatsapp" selected>whatsapp</option>
+                <option value="">Todos Status</option>
+                <option value="COMPLETED">Concluído</option>
+                <option value="PENDING">Pendente</option>
+                <option value="UNPAID">Aguardando</option>
+                <option value="CANCELLED">Cancelado</option>
               </select>
               <button class="btn btn-primary btn-sm" onclick="loadShopeeCommissions()" style="background:#EE4D2D;border-color:#EE4D2D">
                 <i class="fas fa-sync"></i> Atualizar
@@ -2361,7 +2365,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
           <div class="table-wrap">
             <table>
               <thead>
-                <tr><th>Data</th><th>Produto</th><th>Loja</th><th>Valor Pedido</th><th>Comissão</th><th>Taxa</th><th>SubID</th><th>Status</th></tr>
+                <tr><th>Data</th><th>Produto</th><th>Loja</th><th>Valor</th><th>Comissão</th><th>Qtd</th><th>SubID</th><th>Status</th></tr>
               </thead>
               <tbody id="shopeeCommissionsTable">
                 <tr><td colspan="8"><div class="empty-state"><p>Configure a API da Shopee nas Configurações</p></div></td></tr>
@@ -5902,9 +5906,9 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
         '</div>' +
         '<div style="padding:12px">' +
           '<div style="font-size:12px;font-weight:600;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + (p.productName || '').replace(/"/g, '&quot;') + '">' + (p.productName || 'Sem nome') + '</div>' +
-          '<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">' + (p.shopName || '') + '</div>' +
+          '<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">' + (p.shopName || '') + (p.priceDiscountRate > 0 ? ' <span style="background:#ff424e;color:#fff;padding:1px 5px;border-radius:3px;font-size:10px;font-weight:600">-' + parseFloat(p.priceDiscountRate).toFixed(0) + '%</span>' : '') + '</div>' +
           '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
-            '<span style="font-size:14px;font-weight:700;color:#EE4D2D">R$ ' + parseFloat(p.price || 0).toFixed(2) + '</span>' +
+            '<span style="font-size:14px;font-weight:700;color:#EE4D2D">R$ ' + parseFloat(p.priceMin || p.priceMax || 0).toFixed(2) + '</span>' +
             '<span style="font-size:11px;background:rgba(37,211,102,0.15);color:var(--accent);padding:2px 6px;border-radius:4px;font-weight:600">' + parseFloat(p.commissionRate || 0).toFixed(1) + '%</span>' +
           '</div>' +
           '<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-muted);margin-bottom:8px">' +
@@ -5912,7 +5916,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
             '<span><i class="fas fa-star" style="color:var(--warning)"></i> ' + parseFloat(p.ratingStar || 0).toFixed(1) + '</span>' +
             '<span><i class="fas fa-shopping-cart"></i> ' + (p.sales || 0) + '</span>' +
           '</div>' +
-          '<button class="btn btn-primary btn-sm" style="width:100%;background:#EE4D2D;border-color:#EE4D2D;font-size:11px" onclick="quickGenerateLink(\'' + (p.productLink || '').replace(/'/g, "\\'") + '\',\'' + (p.productName || '').replace(/'/g, "\\'") + '\',' + (p.price || 0) + ',' + (p.commissionRate || 0) + ')">' +
+          '<button class="btn btn-primary btn-sm" style="width:100%;background:#EE4D2D;border-color:#EE4D2D;font-size:11px" onclick="quickGenerateLink(\'' + (p.productLink || p.offerLink || '').replace(/'/g, "\\'") + '\',\'' + (p.productName || '').replace(/'/g, "\\'") + '\',' + (p.priceMin || p.priceMax || 0) + ',' + (p.commissionRate || 0) + ')">' +
             '<i class="fas fa-link"></i> Gerar Link Afiliado' +
           '</button>' +
         '</div>' +
@@ -5989,40 +5993,56 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
   window.loadShopeeCommissions = async function() {
     try {
       var days = parseInt(document.getElementById('shopeeCommDateRange').value) || 30;
-      var subId = document.getElementById('shopeeCommSubId').value;
-      var startDate = new Date(Date.now() - days * 86400000).toISOString().split('T')[0];
-      var endDate = new Date().toISOString().split('T')[0];
+      var status = document.getElementById('shopeeCommSubId').value;
 
-      var url = '/api/shopee/commissions?start_date=' + startDate + '&end_date=' + endDate;
-      if (subId) url += '&sub_id=' + subId;
+      var url = '/api/shopee/commissions?days=' + days;
+      if (status) url += '&status=' + status;
 
       var result = await serverFetch(url);
       var tbody = document.getElementById('shopeeCommissionsTable');
 
       if (!result || !result.nodes || result.nodes.length === 0) {
         tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state"><p>Nenhuma comissão encontrada</p></div></td></tr>';
+        if (result && result.summary) {
+          document.getElementById('shopeeTotalOrders').textContent = '0';
+          document.getElementById('shopeeTotalCommission').textContent = 'R$ 0.00';
+          document.getElementById('shopeeTotalSales').textContent = 'R$ 0.00';
+        }
         return;
       }
 
       var html = '';
       result.nodes.forEach(function(c) {
-        var statusBadge = c.status === 'approved' || c.status === 'completed' ? '<span class="badge badge-success">' + c.status + '</span>' :
-          c.status === 'pending' ? '<span class="badge badge-info">Pendente</span>' :
-          '<span class="badge">' + (c.status || '-') + '</span>';
+        var statusText = c.orderStatus || c.status || '-';
+        var statusBadge = statusText === 'COMPLETED' ? '<span class="badge badge-success">Concluído</span>' :
+          statusText === 'PENDING' ? '<span class="badge badge-info">Pendente</span>' :
+          statusText === 'UNPAID' ? '<span class="badge" style="background:var(--warning);color:#000">Aguardando</span>' :
+          statusText === 'CANCELLED' ? '<span class="badge badge-danger">Cancelado</span>' :
+          '<span class="badge">' + statusText + '</span>';
+
+        var dateStr = '-';
+        if (c.purchaseTime) {
+          dateStr = new Date(c.purchaseTime * 1000).toLocaleDateString('pt-BR');
+        } else if (c.order_created_at) {
+          dateStr = new Date(c.order_created_at).toLocaleDateString('pt-BR');
+        }
+
+        var price = parseFloat(c.itemPrice || c.order_amount || 0);
+        var qty = parseInt(c.qty || 1);
+
         html += '<tr>' +
-          '<td style="font-size:12px">' + (c.order_created_at || c.orderCreatedTime ? new Date(c.order_created_at || c.orderCreatedTime).toLocaleDateString('pt-BR') : '-') + '</td>' +
-          '<td style="font-size:12px;max-width:150px;overflow:hidden;text-overflow:ellipsis">' + (c.item_name || c.itemName || '-') + '</td>' +
-          '<td style="font-size:12px">' + (c.shop_name || c.shopName || '-') + '</td>' +
-          '<td style="font-size:12px">R$ ' + parseFloat(c.order_amount || c.orderAmount || 0).toFixed(2) + '</td>' +
+          '<td style="font-size:12px">' + dateStr + '</td>' +
+          '<td style="font-size:12px;max-width:150px;overflow:hidden;text-overflow:ellipsis">' + (c.itemName || c.item_name || '-') + '</td>' +
+          '<td style="font-size:12px">' + (c.shopName || c.shop_name || '-') + '</td>' +
+          '<td style="font-size:12px">R$ ' + (price * qty).toFixed(2) + '</td>' +
           '<td style="font-size:12px;color:var(--accent);font-weight:600">R$ ' + parseFloat(c.commission || 0).toFixed(2) + '</td>' +
-          '<td style="font-size:12px">' + parseFloat(c.commission_rate || c.commissionRate || 0).toFixed(1) + '%</td>' +
-          '<td style="font-size:12px"><span class="badge badge-info">' + (c.sub_id || c.publisherSubId || '-') + '</span></td>' +
+          '<td style="font-size:12px">' + (qty > 1 ? qty + 'x' : '-') + '</td>' +
+          '<td style="font-size:12px"><span class="badge badge-info">' + (c.subId || c.sub_id || '-') + '</span></td>' +
           '<td>' + statusBadge + '</td>' +
         '</tr>';
       });
       tbody.innerHTML = html;
 
-      // Update summary if available
       if (result.summary) {
         document.getElementById('shopeeTotalOrders').textContent = result.summary.totalOrders || 0;
         document.getElementById('shopeeTotalCommission').textContent = 'R$ ' + parseFloat(result.summary.totalCommission || 0).toFixed(2);
@@ -6034,10 +6054,36 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
   window.loadTopOffers = async function() {
     try {
       var result = await serverFetch('/api/shopee/top-offers');
-      renderShopeeProducts(result, false);
-      // But render to the top offers grid
       var grid = document.getElementById('shopeeTopOffersGrid');
-      grid.innerHTML = document.getElementById('shopeeProductsGrid').innerHTML;
+      if (!result || !result.nodes || result.nodes.length === 0) {
+        grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><p>Nenhuma oferta encontrada</p></div>';
+        return;
+      }
+      var html = '';
+      result.nodes.forEach(function(p) {
+        html += '<div style="background:var(--bg-secondary);border-radius:var(--radius-sm);border:1px solid var(--border);overflow:hidden">' +
+          '<div style="height:160px;overflow:hidden;background:#fff;display:flex;align-items:center;justify-content:center">' +
+            (p.imageUrl ? '<img src="' + p.imageUrl + '" style="max-height:100%;max-width:100%;object-fit:contain">' : '<i class="fas fa-image" style="font-size:40px;color:#ddd"></i>') +
+          '</div>' +
+          '<div style="padding:12px">' +
+            '<div style="font-size:12px;font-weight:600;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + (p.productName || '').replace(/"/g, '&quot;') + '">' + (p.productName || 'Sem nome') + '</div>' +
+            '<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">' + (p.shopName || '') + '</div>' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
+              '<span style="font-size:14px;font-weight:700;color:#EE4D2D">R$ ' + parseFloat(p.priceMin || p.priceMax || 0).toFixed(2) + '</span>' +
+              '<span style="font-size:11px;background:rgba(37,211,102,0.15);color:var(--accent);padding:2px 6px;border-radius:4px;font-weight:600">' + parseFloat(p.commissionRate || 0).toFixed(1) + '%</span>' +
+            '</div>' +
+            '<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-muted);margin-bottom:8px">' +
+              '<span><i class="fas fa-coins"></i> R$ ' + parseFloat(p.commission || 0).toFixed(2) + '</span>' +
+              '<span><i class="fas fa-star" style="color:var(--warning)"></i> ' + parseFloat(p.ratingStar || 0).toFixed(1) + '</span>' +
+              '<span><i class="fas fa-shopping-cart"></i> ' + (p.sales || 0) + '</span>' +
+            '</div>' +
+            '<button class="btn btn-primary btn-sm" style="width:100%;background:#EE4D2D;border-color:#EE4D2D;font-size:11px" onclick="quickGenerateLink(\'' + (p.productLink || p.offerLink || '').replace(/'/g, "\\'") + '\',\'' + (p.productName || '').replace(/'/g, "\\'") + '\',' + (p.priceMin || p.priceMax || 0) + ',' + (p.commissionRate || 0) + ')">' +
+              '<i class="fas fa-link"></i> Gerar Link Afiliado' +
+            '</button>' +
+          '</div>' +
+        '</div>';
+      });
+      grid.innerHTML = html;
     } catch(e) { showToast('Erro: ' + e.message, 'error'); }
   };
 

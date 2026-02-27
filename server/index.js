@@ -2389,34 +2389,83 @@ app.get('/api/shopee/links', authMiddleware, async function(req, res) {
 // Get commission report
 app.get('/api/shopee/commissions', authMiddleware, async function(req, res) {
   try {
-    var startDate = req.query.start_date;
-    var endDate = req.query.end_date;
-    var subId = req.query.sub_id;
+    var days = parseInt(req.query.days) || 30;
+    var orderStatus = req.query.status || '';
+
+    var now = Math.floor(Date.now() / 1000);
+    var startTs = now - (days * 24 * 3600);
 
     // Try API first
     try {
-      var report = await shopeeApi.getConversionReport({ startDate: startDate, endDate: endDate, subId: subId });
+      var apiOpts = { purchaseTimeStart: startTs, purchaseTimeEnd: now, limit: 100 };
+      if (orderStatus) apiOpts.orderStatus = orderStatus;
 
-      // Save to DB for caching
+      var report = await shopeeApi.getConversionReport(apiOpts);
+
+      // Flatten nested structure for frontend and DB cache
+      var flatNodes = [];
+      var totalCommission = 0;
+      var totalAmount = 0;
+      var totalOrders = 0;
+
       if (report && report.nodes) {
-        for (var order of report.nodes) {
-          await pool.query(
-            "INSERT INTO shopee_commissions (order_id, item_id, item_name, shop_name, order_amount, commission, commission_rate, status, sub_id, order_created_at) " +
-            "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING",
-            [order.orderId, order.itemId, order.itemName, order.shopName, order.orderAmount, order.commission, order.commissionRate, order.status, order.publisherSubId, order.orderCreatedTime]
-          );
-        }
+        report.nodes.forEach(function(conv) {
+          if (conv.orders) {
+            conv.orders.forEach(function(order) {
+              if (order.items) {
+                order.items.forEach(function(item) {
+                  var itemPrice = parseFloat(item.itemPrice || 0);
+                  var itemCommission = parseFloat(item.itemTotalCommission || 0);
+                  totalAmount += itemPrice * (parseInt(item.qty) || 1);
+                  totalCommission += itemCommission;
+                  totalOrders++;
+
+                  flatNodes.push({
+                    conversionId: conv.conversionId,
+                    orderId: order.orderId,
+                    orderStatus: order.orderStatus,
+                    itemId: item.itemId,
+                    itemName: item.itemName,
+                    shopName: item.shopName,
+                    itemPrice: itemPrice,
+                    qty: item.qty,
+                    commission: itemCommission,
+                    totalCommission: parseFloat(conv.totalCommission || 0),
+                    buyerType: conv.buyerType,
+                    device: conv.device,
+                    subId: conv.utmContent || '',
+                    purchaseTime: conv.purchaseTime,
+                    clickTime: conv.clickTime
+                  });
+
+                  // Save to DB cache
+                  pool.query(
+                    "INSERT INTO shopee_commissions (order_id, item_id, item_name, shop_name, order_amount, commission, commission_rate, status, sub_id, order_created_at) " +
+                    "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,to_timestamp($10)) ON CONFLICT DO NOTHING",
+                    [order.orderId, item.itemId, item.itemName, item.shopName, itemPrice, itemCommission, 0, order.orderStatus || 'PENDING', conv.utmContent || '', conv.purchaseTime || now]
+                  ).catch(function() {});
+                });
+              }
+            });
+          }
+        });
       }
 
-      res.json(report);
+      res.json({
+        nodes: flatNodes,
+        summary: { totalOrders: totalOrders, totalCommission: totalCommission, totalOrderAmount: totalAmount }
+      });
     } catch(apiErr) {
       // Fallback to DB cache
-      var query = 'SELECT * FROM shopee_commissions WHERE 1=1';
+      var query = 'SELECT * FROM shopee_commissions';
       var params = [];
+      var conditions = [];
       var paramNum = 1;
-      if (startDate) { query += ' AND order_created_at >= $' + paramNum; params.push(startDate); paramNum++; }
-      if (endDate) { query += ' AND order_created_at <= $' + paramNum; params.push(endDate); paramNum++; }
-      if (subId) { query += ' AND sub_id = $' + paramNum; params.push(subId); paramNum++; }
+
+      conditions.push('order_created_at >= NOW() - INTERVAL \'' + days + ' days\'');
+      if (orderStatus) { conditions.push('status = $' + paramNum); params.push(orderStatus); paramNum++; }
+
+      if (conditions.length > 0) query += ' WHERE ' + conditions.join(' AND ');
       query += ' ORDER BY order_created_at DESC LIMIT 200';
 
       var dbResult = await pool.query(query, params);
@@ -2430,6 +2479,19 @@ app.get('/api/shopee/commissions', authMiddleware, async function(req, res) {
         source: 'cache'
       });
     }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Shopee campaigns/offers
+app.get('/api/shopee/offers', authMiddleware, async function(req, res) {
+  try {
+    var result = await shopeeApi.getShopeeOffers({
+      page: parseInt(req.query.page) || 1,
+      limit: parseInt(req.query.limit) || 20
+    });
+    res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
