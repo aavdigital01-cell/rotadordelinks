@@ -6491,10 +6491,10 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     var isChecked = searchSelected[itemId] ? ' checked' : '';
     var isFav = topOffersFavorites[itemId] ? true : false;
 
-    var shopType = (p.shopType || '').toLowerCase();
+    var shopType = String(p.shopType || '').toLowerCase();
     var shopBadge = '';
-    if (shopType.indexOf('mall') >= 0) shopBadge = '<span class="to-shop-badge mall">Mall</span>';
-    else if (shopType.indexOf('preferred') >= 0 || shopType.indexOf('star') >= 0) shopBadge = '<span class="to-shop-badge preferred">Star</span>';
+    if (shopType.indexOf('mall') >= 0 || shopType === '1') shopBadge = '<span class="to-shop-badge mall">Mall</span>';
+    else if (shopType.indexOf('preferred') >= 0 || shopType.indexOf('star') >= 0 || shopType === '2') shopBadge = '<span class="to-shop-badge preferred">Star</span>';
 
     var discountBadge = discount > 0 ? '<span class="to-discount">-' + discount.toFixed(0) + '%</span>' : '';
     var originalPrice = discount > 0 && priceMax > price ? '<span class="to-price-original">R$ ' + priceMax.toFixed(2) + '</span>' : '';
@@ -6922,7 +6922,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
   }
 
   function escTopAttr(str) {
-    return (str || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return String(str || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
   function formatSalesCount(n) {
@@ -6982,10 +6982,10 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     var isChecked = topOffersSelected[itemId] ? ' checked' : '';
     var isFav = topOffersFavorites[itemId] ? true : false;
 
-    var shopType = (p.shopType || '').toLowerCase();
+    var shopType = StringString(p.shopType || '').toLowerCase();
     var shopBadge = '';
-    if (shopType.indexOf('mall') >= 0) shopBadge = '<span class="to-shop-badge mall">Mall</span>';
-    else if (shopType.indexOf('preferred') >= 0 || shopType.indexOf('star') >= 0) shopBadge = '<span class="to-shop-badge preferred">Star</span>';
+    if (shopType.indexOf('mall') >= 0 || shopType === '1') shopBadge = '<span class="to-shop-badge mall">Mall</span>';
+    else if (shopType.indexOf('preferred') >= 0 || shopType.indexOf('star') >= 0 || shopType === '2') shopBadge = '<span class="to-shop-badge preferred">Star</span>';
 
     var discountBadge = discount > 0 ? '<span class="to-discount">-' + discount.toFixed(0) + '%</span>' : '';
     var originalPrice = discount > 0 && priceMax > price ? '<span class="to-price-original">R$ ' + priceMax.toFixed(2) + '</span>' : '';
