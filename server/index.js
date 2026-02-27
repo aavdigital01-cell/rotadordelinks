@@ -995,7 +995,7 @@ app.get('/api/meta/insights-batch', authMiddleware, async function(req, res) {
 // ===== EXCHANGE RATE (USD → BRL) =====
 
 var exchangeRateCache = { rate: null, timestamp: 0 };
-var EXCHANGE_CACHE_TTL = 30 * 60 * 1000; // 30 minutos
+var EXCHANGE_CACHE_TTL = 60 * 60 * 1000; // 1 hora (reduzido para evitar rate limit)
 
 async function getUsdToBrl() {
   var now = Date.now();
@@ -1011,17 +1011,17 @@ async function getUsdToBrl() {
       exchangeRateCache = { rate: rate, timestamp: now };
       return rate;
     }
-    // Fallback: try alternative endpoint
-    var resp2 = await fetch('https://economia.awesomeapi.com.br/json/last/USD-BRL');
+    // Fallback: try open.er-api.com (free, no key needed)
+    var resp2 = await fetch('https://open.er-api.com/v6/latest/USD');
     var data2 = await resp2.json();
-    if (data2 && data2.USDBRL && data2.USDBRL.bid) {
-      var rate2 = parseFloat(data2.USDBRL.bid);
+    if (data2 && data2.rates && data2.rates.BRL) {
+      var rate2 = parseFloat(data2.rates.BRL);
       exchangeRateCache = { rate: rate2, timestamp: now };
       return rate2;
     }
     throw new Error('Formato inesperado da API');
   } catch (err) {
-    if (!exchangeRateCache._logged || (now - exchangeRateCache._logged) > 300000) {
+    if (!exchangeRateCache._logged || (now - exchangeRateCache._logged) > 3600000) {
       console.error('[EXCHANGE] Erro ao buscar cotação:', err.message);
       exchangeRateCache._logged = now;
     }
