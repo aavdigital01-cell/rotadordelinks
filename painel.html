@@ -1070,6 +1070,39 @@ select.form-control {
   .to-rating-stars i { display: none; }
 }
 
+/* ===== CONVERSION FUNNEL ===== */
+.shopee-funnel { display: flex; flex-direction: column; gap: 0; max-width: 600px; margin: 0 auto; }
+.funnel-step { display: flex; align-items: center; gap: 16px; padding: 12px 0; }
+.funnel-bar { flex: 1; height: 36px; background: var(--bg-primary); border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
+.funnel-fill { height: 100%; background: var(--funnel-color); border-radius: 8px; transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1); min-width: 4px; }
+.funnel-info { min-width: 140px; text-align: right; }
+.funnel-label { font-size: 11px; color: var(--text-muted); display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
+.funnel-label i { color: var(--funnel-color); }
+.funnel-value { font-size: 20px; font-weight: 700; color: var(--text-primary); }
+.funnel-sub { font-size: 11px; color: var(--text-muted); }
+.funnel-arrow { text-align: center; color: var(--text-muted); font-size: 12px; padding: 2px 0; opacity: 0.5; margin-left: calc(50% - 70px); }
+.funnel-kpi { text-align: center; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 20px; }
+.funnel-kpi-label { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); margin-bottom: 4px; }
+.funnel-kpi-value { display: block; font-size: 18px; font-weight: 700; color: var(--text-primary); }
+@media (max-width: 640px) {
+  .funnel-step { flex-direction: column; align-items: stretch; gap: 4px; }
+  .funnel-info { text-align: left; min-width: auto; display: flex; align-items: center; gap: 12px; }
+  .funnel-label { justify-content: flex-start; }
+  .funnel-arrow { margin-left: 0; }
+  .funnel-kpi { flex: 1; min-width: 100px; }
+}
+
+/* ===== TEMPLATE EDITOR ===== */
+.template-card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 16px; margin-bottom: 12px; transition: var(--transition); }
+.template-card:hover { border-color: var(--border-light); }
+.template-card .template-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.template-card .template-name-input { flex: 1; font-size: 13px; font-weight: 600; background: transparent; border: 1px solid transparent; border-radius: 4px; padding: 4px 8px; color: var(--text-primary); transition: var(--transition); }
+.template-card .template-name-input:focus { border-color: var(--accent); background: var(--bg-primary); outline: none; }
+.template-card .template-textarea { width: 100%; min-height: 100px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px; font-size: 12px; color: var(--text-primary); font-family: inherit; resize: vertical; line-height: 1.5; transition: var(--transition); }
+.template-card .template-textarea:focus { border-color: #25D366; outline: none; box-shadow: 0 0 0 2px rgba(37,211,102,0.15); }
+.template-card .template-actions { display: flex; gap: 8px; margin-top: 8px; justify-content: flex-end; }
+.template-default-badge { font-size: 9px; background: rgba(37,211,102,0.15); color: var(--accent); padding: 2px 6px; border-radius: 4px; font-weight: 600; }
+
 /* Toggle switch */
 .toggle {
   position: relative;
@@ -2428,11 +2461,12 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
 
     <!-- ===== SHOPEE VIEW ===== -->
     <div class="view" id="view-shopee">
+      <!-- KPI Cards Row 1 -->
       <div class="stats-grid" style="grid-template-columns:repeat(4,1fr)">
         <div class="stat-card">
           <div class="stat-header">
             <div class="stat-icon" style="background:rgba(238,77,45,0.1);color:#EE4D2D"><i class="fas fa-shopping-cart"></i></div>
-            <span class="stat-label">Pedidos (WhatsApp)</span>
+            <span class="stat-label">Pedidos WhatsApp</span>
           </div>
           <div class="stat-value" id="shopeeTotalOrders">0</div>
         </div>
@@ -2456,11 +2490,52 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
             <span class="stat-label">Comissão/Lead</span>
           </div>
           <div class="stat-value" id="shopeeCommPerLead">R$ 0</div>
+          <div style="font-size:10px;color:var(--text-muted);margin-top:2px" id="shopeeLeadDetail"></div>
+        </div>
+      </div>
+      <!-- KPI Cards Row 2 -->
+      <div class="stats-grid" style="grid-template-columns:repeat(4,1fr);margin-top:-8px">
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon" style="background:rgba(37,211,102,0.1);color:var(--accent)"><i class="fas fa-mouse-pointer"></i></div>
+            <span class="stat-label">Leads Únicos</span>
+          </div>
+          <div class="stat-value" id="shopeeUniqueLeads">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon" style="background:rgba(255,193,7,0.1);color:var(--warning)"><i class="fas fa-percentage"></i></div>
+            <span class="stat-label">Taxa Conversão</span>
+          </div>
+          <div class="stat-value" id="shopeeConversionRate">0%</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon" style="background:rgba(0,123,255,0.1);color:var(--info)"><i class="fas fa-receipt"></i></div>
+            <span class="stat-label">Ticket Médio</span>
+          </div>
+          <div class="stat-value" id="shopeeAvgOrder">R$ 0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon" style="background:rgba(238,77,45,0.1);color:#EE4D2D"><i class="fas fa-hand-holding-usd"></i></div>
+            <span class="stat-label">Receita/Clique</span>
+          </div>
+          <div class="stat-value" id="shopeeRevenuePerClick">R$ 0</div>
         </div>
       </div>
 
+      <!-- Period selector for KPIs -->
+      <div style="display:flex;justify-content:flex-end;margin-bottom:12px;margin-top:-4px">
+        <select class="form-control" id="shopeeKpiPeriod" onchange="loadShopeeData()" style="width:auto;font-size:11px;padding:4px 10px">
+          <option value="7">7 dias</option>
+          <option value="30" selected>30 dias</option>
+          <option value="90">90 dias</option>
+        </select>
+      </div>
+
       <!-- Tabs for Shopee subsections -->
-      <div style="display:flex;gap:4px;margin-bottom:20px;border-bottom:1px solid var(--border);padding-bottom:4px">
+      <div style="display:flex;gap:4px;margin-bottom:20px;border-bottom:1px solid var(--border);padding-bottom:4px;flex-wrap:wrap">
         <button class="btn btn-sm shopee-tab active" data-tab="shopee-search" onclick="switchShopeeTab('shopee-search')" style="font-size:12px">
           <i class="fas fa-search"></i> Buscar Produtos
         </button>
@@ -2473,6 +2548,12 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
         <button class="btn btn-sm shopee-tab" data-tab="shopee-top" onclick="switchShopeeTab('shopee-top')" style="font-size:12px">
           <i class="fas fa-fire"></i> Melhores Ofertas
         </button>
+        <button class="btn btn-sm shopee-tab" data-tab="shopee-dashboard" onclick="switchShopeeTab('shopee-dashboard')" style="font-size:12px">
+          <i class="fas fa-chart-pie"></i> Dashboard
+        </button>
+        <button class="btn btn-sm shopee-tab" data-tab="shopee-templates" onclick="switchShopeeTab('shopee-templates')" style="font-size:12px">
+          <i class="fas fa-comment-dots"></i> Templates
+        </button>
       </div>
 
       <!-- Tab: Search Products -->
@@ -2480,25 +2561,89 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
         <div class="card">
           <div class="card-header">
             <span class="card-title"><i class="fas fa-search" style="margin-right:6px;color:#EE4D2D"></i>Buscar Produtos Shopee</span>
-            <div style="display:flex;gap:8px">
-              <input type="text" id="shopeeSearchInput" placeholder="Buscar produto..." class="form-control" style="width:250px;font-size:12px;padding:6px 10px" onkeydown="if(event.key==='Enter')searchShopeeProducts()">
-              <select class="form-control" id="shopeeSortBy" style="width:150px;font-size:12px;padding:6px 10px">
+          </div>
+          <!-- Search bar -->
+          <div class="to-search-bar">
+            <div class="to-search-input-wrap">
+              <i class="fas fa-search"></i>
+              <input type="text" id="shopeeSearchInput" placeholder="Buscar produto na Shopee..." onkeydown="if(event.key==='Enter')searchShopeeProducts()">
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="searchShopeeProducts()" style="background:#EE4D2D;border-color:#EE4D2D"><i class="fas fa-search"></i> Buscar</button>
+          </div>
+          <!-- Filters -->
+          <div class="to-filters" id="searchFiltersBar">
+            <div class="to-filter-group">
+              <label>Ordenar</label>
+              <select class="form-control" id="shopeeSortBy" onchange="searchShopeeProducts()">
                 <option value="1">Relevância</option>
                 <option value="5">Maior Comissão</option>
                 <option value="2">Mais Vendidos</option>
                 <option value="4">Menor Preço</option>
                 <option value="3">Maior Preço</option>
               </select>
-              <button class="btn btn-primary btn-sm" onclick="searchShopeeProducts()" style="background:#EE4D2D;border-color:#EE4D2D">
-                <i class="fas fa-search"></i> Buscar
-              </button>
+            </div>
+            <div class="to-filter-sep"></div>
+            <div class="to-filter-group">
+              <label>Comissão Mín.</label>
+              <select class="form-control" id="searchMinComm" onchange="applySearchFilter()">
+                <option value="0">Todas</option>
+                <option value="5">&ge; 5%</option>
+                <option value="10">&ge; 10%</option>
+                <option value="15">&ge; 15%</option>
+                <option value="20">&ge; 20%</option>
+              </select>
+            </div>
+            <div class="to-filter-group">
+              <label>Avaliação</label>
+              <select class="form-control" id="searchMinRating" onchange="applySearchFilter()">
+                <option value="0">Todas</option>
+                <option value="3">&#9733; 3+</option>
+                <option value="4">&#9733; 4+</option>
+                <option value="4.5">&#9733; 4.5+</option>
+              </select>
+            </div>
+            <div class="to-filter-group">
+              <label>Preço</label>
+              <select class="form-control" id="searchPriceRange" onchange="applySearchFilter()">
+                <option value="">Todos</option>
+                <option value="0-50">Até R$50</option>
+                <option value="50-100">R$50 - R$100</option>
+                <option value="100-300">R$100 - R$300</option>
+                <option value="300+">Acima de R$300</option>
+              </select>
+            </div>
+            <button class="to-clear-filters" onclick="clearSearchFilters()" title="Limpar filtros"><i class="fas fa-times"></i> Limpar</button>
+            <div class="to-filter-group">
+              <label>SubID</label>
+              <select class="form-control" id="searchSubId" style="min-width:100px">
+                <option value="whatsapp">whatsapp</option>
+                <option value="telegram">telegram</option>
+                <option value="instagram">instagram</option>
+                <option value="site">site</option>
+              </select>
+            </div>
+            <div class="to-view-toggle">
+              <button onclick="toggleSearchView('grid')" class="active" title="Grade"><i class="fas fa-th"></i></button>
+              <button onclick="toggleSearchView('list')" title="Lista"><i class="fas fa-list"></i></button>
             </div>
           </div>
-          <div id="shopeeProductsGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px;padding:16px">
+          <div class="to-status-bar">
+            <span id="searchProductsCount">Busque produtos para ver resultados</span>
+          </div>
+          <div class="to-grid" id="shopeeProductsGrid">
             <div class="empty-state" style="grid-column:1/-1"><i class="fas fa-shopping-bag"></i><p>Busque produtos para ver resultados</p></div>
           </div>
-          <div style="padding:8px 16px;text-align:center;display:none" id="shopeeLoadMore">
-            <button class="btn btn-secondary btn-sm" onclick="loadMoreShopeeProducts()">Carregar mais</button>
+          <div style="padding:12px 16px;text-align:center;display:none" id="shopeeLoadMore">
+            <button class="btn btn-secondary btn-sm" onclick="loadMoreShopeeProducts()"><i class="fas fa-chevron-down"></i> Carregar mais</button>
+          </div>
+          <!-- Batch bar for search -->
+          <div class="to-batch-bar" id="searchBatchBar">
+            <span id="searchBatchCount" style="font-size:13px;font-weight:600"></span>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-secondary btn-sm" onclick="clearSearchSelection()"><i class="fas fa-times"></i> Limpar</button>
+              <button class="btn btn-primary btn-sm" id="searchBatchWaBtn" onclick="batchSearchWhatsAppMessages()" style="background:#25D366;border-color:#25D366"><i class="fab fa-whatsapp"></i> Mensagens</button>
+              <button class="btn btn-primary btn-sm" id="searchBatchLinkBtn" onclick="batchSearchGenerateLinks()" style="background:#EE4D2D;border-color:#EE4D2D"><i class="fas fa-link"></i> Links em Lote</button>
+            </div>
           </div>
         </div>
       </div>
@@ -2585,14 +2730,9 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
           </div>
         </div>
 
-        <!-- Revenue per Lead -->
-        <div class="card" style="margin-top:20px">
-          <div class="card-header">
-            <span class="card-title"><i class="fas fa-chart-bar" style="margin-right:6px;color:var(--accent)"></i>Receita WhatsApp por Dia</span>
-          </div>
-          <div style="padding:16px">
-            <canvas id="shopeeRevenueChart" height="200"></canvas>
-          </div>
+        <!-- Tip: more charts in Dashboard tab -->
+        <div style="padding:12px 16px;text-align:center">
+          <span style="font-size:11px;color:var(--text-muted)"><i class="fas fa-chart-pie" style="margin-right:4px"></i>Gráficos detalhados e funil de conversão disponíveis na aba <a href="#" onclick="switchShopeeTab('shopee-dashboard');return false" style="color:#EE4D2D;text-decoration:underline">Dashboard</a></span>
         </div>
       </div>
 
@@ -2699,6 +2839,144 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
               <button class="btn btn-secondary btn-sm" onclick="clearTopOffersSelection()"><i class="fas fa-times"></i> Limpar</button>
               <button class="btn btn-primary btn-sm" id="topOffersBatchWaBtn" onclick="batchGenerateWhatsAppMessages()" style="background:#25D366;border-color:#25D366"><i class="fab fa-whatsapp"></i> Mensagens WhatsApp</button>
               <button class="btn btn-primary btn-sm" id="topOffersBatchBtn" onclick="batchGenerateLinks()" style="background:#EE4D2D;border-color:#EE4D2D"><i class="fas fa-link"></i> Gerar Links em Lote</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab: Dashboard -->
+      <div class="shopee-tab-content" id="shopee-dashboard" style="display:none">
+        <!-- Conversion Funnel -->
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title"><i class="fas fa-filter" style="margin-right:6px;color:#EE4D2D"></i>Funil de Conversão WhatsApp</span>
+            <div style="display:flex;gap:8px">
+              <select class="form-control" id="funnelPeriod" style="width:auto;font-size:12px;padding:6px 10px" onchange="loadConversionFunnel()">
+                <option value="7">7 dias</option>
+                <option value="30" selected>30 dias</option>
+                <option value="90">90 dias</option>
+              </select>
+              <button class="btn btn-primary btn-sm" onclick="loadConversionFunnel()" style="background:#EE4D2D;border-color:#EE4D2D">
+                <i class="fas fa-sync"></i>
+              </button>
+            </div>
+          </div>
+          <div style="padding:24px">
+            <div class="shopee-funnel" id="shopeeFunnel">
+              <div class="funnel-step" style="--funnel-color:#4A90D9">
+                <div class="funnel-bar"><div class="funnel-fill" id="funnelClicksFill" style="width:100%"></div></div>
+                <div class="funnel-info">
+                  <div class="funnel-label"><i class="fas fa-mouse-pointer"></i> Cliques</div>
+                  <div class="funnel-value" id="funnelClicks">0</div>
+                  <div class="funnel-sub" id="funnelUniqueVisitors">0 únicos</div>
+                </div>
+              </div>
+              <div class="funnel-arrow"><i class="fas fa-chevron-down"></i></div>
+              <div class="funnel-step" style="--funnel-color:#EE4D2D">
+                <div class="funnel-bar"><div class="funnel-fill" id="funnelOrdersFill" style="width:0%"></div></div>
+                <div class="funnel-info">
+                  <div class="funnel-label"><i class="fas fa-shopping-cart"></i> Pedidos</div>
+                  <div class="funnel-value" id="funnelOrders">0</div>
+                  <div class="funnel-sub" id="funnelOrderAmount">R$ 0</div>
+                </div>
+              </div>
+              <div class="funnel-arrow"><i class="fas fa-chevron-down"></i></div>
+              <div class="funnel-step" style="--funnel-color:#25D366">
+                <div class="funnel-bar"><div class="funnel-fill" id="funnelCompletedFill" style="width:0%"></div></div>
+                <div class="funnel-info">
+                  <div class="funnel-label"><i class="fas fa-check-circle"></i> Concluídos</div>
+                  <div class="funnel-value" id="funnelCompleted">0</div>
+                  <div class="funnel-sub" id="funnelCompletedComm">R$ 0</div>
+                </div>
+              </div>
+              <div class="funnel-arrow"><i class="fas fa-chevron-down"></i></div>
+              <div class="funnel-step" style="--funnel-color:#FFB400">
+                <div class="funnel-bar"><div class="funnel-fill" id="funnelPendingFill" style="width:0%"></div></div>
+                <div class="funnel-info">
+                  <div class="funnel-label"><i class="fas fa-clock"></i> Pendentes</div>
+                  <div class="funnel-value" id="funnelPending">0</div>
+                  <div class="funnel-sub" id="funnelPendingComm">R$ 0</div>
+                </div>
+              </div>
+            </div>
+            <div style="display:flex;gap:16px;margin-top:20px;justify-content:center;flex-wrap:wrap">
+              <div class="funnel-kpi">
+                <span class="funnel-kpi-label">Taxa Conversão</span>
+                <span class="funnel-kpi-value" id="funnelConvRate">0%</span>
+              </div>
+              <div class="funnel-kpi">
+                <span class="funnel-kpi-label">Cancelamentos</span>
+                <span class="funnel-kpi-value" style="color:var(--danger)" id="funnelCancelled">0</span>
+              </div>
+              <div class="funnel-kpi">
+                <span class="funnel-kpi-label">Comissão Total</span>
+                <span class="funnel-kpi-value" style="color:var(--accent)" id="funnelTotalComm">R$ 0</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Daily chart -->
+        <div class="card" style="margin-top:20px">
+          <div class="card-header">
+            <span class="card-title"><i class="fas fa-chart-bar" style="margin-right:6px;color:var(--accent)"></i>Performance Diária WhatsApp</span>
+          </div>
+          <div style="padding:16px">
+            <canvas id="shopeeDailyChart" height="220"></canvas>
+          </div>
+        </div>
+
+        <!-- Top products -->
+        <div class="card" style="margin-top:20px">
+          <div class="card-header">
+            <span class="card-title"><i class="fas fa-trophy" style="margin-right:6px;color:var(--warning)"></i>Top 10 Produtos por Comissão</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>#</th><th>Produto</th><th>Loja</th><th>Pedidos</th><th>Vendas</th><th>Comissão</th></tr>
+              </thead>
+              <tbody id="topProductsTable">
+                <tr><td colspan="6"><div class="empty-state"><p>Carregue o dashboard para ver dados</p></div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab: Templates -->
+      <div class="shopee-tab-content" id="shopee-templates" style="display:none">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title"><i class="fas fa-comment-dots" style="margin-right:6px;color:#25D366"></i>Templates de Mensagem WhatsApp</span>
+            <button class="btn btn-primary btn-sm" onclick="addNewTemplate()" style="background:#25D366;border-color:#25D366">
+              <i class="fas fa-plus"></i> Novo Template
+            </button>
+          </div>
+          <div style="padding:16px">
+            <div style="background:var(--bg-hover);border-radius:var(--radius-sm);padding:12px;margin-bottom:16px;font-size:12px;color:var(--text-secondary)">
+              <i class="fas fa-info-circle" style="color:var(--info);margin-right:4px"></i>
+              <strong>Variáveis disponíveis:</strong>
+              <code>{{productName}}</code> <code>{{price}}</code> <code>{{originalPrice}}</code> <code>{{discount}}</code>
+              <code>{{link}}</code> <code>{{shopName}}</code> <code>{{rating}}</code> <code>{{sales}}</code> <code>{{commissionRate}}</code>
+            </div>
+            <div id="templatesContainer">
+              <div class="empty-state"><p>Carregando templates...</p></div>
+            </div>
+          </div>
+        </div>
+        <!-- Live Preview -->
+        <div class="card" style="margin-top:20px">
+          <div class="card-header">
+            <span class="card-title"><i class="fas fa-eye" style="margin-right:6px;color:var(--accent)"></i>Pré-visualização</span>
+            <select class="form-control" id="previewTemplateSelect" onchange="updateTemplatePreview()" style="width:auto;font-size:12px;padding:4px 10px">
+            </select>
+          </div>
+          <div style="padding:16px">
+            <div id="templatePreview" style="background:#e5ddd5;border-radius:12px;padding:16px;max-width:360px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">
+              <div style="background:#dcf8c6;border-radius:8px;padding:10px 12px;font-size:13px;line-height:1.5;white-space:pre-wrap;word-wrap:break-word;box-shadow:0 1px 1px rgba(0,0,0,0.1)" id="templatePreviewText">
+                Selecione um template para pré-visualizar
+              </div>
             </div>
           </div>
         </div>
@@ -6103,65 +6381,34 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
 
   var shopeeSearchPage = 1;
   var shopeeRevenueChart = null;
+  var shopeeDailyChart = null;
+  var searchAllData = [];
+  var searchSelected = {};
+  var shopeeMessageTemplates = [];
 
   window.loadShopeeData = async function() {
     try {
-      // Load WhatsApp revenue summary
-      var revenue = await serverFetch('/api/shopee/whatsapp-revenue');
-      if (revenue && revenue.totals) {
-        document.getElementById('shopeeTotalOrders').textContent = revenue.totals.total_orders || 0;
-        document.getElementById('shopeeTotalCommission').textContent = 'R$ ' + parseFloat(revenue.totals.total_commission || 0).toFixed(2);
-        document.getElementById('shopeeTotalSales').textContent = 'R$ ' + parseFloat(revenue.totals.total_sales || 0).toFixed(2);
+      var days = parseInt(document.getElementById('shopeeKpiPeriod').value) || 30;
 
-        // Calculate commission per lead
-        try {
-          var groupsData = await serverFetch('/api/whatsapp/groups');
-          var totalMembers = 0;
-          if (groupsData) groupsData.forEach(function(g) { totalMembers += (g.participants || g.currentMembers || 0); });
-          var commPerLead = totalMembers > 0 ? parseFloat(revenue.totals.total_commission || 0) / totalMembers : 0;
-          document.getElementById('shopeeCommPerLead').textContent = 'R$ ' + commPerLead.toFixed(2);
-        } catch(e) {}
-
-        // Render revenue chart
-        if (revenue.daily && revenue.daily.length > 0) {
-          renderShopeeChart(revenue.daily);
-        }
+      // Load revenue-per-lead (uses real clicks, not group members)
+      var rpl = await serverFetch('/api/shopee/revenue-per-lead?days=' + days);
+      if (rpl && rpl.summary) {
+        var s = rpl.summary;
+        document.getElementById('shopeeTotalOrders').textContent = s.totalOrders || 0;
+        document.getElementById('shopeeTotalCommission').textContent = 'R$ ' + parseFloat(s.totalCommission || 0).toFixed(2);
+        document.getElementById('shopeeTotalSales').textContent = 'R$ ' + parseFloat(s.totalSales || 0).toFixed(2);
+        document.getElementById('shopeeCommPerLead').textContent = 'R$ ' + parseFloat(s.commissionPerLead || 0).toFixed(2);
+        document.getElementById('shopeeLeadDetail').textContent = s.uniqueLeads + ' leads / ' + s.totalOrders + ' pedidos';
+        document.getElementById('shopeeUniqueLeads').textContent = s.uniqueLeads || 0;
+        document.getElementById('shopeeConversionRate').textContent = parseFloat(s.conversionRate || 0).toFixed(1) + '%';
+        document.getElementById('shopeeAvgOrder').textContent = 'R$ ' + parseFloat(s.avgOrderValue || 0).toFixed(2);
+        document.getElementById('shopeeRevenuePerClick').textContent = 'R$ ' + parseFloat(s.revenuePerClick || 0).toFixed(4);
       }
 
       // Load saved links
       loadShopeeLinks();
     } catch(e) { console.error('Shopee load error:', e); }
   };
-
-  function renderShopeeChart(daily) {
-    var ctx = document.getElementById('shopeeRevenueChart');
-    if (!ctx) return;
-
-    if (shopeeRevenueChart) shopeeRevenueChart.destroy();
-
-    var labels = daily.map(function(d) { return new Date(d.date).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }); }).reverse();
-    var commData = daily.map(function(d) { return parseFloat(d.total_commission || 0); }).reverse();
-    var salesData = daily.map(function(d) { return parseFloat(d.total_sales || 0); }).reverse();
-
-    shopeeRevenueChart = new Chart(ctx, {
-      type: 'bar',
-      data: {
-        labels: labels,
-        datasets: [
-          { label: 'Comissão (R$)', data: commData, backgroundColor: 'rgba(238,77,45,0.7)', borderRadius: 4 },
-          { label: 'Vendas (R$)', data: salesData, backgroundColor: 'rgba(37,211,102,0.3)', borderRadius: 4 }
-        ]
-      },
-      options: {
-        responsive: true,
-        plugins: { legend: { labels: { color: 'var(--text-secondary)', font: { size: 11 } } } },
-        scales: {
-          x: { ticks: { color: 'var(--text-muted)', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } },
-          y: { ticks: { color: 'var(--text-muted)', font: { size: 10 }, callback: function(v) { return 'R$' + v; } }, grid: { color: 'rgba(255,255,255,0.05)' } }
-        }
-      }
-    });
-  }
 
   window.switchShopeeTab = function(tabId) {
     document.querySelectorAll('.shopee-tab').forEach(function(t) { t.classList.remove('active'); t.style.background = ''; t.style.color = ''; });
@@ -6176,6 +6423,12 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
       restoreTopOffersPrefs();
       loadTopOffers(true);
     }
+    if (tabId === 'shopee-dashboard') {
+      loadConversionFunnel();
+    }
+    if (tabId === 'shopee-templates' && shopeeMessageTemplates.length === 0) {
+      loadMessageTemplates();
+    }
   };
 
   window.searchShopeeProducts = async function() {
@@ -6183,6 +6436,9 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     if (!keyword) { showToast('Digite um termo de busca', 'error'); return; }
 
     shopeeSearchPage = 1;
+    searchAllData = [];
+    searchSelected = {};
+    updateSearchBatchBar();
     try {
       var sort = document.getElementById('shopeeSortBy').value;
       var result = await serverFetch('/api/shopee/products?keyword=' + encodeURIComponent(keyword) + '&sort=' + sort + '&page=1');
@@ -6203,35 +6459,16 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
   function renderShopeeProducts(result, append) {
     var grid = document.getElementById('shopeeProductsGrid');
     if (!result || !result.nodes || result.nodes.length === 0) {
-      if (!append) grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><p>Nenhum produto encontrado</p></div>';
+      if (!append) {
+        grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><p>Nenhum produto encontrado</p></div>';
+        document.getElementById('searchProductsCount').textContent = '0 resultados';
+      }
       return;
     }
 
-    var html = append ? grid.innerHTML : '';
-    result.nodes.forEach(function(p) {
-      html += '<div style="background:var(--bg-secondary);border-radius:var(--radius-sm);border:1px solid var(--border);overflow:hidden">' +
-        '<div style="height:160px;overflow:hidden;background:#fff;display:flex;align-items:center;justify-content:center">' +
-          (p.imageUrl ? '<img src="' + p.imageUrl + '" style="max-height:100%;max-width:100%;object-fit:contain">' : '<i class="fas fa-image" style="font-size:40px;color:#ddd"></i>') +
-        '</div>' +
-        '<div style="padding:12px">' +
-          '<div style="font-size:12px;font-weight:600;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + (p.productName || '').replace(/"/g, '&quot;') + '">' + (p.productName || 'Sem nome') + '</div>' +
-          '<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">' + (p.shopName || '') + (p.priceDiscountRate > 0 ? ' <span style="background:#ff424e;color:#fff;padding:1px 5px;border-radius:3px;font-size:10px;font-weight:600">-' + parseFloat(p.priceDiscountRate).toFixed(0) + '%</span>' : '') + '</div>' +
-          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
-            '<span style="font-size:14px;font-weight:700;color:#EE4D2D">R$ ' + parseFloat(p.priceMin || p.priceMax || 0).toFixed(2) + '</span>' +
-            '<span style="font-size:11px;background:rgba(37,211,102,0.15);color:var(--accent);padding:2px 6px;border-radius:4px;font-weight:600">' + parseFloat(p.commissionRate || 0).toFixed(1) + '%</span>' +
-          '</div>' +
-          '<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-muted);margin-bottom:8px">' +
-            '<span><i class="fas fa-coins"></i> R$ ' + parseFloat(p.commission || 0).toFixed(2) + '</span>' +
-            '<span><i class="fas fa-star" style="color:var(--warning)"></i> ' + parseFloat(p.ratingStar || 0).toFixed(1) + '</span>' +
-            '<span><i class="fas fa-shopping-cart"></i> ' + (p.sales || 0) + '</span>' +
-          '</div>' +
-          '<button class="btn btn-primary btn-sm" style="width:100%;background:#EE4D2D;border-color:#EE4D2D;font-size:11px" onclick="quickGenerateLink(\'' + (p.productLink || p.offerLink || '').replace(/'/g, "\\'") + '\',\'' + (p.productName || '').replace(/'/g, "\\'") + '\',' + (p.priceMin || p.priceMax || 0) + ',' + (p.commissionRate || 0) + ')">' +
-            '<i class="fas fa-link"></i> Gerar Link Afiliado' +
-          '</button>' +
-        '</div>' +
-      '</div>';
-    });
-    grid.innerHTML = html;
+    if (!append) searchAllData = [];
+    searchAllData = searchAllData.concat(result.nodes);
+    applySearchFilter();
 
     var loadMoreBtn = document.getElementById('shopeeLoadMore');
     if (result.pageInfo && result.pageInfo.hasNextPage) {
@@ -6240,6 +6477,272 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
       loadMoreBtn.style.display = 'none';
     }
   }
+
+  // Render unified search card (same style as top offers)
+  function renderSearchCard(p, idx) {
+    var price = parseFloat(p.priceMin || p.priceMax || 0);
+    var priceMax = parseFloat(p.priceMax || 0);
+    var discount = parseFloat(p.priceDiscountRate || 0);
+    var commRate = parseFloat(p.commissionRate || 0);
+    var commission = parseFloat(p.commission || 0);
+    var rating = parseFloat(p.ratingStar || 0);
+    var sales = p.sales || 0;
+    var itemId = p.itemId || ('s' + idx);
+    var isChecked = searchSelected[itemId] ? ' checked' : '';
+    var isFav = topOffersFavorites[itemId] ? true : false;
+
+    var shopType = (p.shopType || '').toLowerCase();
+    var shopBadge = '';
+    if (shopType.indexOf('mall') >= 0) shopBadge = '<span class="to-shop-badge mall">Mall</span>';
+    else if (shopType.indexOf('preferred') >= 0 || shopType.indexOf('star') >= 0) shopBadge = '<span class="to-shop-badge preferred">Star</span>';
+
+    var discountBadge = discount > 0 ? '<span class="to-discount">-' + discount.toFixed(0) + '%</span>' : '';
+    var originalPrice = discount > 0 && priceMax > price ? '<span class="to-price-original">R$ ' + priceMax.toFixed(2) + '</span>' : '';
+
+    var commTitle = 'Comissão: ' + commRate.toFixed(1) + '%';
+    var productUrl = escTopAttr(p.productLink || p.offerLink || '');
+    var productName = escTopAttr(p.productName || 'Sem nome');
+
+    return '<div class="top-offer-card" data-item-id="' + itemId + '" style="animation-delay:' + (idx * 0.03) + 's">' +
+      '<input type="checkbox" class="to-check" aria-label="Selecionar ' + productName + '"' + isChecked + ' onchange="toggleSearchSelect(\'' + itemId + '\',this)">' +
+      '<button class="to-fav-btn' + (isFav ? ' favorited' : '') + '" onclick="toggleTopOfferFavorite(\'' + itemId + '\',this)" title="Favoritar">' +
+        '<i class="' + (isFav ? 'fas' : 'far') + ' fa-heart"></i>' +
+      '</button>' +
+      discountBadge +
+      '<div class="to-image">' +
+        (p.imageUrl ? '<img src="' + escTopAttr(p.imageUrl) + '" loading="lazy" alt="' + productName + '">' : '<i class="fas fa-image" style="font-size:40px;color:#ddd"></i>') +
+      '</div>' +
+      '<div class="to-body">' +
+        '<div class="to-name" title="' + productName + '">' + (p.productName || 'Sem nome') + '</div>' +
+        '<div class="to-shop">' + escTopAttr(p.shopName || '') + ' ' + shopBadge + '</div>' +
+        '<div class="to-price-row">' +
+          '<span><span class="to-price">R$ ' + price.toFixed(2) + '</span>' + originalPrice + '</span>' +
+          '<span class="to-commission-badge" title="' + escTopAttr(commTitle) + '">' + commRate.toFixed(1) + '% &middot; <span class="to-commission-value">R$ ' + commission.toFixed(2) + '</span></span>' +
+        '</div>' +
+        '<div class="to-stats">' +
+          '<span>' + renderStarRating(rating) + '</span>' +
+          '<span><i class="fas fa-shopping-cart"></i> ' + formatSalesCount(sales) + ' vendas</span>' +
+        '</div>' +
+        '<div class="to-actions">' +
+          '<button class="btn btn-primary btn-sm" style="background:#EE4D2D;border-color:#EE4D2D;font-size:11px" onclick="quickGenerateSearchLink(this,\'' + productUrl + '\',\'' + productName + '\',' + price + ',' + commRate + ')">' +
+            '<i class="fas fa-copy"></i> Link' +
+          '</button>' +
+          '<button class="btn btn-sm to-btn-whatsapp" style="font-size:11px" onclick="copySearchWhatsAppMsg(this,\'' + productUrl + '\',\'' + productName + '\',' + price + ',' + priceMax + ',' + discount + ',' + commRate + ')" title="Copiar mensagem WhatsApp">' +
+            '<i class="fab fa-whatsapp"></i> Msg' +
+          '</button>' +
+          '<button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="window.open(\'' + productUrl + '\',\'_blank\')" title="Abrir na Shopee">' +
+            '<i class="fas fa-external-link-alt"></i>' +
+          '</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  // Apply client-side filters to search results
+  window.applySearchFilter = function() {
+    var minComm = parseFloat(document.getElementById('searchMinComm').value) || 0;
+    var minRating = parseFloat(document.getElementById('searchMinRating').value) || 0;
+    var priceRange = document.getElementById('searchPriceRange').value;
+    var grid = document.getElementById('shopeeProductsGrid');
+
+    var filtered = searchAllData.filter(function(p) {
+      var pPrice = parseFloat(p.priceMin || p.priceMax || 0);
+      if (parseFloat(p.commissionRate || 0) < minComm) return false;
+      if (parseFloat(p.ratingStar || 0) < minRating) return false;
+      if (priceRange) {
+        if (priceRange === '300+') { if (pPrice < 300) return false; }
+        else {
+          var parts = priceRange.split('-');
+          if (pPrice < parseFloat(parts[0]) || pPrice > parseFloat(parts[1])) return false;
+        }
+      }
+      return true;
+    });
+
+    if (filtered.length === 0 && searchAllData.length > 0) {
+      grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><i class="fas fa-filter"></i><p>Nenhum produto corresponde aos filtros</p><button class="btn btn-secondary btn-sm" onclick="clearSearchFilters()" style="margin-top:8px"><i class="fas fa-times"></i> Limpar filtros</button></div>';
+      document.getElementById('searchProductsCount').textContent = '0 de ' + searchAllData.length + ' resultados';
+      return;
+    }
+
+    var html = '';
+    filtered.forEach(function(p, i) { html += renderSearchCard(p, i); });
+    grid.innerHTML = html;
+
+    var countText = filtered.length + ' produto' + (filtered.length !== 1 ? 's' : '');
+    if (filtered.length < searchAllData.length) countText += ' (filtrados de ' + searchAllData.length + ')';
+    document.getElementById('searchProductsCount').textContent = countText;
+  };
+
+  window.clearSearchFilters = function() {
+    document.getElementById('searchMinComm').value = '0';
+    document.getElementById('searchMinRating').value = '0';
+    document.getElementById('searchPriceRange').value = '';
+    if (searchAllData.length > 0) applySearchFilter();
+  };
+
+  window.toggleSearchView = function(mode) {
+    var grid = document.getElementById('shopeeProductsGrid');
+    var buttons = document.querySelectorAll('#shopee-search .to-view-toggle button');
+    buttons.forEach(function(b) { b.classList.remove('active'); });
+    if (mode === 'list') {
+      grid.classList.add('list-view');
+      if (buttons[1]) buttons[1].classList.add('active');
+    } else {
+      grid.classList.remove('list-view');
+      if (buttons[0]) buttons[0].classList.add('active');
+    }
+  };
+
+  // Search selection management
+  window.toggleSearchSelect = function(itemId, el) {
+    if (el.checked) {
+      var product = searchAllData.find(function(p) { return (p.itemId || '') == itemId; });
+      if (product) searchSelected[itemId] = product;
+    } else {
+      delete searchSelected[itemId];
+    }
+    updateSearchBatchBar();
+  };
+
+  function updateSearchBatchBar() {
+    var count = Object.keys(searchSelected).length;
+    var bar = document.getElementById('searchBatchBar');
+    var countEl = document.getElementById('searchBatchCount');
+    if (count > 0) {
+      bar.classList.add('active');
+      countEl.textContent = count + ' produto' + (count > 1 ? 's' : '') + ' selecionado' + (count > 1 ? 's' : '');
+    } else {
+      bar.classList.remove('active');
+    }
+  }
+
+  window.clearSearchSelection = function() {
+    searchSelected = {};
+    document.querySelectorAll('#shopee-search .to-check').forEach(function(el) { el.checked = false; });
+    updateSearchBatchBar();
+  };
+
+  window.quickGenerateSearchLink = async function(btnEl, url, name, price, rate) {
+    var origHtml = btnEl.innerHTML;
+    btnEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    btnEl.disabled = true;
+    try {
+      var subId = document.getElementById('searchSubId').value || 'whatsapp';
+      var result = await serverPost('/api/shopee/generate-link', { url: url, subId: subId, productName: name, price: price, commissionRate: rate });
+      if (result && result.affiliateUrl) {
+        btnEl.innerHTML = '<i class="fas fa-check"></i> Copiado!';
+        btnEl.style.background = 'var(--accent)';
+        btnEl.style.borderColor = 'var(--accent)';
+        navigator.clipboard.writeText(result.affiliateUrl).then(function() {
+          showToast('Link copiado!', 'success');
+        }).catch(function() { prompt('Link gerado:', result.affiliateUrl); });
+        setTimeout(function() { btnEl.innerHTML = origHtml; btnEl.style.background = '#EE4D2D'; btnEl.style.borderColor = '#EE4D2D'; btnEl.disabled = false; }, 2000);
+      }
+    } catch(e) { btnEl.innerHTML = origHtml; btnEl.disabled = false; showToast('Erro: ' + e.message, 'error'); }
+  };
+
+  window.copySearchWhatsAppMsg = async function(btnEl, url, name, price, priceMax, discount, commRate) {
+    var origHtml = btnEl.innerHTML;
+    btnEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    btnEl.disabled = true;
+    try {
+      var subId = document.getElementById('searchSubId').value || 'whatsapp';
+      var result = await serverPost('/api/shopee/generate-link', { url: url, subId: subId, productName: name, price: price, commissionRate: commRate });
+      if (result && result.affiliateUrl) {
+        var msg = buildWhatsAppMessage(name, price, priceMax, discount, commRate, result.affiliateUrl, '', 0);
+        await navigator.clipboard.writeText(msg).catch(function() { prompt('Mensagem:', msg); });
+        btnEl.innerHTML = '<i class="fas fa-check"></i>';
+        btnEl.style.background = 'var(--accent)';
+        btnEl.style.borderColor = 'var(--accent)';
+        showToast('Mensagem WhatsApp copiada!', 'success');
+        setTimeout(function() { btnEl.innerHTML = origHtml; btnEl.style.background = '#25D366'; btnEl.style.borderColor = '#25D366'; btnEl.disabled = false; }, 2000);
+      }
+    } catch(e) { btnEl.innerHTML = origHtml; btnEl.disabled = false; showToast('Erro: ' + e.message, 'error'); }
+  };
+
+  // Build WhatsApp message using active template
+  function buildWhatsAppMessage(name, price, priceMax, discount, commRate, link, shopName, rating, sales) {
+    var decodeName = (name || 'Produto').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'");
+    // Find active template (first one or user selected)
+    var tpl = shopeeMessageTemplates.length > 0 ? shopeeMessageTemplates[0].template : '';
+    if (!tpl) {
+      // Default fallback
+      if (discount > 0 && priceMax > price) {
+        return '\uD83D\uDD25 *' + decodeName + '*\n\n\uD83D\uDCB0 De ~R$ ' + parseFloat(priceMax).toFixed(2) + '~ por *R$ ' + parseFloat(price).toFixed(2) + '*\n\uD83C\uDFF7\uFE0F ' + parseFloat(discount).toFixed(0) + '% OFF\n\n\uD83D\uDC49 ' + link + '\n\n\u23F0 Corre que \u00e9 por tempo limitado!';
+      }
+      return '\uD83D\uDD25 *' + decodeName + '*\n\n\uD83D\uDCB0 Por apenas *R$ ' + parseFloat(price).toFixed(2) + '*\n\n\uD83D\uDC49 ' + link + '\n\n\u23F0 Corre que \u00e9 por tempo limitado!';
+    }
+    // Replace template variables
+    return tpl
+      .replace(/\{\{productName\}\}/g, decodeName)
+      .replace(/\{\{price\}\}/g, parseFloat(price).toFixed(2))
+      .replace(/\{\{originalPrice\}\}/g, parseFloat(priceMax || price).toFixed(2))
+      .replace(/\{\{discount\}\}/g, parseFloat(discount || 0).toFixed(0))
+      .replace(/\{\{link\}\}/g, link || '')
+      .replace(/\{\{shopName\}\}/g, (shopName || '').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>'))
+      .replace(/\{\{rating\}\}/g, parseFloat(rating || 0).toFixed(1))
+      .replace(/\{\{sales\}\}/g, String(sales || 0))
+      .replace(/\{\{commissionRate\}\}/g, parseFloat(commRate || 0).toFixed(1));
+  }
+
+  // Batch operations for search
+  window.batchSearchGenerateLinks = function() {
+    var items = Object.values(searchSelected);
+    if (items.length === 0) return;
+    showConfirm('Gerar links afiliados para ' + items.length + ' produto' + (items.length > 1 ? 's' : '') + '?', async function() {
+      var subId = document.getElementById('searchSubId').value || 'whatsapp';
+      var generated = [];
+      var errors = 0;
+      var btn = document.getElementById('searchBatchLinkBtn');
+      var origHtml = btn.innerHTML;
+      for (var i = 0; i < items.length; i++) {
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> ' + (i + 1) + '/' + items.length;
+        btn.disabled = true;
+        try {
+          var p = items[i];
+          var result = await serverPost('/api/shopee/generate-link', { url: p.productLink || p.offerLink || '', subId: subId, productName: p.productName || '', price: p.priceMin || p.priceMax || 0, commissionRate: p.commissionRate || 0 });
+          if (result && result.affiliateUrl) generated.push(result.affiliateUrl);
+        } catch(e) { errors++; }
+      }
+      btn.innerHTML = origHtml; btn.disabled = false;
+      if (generated.length > 0) {
+        navigator.clipboard.writeText(generated.join('\n')).then(function() { showToast(generated.length + ' links copiados!', 'success'); }).catch(function() { prompt('Links:', generated.join('\n')); });
+      }
+      if (errors > 0) showToast(errors + ' falharam', 'warning');
+      clearSearchSelection();
+    });
+  };
+
+  window.batchSearchWhatsAppMessages = function() {
+    var items = Object.values(searchSelected);
+    if (items.length === 0) return;
+    showConfirm('Gerar mensagens WhatsApp para ' + items.length + ' produto' + (items.length > 1 ? 's' : '') + '?', async function() {
+      var subId = document.getElementById('searchSubId').value || 'whatsapp';
+      var messages = [];
+      var errors = 0;
+      var btn = document.getElementById('searchBatchWaBtn');
+      var origHtml = btn.innerHTML;
+      for (var i = 0; i < items.length; i++) {
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> ' + (i + 1) + '/' + items.length;
+        btn.disabled = true;
+        try {
+          var p = items[i];
+          var result = await serverPost('/api/shopee/generate-link', { url: p.productLink || p.offerLink || '', subId: subId, productName: p.productName || '', price: p.priceMin || p.priceMax || 0, commissionRate: p.commissionRate || 0 });
+          if (result && result.affiliateUrl) {
+            var msg = buildWhatsAppMessage(p.productName, p.priceMin || p.priceMax || 0, p.priceMax || 0, p.priceDiscountRate || 0, p.commissionRate || 0, result.affiliateUrl, p.shopName || '', p.ratingStar || 0, p.sales || 0);
+            messages.push(msg);
+          }
+        } catch(e) { errors++; }
+      }
+      btn.innerHTML = origHtml; btn.disabled = false;
+      if (messages.length > 0) {
+        navigator.clipboard.writeText(messages.join('\n\n---\n\n')).then(function() { showToast(messages.length + ' mensagens copiadas!', 'success'); }).catch(function() { prompt('Mensagens:', messages.join('\n\n---\n\n')); });
+      }
+      if (errors > 0) showToast(errors + ' erros', 'warning');
+      clearSearchSelection();
+    });
+  };
 
   window.quickGenerateLink = async function(url, name, price, rate) {
     try {
@@ -6848,15 +7351,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
       var subId = document.getElementById('topOffersSubId').value || 'whatsapp';
       var result = await serverPost('/api/shopee/generate-link', { url: url, subId: subId, productName: name, price: price, commissionRate: commRate });
       if (result && result.affiliateUrl) {
-        var msg = '\uD83D\uDD25 *' + (name || 'Produto').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'") + '*\n\n';
-        if (discount > 0 && priceMax > price) {
-          msg += '\uD83D\uDCB0 De ~R$ ' + parseFloat(priceMax).toFixed(2) + '~ por *R$ ' + parseFloat(price).toFixed(2) + '*\n';
-          msg += '\uD83C\uDFF7\uFE0F ' + parseFloat(discount).toFixed(0) + '% OFF\n\n';
-        } else {
-          msg += '\uD83D\uDCB0 Por apenas *R$ ' + parseFloat(price).toFixed(2) + '*\n\n';
-        }
-        msg += '\uD83D\uDC49 ' + result.affiliateUrl + '\n\n';
-        msg += '\u23F0 Corre que \u00e9 por tempo limitado!';
+        var msg = buildWhatsAppMessage(name, price, priceMax, discount, commRate, result.affiliateUrl, '', 0, 0);
 
         await navigator.clipboard.writeText(msg).catch(function() { prompt('Mensagem:', msg); });
         btnEl.innerHTML = '<i class="fas fa-check"></i>';
@@ -6897,12 +7392,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
             productName: p.productName || '', price: p.priceMin || p.priceMax || 0, commissionRate: p.commissionRate || 0
           });
           if (result && result.affiliateUrl) {
-            var price = parseFloat(p.priceMin || p.priceMax || 0);
-            var discount = parseFloat(p.priceDiscountRate || 0);
-            var msg = '\uD83D\uDD25 *' + (p.productName || 'Produto') + '*\n';
-            msg += '\uD83D\uDCB0 *R$ ' + price.toFixed(2) + '*';
-            if (discount > 0) msg += ' (-' + discount.toFixed(0) + '%)';
-            msg += '\n\uD83D\uDED2 ' + result.affiliateUrl;
+            var msg = buildWhatsAppMessage(p.productName, p.priceMin || p.priceMax || 0, p.priceMax || 0, p.priceDiscountRate || 0, p.commissionRate || 0, result.affiliateUrl, p.shopName || '', p.ratingStar || 0, p.sales || 0);
             messages.push(msg);
           }
         } catch(e) { errors++; }
@@ -6948,6 +7438,209 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     }
     applyTopOffersClientFilter();
   };
+
+  // ===== CONVERSION FUNNEL / DASHBOARD =====
+  window.loadConversionFunnel = async function() {
+    try {
+      var days = parseInt(document.getElementById('funnelPeriod').value) || 30;
+      var data = await serverFetch('/api/shopee/conversion-funnel?days=' + days);
+      if (!data || !data.funnel) return;
+
+      var f = data.funnel;
+      document.getElementById('funnelClicks').textContent = f.clicks;
+      document.getElementById('funnelUniqueVisitors').textContent = f.uniqueVisitors + ' únicos';
+      document.getElementById('funnelOrders').textContent = f.totalOrders;
+      document.getElementById('funnelOrderAmount').textContent = 'R$ ' + parseFloat(f.totalOrderAmount).toFixed(2);
+      document.getElementById('funnelCompleted').textContent = f.completedOrders;
+      document.getElementById('funnelCompletedComm').textContent = 'R$ ' + parseFloat(f.completedCommission).toFixed(2);
+      document.getElementById('funnelPending').textContent = f.pendingOrders;
+      document.getElementById('funnelPendingComm').textContent = 'R$ ' + parseFloat(f.pendingCommission).toFixed(2);
+      document.getElementById('funnelCancelled').textContent = f.cancelledOrders;
+
+      var totalComm = parseFloat(f.completedCommission) + parseFloat(f.pendingCommission);
+      document.getElementById('funnelTotalComm').textContent = 'R$ ' + totalComm.toFixed(2);
+
+      var convRate = f.uniqueVisitors > 0 ? ((f.totalOrders / f.uniqueVisitors) * 100).toFixed(1) : '0';
+      document.getElementById('funnelConvRate').textContent = convRate + '%';
+
+      // Animate funnel bars
+      var maxVal = Math.max(f.clicks, 1);
+      document.getElementById('funnelClicksFill').style.width = '100%';
+      document.getElementById('funnelOrdersFill').style.width = Math.max((f.totalOrders / maxVal) * 100, 2) + '%';
+      document.getElementById('funnelCompletedFill').style.width = Math.max((f.completedOrders / maxVal) * 100, 2) + '%';
+      document.getElementById('funnelPendingFill').style.width = Math.max((f.pendingOrders / maxVal) * 100, 2) + '%';
+
+      // Top products table
+      if (data.topProducts && data.topProducts.length > 0) {
+        var html = '';
+        data.topProducts.forEach(function(p, i) {
+          html += '<tr>' +
+            '<td style="font-size:12px;color:var(--text-muted)">' + (i + 1) + '</td>' +
+            '<td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis">' + escTopAttr(p.item_name || '-') + '</td>' +
+            '<td style="font-size:12px">' + escTopAttr(p.shop_name || '-') + '</td>' +
+            '<td style="font-size:12px">' + (p.order_count || 0) + '</td>' +
+            '<td style="font-size:12px">R$ ' + parseFloat(p.total_sales || 0).toFixed(2) + '</td>' +
+            '<td style="font-size:12px;color:var(--accent);font-weight:600">R$ ' + parseFloat(p.total_commission || 0).toFixed(2) + '</td>' +
+          '</tr>';
+        });
+        document.getElementById('topProductsTable').innerHTML = html;
+      }
+
+      // Load daily chart
+      loadDailyPerformanceChart(days);
+    } catch(e) { console.error('Funnel error:', e); showToast('Erro ao carregar dashboard: ' + e.message, 'error'); }
+  };
+
+  async function loadDailyPerformanceChart(days) {
+    try {
+      var rpl = await serverFetch('/api/shopee/revenue-per-lead?days=' + days);
+      if (!rpl || !rpl.daily) return;
+
+      var ctx = document.getElementById('shopeeDailyChart');
+      if (!ctx) return;
+      if (shopeeDailyChart) shopeeDailyChart.destroy();
+
+      var labels = rpl.daily.map(function(d) { return new Date(d.date).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }); });
+      var clicksData = rpl.daily.map(function(d) { return parseInt(d.clicks) || 0; });
+      var ordersData = rpl.daily.map(function(d) { return parseInt(d.orders) || 0; });
+      var commData = rpl.daily.map(function(d) { return parseFloat(d.commission) || 0; });
+
+      shopeeDailyChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [
+            { label: 'Cliques', data: clicksData, backgroundColor: 'rgba(74,144,217,0.6)', borderRadius: 4, yAxisID: 'y' },
+            { label: 'Pedidos', data: ordersData, backgroundColor: 'rgba(238,77,45,0.7)', borderRadius: 4, yAxisID: 'y' },
+            { label: 'Comissão (R$)', data: commData, type: 'line', borderColor: '#25D366', backgroundColor: 'rgba(37,211,102,0.1)', fill: true, tension: 0.3, pointRadius: 3, yAxisID: 'y1' }
+          ]
+        },
+        options: {
+          responsive: true,
+          interaction: { mode: 'index', intersect: false },
+          plugins: { legend: { labels: { color: 'var(--text-secondary)', font: { size: 11 } } } },
+          scales: {
+            x: { ticks: { color: 'var(--text-muted)', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } },
+            y: { position: 'left', ticks: { color: 'var(--text-muted)', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } },
+            y1: { position: 'right', ticks: { color: 'var(--text-muted)', font: { size: 10 }, callback: function(v) { return 'R$' + v; } }, grid: { display: false } }
+          }
+        }
+      });
+    } catch(e) { console.error('Daily chart error:', e); }
+  }
+
+  // ===== MESSAGE TEMPLATES =====
+  async function loadMessageTemplates() {
+    try {
+      var templates = await serverFetch('/api/shopee/message-templates');
+      shopeeMessageTemplates = templates || [];
+      renderTemplates();
+      updateTemplatePreviewSelect();
+    } catch(e) { console.error('Templates error:', e); }
+  }
+
+  function renderTemplates() {
+    var container = document.getElementById('templatesContainer');
+    if (!shopeeMessageTemplates || shopeeMessageTemplates.length === 0) {
+      container.innerHTML = '<div class="empty-state"><p>Nenhum template configurado</p></div>';
+      return;
+    }
+    var html = '';
+    shopeeMessageTemplates.forEach(function(t, i) {
+      html += '<div class="template-card" data-index="' + i + '">' +
+        '<div class="template-header">' +
+          '<input type="text" class="template-name-input" value="' + escTopAttr(t.name || '') + '" placeholder="Nome do template" onchange="updateTemplateName(' + i + ',this.value)">' +
+          (i === 0 ? '<span class="template-default-badge">Padrão</span>' : '<button class="btn btn-sm" onclick="setDefaultTemplate(' + i + ')" style="font-size:10px" title="Definir como padrão"><i class="fas fa-star"></i></button>') +
+          '<button class="btn btn-sm" onclick="removeTemplate(' + i + ')" style="font-size:11px;color:var(--danger)" title="Remover"><i class="fas fa-trash"></i></button>' +
+        '</div>' +
+        '<textarea class="template-textarea" placeholder="Escreva sua mensagem usando as variáveis..." onchange="updateTemplateText(' + i + ',this.value)">' + escTopAttr(t.template || '') + '</textarea>' +
+        '<div class="template-actions">' +
+          '<button class="btn btn-sm" onclick="previewTemplate(' + i + ')" style="font-size:11px"><i class="fas fa-eye"></i> Pré-visualizar</button>' +
+          '<button class="btn btn-primary btn-sm" onclick="saveTemplates()" style="font-size:11px;background:#25D366;border-color:#25D366"><i class="fas fa-save"></i> Salvar</button>' +
+        '</div>' +
+      '</div>';
+    });
+    container.innerHTML = html;
+  }
+
+  function updateTemplatePreviewSelect() {
+    var select = document.getElementById('previewTemplateSelect');
+    if (!select) return;
+    var html = '';
+    shopeeMessageTemplates.forEach(function(t, i) {
+      html += '<option value="' + i + '">' + escTopAttr(t.name || 'Template ' + (i + 1)) + '</option>';
+    });
+    select.innerHTML = html;
+    updateTemplatePreview();
+  }
+
+  window.updateTemplatePreview = function() {
+    var select = document.getElementById('previewTemplateSelect');
+    var idx = parseInt(select.value) || 0;
+    var t = shopeeMessageTemplates[idx];
+    if (!t) return;
+    var preview = t.template
+      .replace(/\{\{productName\}\}/g, 'Fone Bluetooth XYZ Pro')
+      .replace(/\{\{price\}\}/g, '89.90')
+      .replace(/\{\{originalPrice\}\}/g, '149.90')
+      .replace(/\{\{discount\}\}/g, '40')
+      .replace(/\{\{link\}\}/g, 'https://s.shopee.com.br/abc123')
+      .replace(/\{\{shopName\}\}/g, 'Tech Store BR')
+      .replace(/\{\{rating\}\}/g, '4.8')
+      .replace(/\{\{sales\}\}/g, '2.5k')
+      .replace(/\{\{commissionRate\}\}/g, '12.5');
+    document.getElementById('templatePreviewText').textContent = preview;
+  };
+
+  window.addNewTemplate = function() {
+    shopeeMessageTemplates.push({
+      id: 'custom_' + Date.now(),
+      name: 'Novo Template',
+      template: '\uD83D\uDD25 *{{productName}}*\n\n\uD83D\uDCB0 *R$ {{price}}*\n\n\uD83D\uDC49 {{link}}'
+    });
+    renderTemplates();
+    updateTemplatePreviewSelect();
+  };
+
+  window.updateTemplateName = function(idx, value) {
+    if (shopeeMessageTemplates[idx]) shopeeMessageTemplates[idx].name = value;
+  };
+
+  window.updateTemplateText = function(idx, value) {
+    if (shopeeMessageTemplates[idx]) shopeeMessageTemplates[idx].template = value;
+  };
+
+  window.removeTemplate = function(idx) {
+    if (shopeeMessageTemplates.length <= 1) { showToast('Mantenha pelo menos 1 template', 'error'); return; }
+    shopeeMessageTemplates.splice(idx, 1);
+    renderTemplates();
+    updateTemplatePreviewSelect();
+  };
+
+  window.setDefaultTemplate = function(idx) {
+    var t = shopeeMessageTemplates.splice(idx, 1)[0];
+    shopeeMessageTemplates.unshift(t);
+    renderTemplates();
+    updateTemplatePreviewSelect();
+    showToast('Template "' + t.name + '" definido como padrão', 'success');
+  };
+
+  window.previewTemplate = function(idx) {
+    document.getElementById('previewTemplateSelect').value = idx;
+    updateTemplatePreview();
+  };
+
+  window.saveTemplates = async function() {
+    try {
+      await serverPost('/api/shopee/message-templates', { templates: shopeeMessageTemplates });
+      showToast('Templates salvos com sucesso!', 'success');
+    } catch(e) { showToast('Erro: ' + e.message, 'error'); }
+  };
+
+  // Load templates on startup (silently)
+  serverFetch('/api/shopee/message-templates').then(function(t) {
+    if (t && t.length > 0) shopeeMessageTemplates = t;
+  }).catch(function() {});
 
   // ===== SHOPEE CONFIG =====
   window.saveShopeeConfig = async function() {

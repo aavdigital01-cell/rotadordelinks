@@ -2569,6 +2569,216 @@ app.post('/api/settings/shopee', authMiddleware, async function(req, res) {
   }
 });
 
+// ===== SHOPEE ENHANCED ANALYTICS =====
+
+// Revenue per lead - correlates whatsapp clicks with shopee commissions
+app.get('/api/shopee/revenue-per-lead', authMiddleware, async function(req, res) {
+  try {
+    var days = validateDays(req.query.days, 30);
+
+    // Total unique clicks with whatsapp context (leads)
+    var clicksResult = await pool.query(
+      "SELECT COUNT(*) as total_clicks, COUNT(DISTINCT ip) as unique_leads " +
+      "FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day')",
+      [days]
+    );
+
+    // Total commissions from whatsapp subId
+    var commissionsResult = await pool.query(
+      "SELECT COUNT(*) as total_orders, " +
+      "COALESCE(SUM(commission), 0) as total_commission, " +
+      "COALESCE(SUM(order_amount), 0) as total_sales " +
+      "FROM shopee_commissions WHERE sub_id = 'whatsapp' AND order_created_at >= NOW() - ($1 * INTERVAL '1 day')",
+      [days]
+    );
+
+    var totalClicks = parseInt(clicksResult.rows[0].total_clicks) || 0;
+    var uniqueLeads = parseInt(clicksResult.rows[0].unique_leads) || 0;
+    var totalOrders = parseInt(commissionsResult.rows[0].total_orders) || 0;
+    var totalCommission = parseFloat(commissionsResult.rows[0].total_commission) || 0;
+    var totalSales = parseFloat(commissionsResult.rows[0].total_sales) || 0;
+
+    var commissionPerLead = uniqueLeads > 0 ? totalCommission / uniqueLeads : 0;
+    var conversionRate = uniqueLeads > 0 ? (totalOrders / uniqueLeads) * 100 : 0;
+    var avgOrderValue = totalOrders > 0 ? totalSales / totalOrders : 0;
+    var revenuePerClick = totalClicks > 0 ? totalCommission / totalClicks : 0;
+
+    // Daily breakdown
+    var dailyResult = await pool.query(
+      "SELECT d.date, COALESCE(c.clicks, 0) as clicks, COALESCE(c.unique_ips, 0) as unique_leads, " +
+      "COALESCE(s.orders, 0) as orders, COALESCE(s.commission, 0) as commission, COALESCE(s.sales, 0) as sales " +
+      "FROM generate_series(NOW() - ($1 * INTERVAL '1 day'), NOW(), '1 day'::interval) d(date) " +
+      "LEFT JOIN ( " +
+      "  SELECT DATE(timestamp) as dt, COUNT(*) as clicks, COUNT(DISTINCT ip) as unique_ips " +
+      "  FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') GROUP BY DATE(timestamp) " +
+      ") c ON DATE(d.date) = c.dt " +
+      "LEFT JOIN ( " +
+      "  SELECT DATE(order_created_at) as dt, COUNT(*) as orders, SUM(commission) as commission, SUM(order_amount) as sales " +
+      "  FROM shopee_commissions WHERE sub_id = 'whatsapp' AND order_created_at >= NOW() - ($1 * INTERVAL '1 day') GROUP BY DATE(order_created_at) " +
+      ") s ON DATE(d.date) = s.dt " +
+      "ORDER BY d.date",
+      [days]
+    );
+
+    res.json({
+      summary: {
+        totalClicks: totalClicks,
+        uniqueLeads: uniqueLeads,
+        totalOrders: totalOrders,
+        totalCommission: totalCommission,
+        totalSales: totalSales,
+        commissionPerLead: commissionPerLead,
+        conversionRate: conversionRate,
+        avgOrderValue: avgOrderValue,
+        revenuePerClick: revenuePerClick
+      },
+      daily: dailyResult.rows,
+      period: days
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Conversion funnel data
+app.get('/api/shopee/conversion-funnel', authMiddleware, async function(req, res) {
+  try {
+    var days = validateDays(req.query.days, 30);
+
+    var clicks = await pool.query(
+      "SELECT COUNT(*) as total, COUNT(DISTINCT ip) as unique_total " +
+      "FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day')",
+      [days]
+    );
+
+    var orders = await pool.query(
+      "SELECT COUNT(*) as total, COALESCE(SUM(order_amount), 0) as total_amount " +
+      "FROM shopee_commissions WHERE sub_id = 'whatsapp' AND order_created_at >= NOW() - ($1 * INTERVAL '1 day')",
+      [days]
+    );
+
+    var completedOrders = await pool.query(
+      "SELECT COUNT(*) as total, COALESCE(SUM(commission), 0) as total_commission " +
+      "FROM shopee_commissions WHERE sub_id = 'whatsapp' AND status = 'COMPLETED' AND order_created_at >= NOW() - ($1 * INTERVAL '1 day')",
+      [days]
+    );
+
+    var pendingOrders = await pool.query(
+      "SELECT COUNT(*) as total, COALESCE(SUM(commission), 0) as total_commission " +
+      "FROM shopee_commissions WHERE sub_id = 'whatsapp' AND status = 'PENDING' AND order_created_at >= NOW() - ($1 * INTERVAL '1 day')",
+      [days]
+    );
+
+    var cancelledOrders = await pool.query(
+      "SELECT COUNT(*) as total " +
+      "FROM shopee_commissions WHERE sub_id = 'whatsapp' AND status = 'CANCELLED' AND order_created_at >= NOW() - ($1 * INTERVAL '1 day')",
+      [days]
+    );
+
+    // Top earning products
+    var topProducts = await pool.query(
+      "SELECT item_name, shop_name, COUNT(*) as order_count, SUM(commission) as total_commission, SUM(order_amount) as total_sales " +
+      "FROM shopee_commissions WHERE sub_id = 'whatsapp' AND order_created_at >= NOW() - ($1 * INTERVAL '1 day') " +
+      "GROUP BY item_name, shop_name ORDER BY total_commission DESC LIMIT 10",
+      [days]
+    );
+
+    res.json({
+      funnel: {
+        clicks: parseInt(clicks.rows[0].total) || 0,
+        uniqueVisitors: parseInt(clicks.rows[0].unique_total) || 0,
+        totalOrders: parseInt(orders.rows[0].total) || 0,
+        totalOrderAmount: parseFloat(orders.rows[0].total_amount) || 0,
+        completedOrders: parseInt(completedOrders.rows[0].total) || 0,
+        completedCommission: parseFloat(completedOrders.rows[0].total_commission) || 0,
+        pendingOrders: parseInt(pendingOrders.rows[0].total) || 0,
+        pendingCommission: parseFloat(pendingOrders.rows[0].total_commission) || 0,
+        cancelledOrders: parseInt(cancelledOrders.rows[0].total) || 0
+      },
+      topProducts: topProducts.rows,
+      period: days
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// WhatsApp message templates CRUD
+app.get('/api/shopee/message-templates', authMiddleware, async function(req, res) {
+  try {
+    var r = await pool.query("SELECT value FROM settings WHERE key = 'shopee_msg_templates'");
+    var templates = [];
+    if (r.rows.length > 0 && r.rows[0].value && r.rows[0].value.templates) {
+      templates = r.rows[0].value.templates;
+    } else {
+      // Default templates
+      templates = [
+        {
+          id: 'promo',
+          name: 'Promoção Padrão',
+          template: '🔥 *{{productName}}*\n\n💰 De ~R$ {{originalPrice}}~ por *R$ {{price}}*\n🏷️ {{discount}}% OFF\n\n👉 {{link}}\n\n⏰ Corre que é por tempo limitado!'
+        },
+        {
+          id: 'simple',
+          name: 'Simples',
+          template: '🛒 *{{productName}}*\n💰 *R$ {{price}}*\n\n👉 {{link}}'
+        },
+        {
+          id: 'detailed',
+          name: 'Detalhado',
+          template: '🔥 *OFERTA IMPERDÍVEL!*\n\n📦 {{productName}}\n🏪 Loja: {{shopName}}\n\n💰 Por apenas *R$ {{price}}*\n⭐ Avaliação: {{rating}}/5\n📊 Já vendeu {{sales}}x\n💎 Comissão: {{commissionRate}}%\n\n👉 {{link}}\n\n✅ Compre agora na Shopee!'
+        }
+      ];
+    }
+    res.json(templates);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/shopee/message-templates', authMiddleware, async function(req, res) {
+  try {
+    var templates = req.body.templates;
+    if (!templates || !Array.isArray(templates)) {
+      return res.status(400).json({ error: 'Templates inválidos' });
+    }
+
+    // Sanitize templates
+    templates = templates.map(function(t) {
+      return {
+        id: (t.id || '').substring(0, 50),
+        name: (t.name || '').substring(0, 100),
+        template: (t.template || '').substring(0, 2000)
+      };
+    }).slice(0, 20);
+
+    await pool.query(
+      "INSERT INTO settings (key, value, updated_at) VALUES ('shopee_msg_templates', $1, NOW()) " +
+      "ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()",
+      [JSON.stringify({ templates: templates })]
+    );
+
+    res.json({ success: true, templates: templates });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Search shops endpoint
+app.get('/api/shopee/shops', authMiddleware, async function(req, res) {
+  try {
+    var result = await shopeeApi.searchShops({
+      keyword: req.query.keyword || '',
+      page: parseInt(req.query.page) || 1,
+      limit: parseInt(req.query.limit) || 20,
+      sortType: parseInt(req.query.sort) || 2
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ===== MULTI-WHATSAPP NUMBER MANAGEMENT =====
 
 // List connected numbers
