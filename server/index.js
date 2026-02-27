@@ -121,6 +121,14 @@ function mapUser(r) {
   };
 }
 
+// Sanitize days parameter to prevent SQL injection
+function validateDays(input, defaultVal) {
+  var d = parseInt(input, 10);
+  if (isNaN(d) || d < 1) return defaultVal;
+  if (d > 365) return 365;
+  return d;
+}
+
 // ===== CAMPAIGNS =====
 
 app.get('/api/campaigns', authMiddleware, async function(req, res) {
@@ -333,9 +341,10 @@ app.get('/api/clicks/recent', authMiddleware, async function(req, res) {
 
 app.get('/api/clicks/range', authMiddleware, async function(req, res) {
   try {
-    var days = parseInt(req.query.days) || 30;
+    var days = validateDays(req.query.days, 30);
     var result = await pool.query(
-      "SELECT * FROM clicks WHERE timestamp >= NOW() - INTERVAL '" + days + " days' ORDER BY timestamp DESC"
+      "SELECT * FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') ORDER BY timestamp DESC",
+      [days]
     );
     var todayStart = new Date(); todayStart.setHours(0,0,0,0);
     var weekStart = new Date(); weekStart.setDate(weekStart.getDate() - 7);
@@ -374,13 +383,24 @@ app.get('/api/clicks/leads', authMiddleware, async function(req, res) {
   try {
     var limit = parseInt(req.query.limit) || 50;
     var offset = parseInt(req.query.offset) || 0;
-    var days = parseInt(req.query.days) || 0;
-    var whereClause = days > 0 ? "WHERE timestamp >= NOW() - INTERVAL '" + days + " days'" : '';
-    var result = await pool.query(
-      'SELECT * FROM clicks ' + whereClause + ' ORDER BY timestamp DESC LIMIT $1 OFFSET $2',
-      [limit, offset]
-    );
-    var countResult = await pool.query('SELECT COUNT(*) as total FROM clicks ' + whereClause);
+    var days = validateDays(req.query.days, 0);
+    var result, countResult;
+    if (days > 0) {
+      result = await pool.query(
+        "SELECT * FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') ORDER BY timestamp DESC LIMIT $2 OFFSET $3",
+        [days, limit, offset]
+      );
+      countResult = await pool.query(
+        "SELECT COUNT(*) as total FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day')",
+        [days]
+      );
+    } else {
+      result = await pool.query(
+        'SELECT * FROM clicks ORDER BY timestamp DESC LIMIT $1 OFFSET $2',
+        [limit, offset]
+      );
+      countResult = await pool.query('SELECT COUNT(*) as total FROM clicks');
+    }
     res.json({
       clicks: result.rows.map(mapClick),
       total: parseInt(countResult.rows[0].total),
@@ -739,9 +759,10 @@ app.get('/api/member-events/by-group', authMiddleware, async function(req, res) 
 
 app.get('/api/member-events/range', authMiddleware, async function(req, res) {
   try {
-    var days = parseInt(req.query.days) || 7;
+    var days = validateDays(req.query.days, 7);
     var result = await pool.query(
-      "SELECT * FROM member_events WHERE timestamp >= NOW() - INTERVAL '" + days + " days' ORDER BY timestamp DESC"
+      "SELECT * FROM member_events WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') ORDER BY timestamp DESC",
+      [days]
     );
     var dailyStats = {};
     var groupStats = {};
@@ -1265,12 +1286,15 @@ app.delete('/api/users/:uid', authMiddleware, async function(req, res) {
 // Executive summary - all key metrics in one call
 app.get('/api/analytics/summary', authMiddleware, async function(req, res) {
   try {
-    var days = parseInt(req.query.days) || 1;
-    var interval = days === 1 ? 'CURRENT_DATE' : "NOW() - INTERVAL '" + days + " days'";
+    var days = validateDays(req.query.days, 1);
 
     var [clicksR, eventsR, groupsR, metaR, metaSpendR] = await Promise.all([
-      pool.query("SELECT COUNT(*) as total FROM clicks WHERE timestamp >= " + interval),
-      pool.query("SELECT action, COUNT(*) as cnt FROM member_events WHERE timestamp >= " + interval + " GROUP BY action"),
+      days === 1
+        ? pool.query("SELECT COUNT(*) as total FROM clicks WHERE timestamp >= CURRENT_DATE")
+        : pool.query("SELECT COUNT(*) as total FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day')", [days]),
+      days === 1
+        ? pool.query("SELECT action, COUNT(*) as cnt FROM member_events WHERE timestamp >= CURRENT_DATE GROUP BY action")
+        : pool.query("SELECT action, COUNT(*) as cnt FROM member_events WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') GROUP BY action", [days]),
       pool.query('SELECT COALESCE(SUM(current_members),0) as total, COUNT(*) as cnt FROM whatsapp_groups'),
       pool.query('SELECT COALESCE(SUM(clicks),0) as clicks, COALESCE(SUM(impressions),0) as impressions, COALESCE(SUM(conversions),0) as conversions FROM meta_campaigns'),
       pool.query('SELECT COALESCE(SUM(spend),0) as spend FROM meta_campaigns')
@@ -1313,14 +1337,16 @@ app.get('/api/analytics/summary', authMiddleware, async function(req, res) {
 // Heatmap: hourly distribution of clicks and member events
 app.get('/api/analytics/heatmap', authMiddleware, async function(req, res) {
   try {
-    var days = parseInt(req.query.days) || 7;
+    var days = validateDays(req.query.days, 7);
 
     var [clicksR, eventsR] = await Promise.all([
       pool.query(
-        "SELECT EXTRACT(HOUR FROM timestamp) as hour, EXTRACT(DOW FROM timestamp) as dow, COUNT(*) as cnt FROM clicks WHERE timestamp >= NOW() - INTERVAL '" + days + " days' GROUP BY hour, dow ORDER BY dow, hour"
+        "SELECT EXTRACT(HOUR FROM timestamp) as hour, EXTRACT(DOW FROM timestamp) as dow, COUNT(*) as cnt FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') GROUP BY hour, dow ORDER BY dow, hour",
+        [days]
       ),
       pool.query(
-        "SELECT EXTRACT(HOUR FROM timestamp) as hour, EXTRACT(DOW FROM timestamp) as dow, action, COUNT(*) as cnt FROM member_events WHERE timestamp >= NOW() - INTERVAL '" + days + " days' GROUP BY hour, dow, action ORDER BY dow, hour"
+        "SELECT EXTRACT(HOUR FROM timestamp) as hour, EXTRACT(DOW FROM timestamp) as dow, action, COUNT(*) as cnt FROM member_events WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') GROUP BY hour, dow, action ORDER BY dow, hour",
+        [days]
       )
     ]);
 
@@ -1363,16 +1389,18 @@ app.get('/api/analytics/heatmap', authMiddleware, async function(req, res) {
 // Attribution: which campaigns bring members that stay
 app.get('/api/analytics/attribution', authMiddleware, async function(req, res) {
   try {
-    var days = parseInt(req.query.days) || 30;
+    var days = validateDays(req.query.days, 30);
 
     // Get clicks grouped by campaign
     var clicksR = await pool.query(
-      "SELECT campaign_id, COUNT(*) as clicks FROM clicks WHERE campaign_id IS NOT NULL AND timestamp >= NOW() - INTERVAL '" + days + " days' GROUP BY campaign_id"
+      "SELECT campaign_id, COUNT(*) as clicks FROM clicks WHERE campaign_id IS NOT NULL AND timestamp >= NOW() - ($1 * INTERVAL '1 day') GROUP BY campaign_id",
+      [days]
     );
 
     // Get member events for correlation
     var eventsR = await pool.query(
-      "SELECT whatsapp_group_id, action, COUNT(*) as cnt FROM member_events WHERE timestamp >= NOW() - INTERVAL '" + days + " days' GROUP BY whatsapp_group_id, action"
+      "SELECT whatsapp_group_id, action, COUNT(*) as cnt FROM member_events WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') GROUP BY whatsapp_group_id, action",
+      [days]
     );
 
     // Get links to map campaign → whatsapp group
@@ -1566,12 +1594,12 @@ app.get('/api/analytics/smart-alerts', authMiddleware, async function(req, res) 
 // Analytics extras: referrer, OS, city breakdown
 app.get('/api/analytics/breakdown', authMiddleware, async function(req, res) {
   try {
-    var days = parseInt(req.query.days) || 7;
+    var days = validateDays(req.query.days, 7);
     var [refR, osR, cityR, browserR] = await Promise.all([
-      pool.query("SELECT referrer, COUNT(*) as cnt FROM clicks WHERE timestamp >= NOW() - INTERVAL '" + days + " days' AND referrer IS NOT NULL AND referrer != '' GROUP BY referrer ORDER BY cnt DESC LIMIT 20"),
-      pool.query("SELECT os, COUNT(*) as cnt FROM clicks WHERE timestamp >= NOW() - INTERVAL '" + days + " days' AND os IS NOT NULL AND os != '' GROUP BY os ORDER BY cnt DESC LIMIT 10"),
-      pool.query("SELECT city, COUNT(*) as cnt FROM clicks WHERE timestamp >= NOW() - INTERVAL '" + days + " days' AND city IS NOT NULL AND city != '' GROUP BY city ORDER BY cnt DESC LIMIT 20"),
-      pool.query("SELECT browser, COUNT(*) as cnt FROM clicks WHERE timestamp >= NOW() - INTERVAL '" + days + " days' AND browser IS NOT NULL AND browser != '' GROUP BY browser ORDER BY cnt DESC LIMIT 10")
+      pool.query("SELECT referrer, COUNT(*) as cnt FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') AND referrer IS NOT NULL AND referrer != '' GROUP BY referrer ORDER BY cnt DESC LIMIT 20", [days]),
+      pool.query("SELECT os, COUNT(*) as cnt FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') AND os IS NOT NULL AND os != '' GROUP BY os ORDER BY cnt DESC LIMIT 10", [days]),
+      pool.query("SELECT city, COUNT(*) as cnt FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') AND city IS NOT NULL AND city != '' GROUP BY city ORDER BY cnt DESC LIMIT 20", [days]),
+      pool.query("SELECT browser, COUNT(*) as cnt FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') AND browser IS NOT NULL AND browser != '' GROUP BY browser ORDER BY cnt DESC LIMIT 10", [days])
     ]);
 
     res.json({
@@ -2389,7 +2417,7 @@ app.get('/api/shopee/links', authMiddleware, async function(req, res) {
 // Get commission report
 app.get('/api/shopee/commissions', authMiddleware, async function(req, res) {
   try {
-    var days = parseInt(req.query.days) || 30;
+    var days = validateDays(req.query.days, 30);
     var orderStatus = req.query.status || '';
 
     var now = Math.floor(Date.now() / 1000);
@@ -2462,7 +2490,7 @@ app.get('/api/shopee/commissions', authMiddleware, async function(req, res) {
       var conditions = [];
       var paramNum = 1;
 
-      conditions.push('order_created_at >= NOW() - INTERVAL \'' + days + ' days\'');
+      conditions.push('order_created_at >= NOW() - ($' + paramNum + " * INTERVAL '1 day')"); params.push(days); paramNum++;
       if (orderStatus) { conditions.push('status = $' + paramNum); params.push(orderStatus); paramNum++; }
 
       if (conditions.length > 0) query += ' WHERE ' + conditions.join(' AND ');

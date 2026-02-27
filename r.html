@@ -13,6 +13,8 @@ body{background:#0d1b2a;color:#e0e0e0;font-family:system-ui,-apple-system,sans-s
 @keyframes spin{to{transform:rotate(360deg)}}
 .msg{font-size:14px;opacity:.7}
 .error{color:#FF3B30;font-size:14px;margin-top:12px;display:none}
+.retry-btn{display:none;margin-top:16px;padding:10px 24px;background:#25D366;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-family:inherit}
+.retry-btn:hover{background:#1da851}
 </style>
 </head>
 <body>
@@ -20,16 +22,16 @@ body{background:#0d1b2a;color:#e0e0e0;font-family:system-ui,-apple-system,sans-s
 <div class="spinner" id="spinner"></div>
 <div class="msg" id="msg">Redirecionando...</div>
 <div class="error" id="error"></div>
+<button class="retry-btn" id="retryBtn" onclick="location.reload()">Tentar novamente</button>
 </div>
 
 <script>
 (function() {
   'use strict';
 
-  // Server URL inline - elimina request extra do config.js
   var SERVER_URL = 'https://api.promosdetododia.com.br';
+  var CACHE_TTL = 24 * 60 * 60 * 1000; // 24h
 
-  // Pega parâmetros da URL
   var params = new URLSearchParams(window.location.search);
   var campaignSlug = params.get('c');
 
@@ -51,7 +53,7 @@ body{background:#0d1b2a;color:#e0e0e0;font-family:system-ui,-apple-system,sans-s
   clickData.t.push(now);
   localStorage.setItem(clickKey, JSON.stringify(clickData));
 
-  // Coleta dados do visitante (inline, sem funções extras)
+  // Coleta dados do visitante
   var ua = navigator.userAgent;
   var visitor = {
     device: /tablet|ipad/i.test(ua) ? 'Tablet' : /mobile|iphone|android/i.test(ua) ? 'Mobile' : 'Desktop',
@@ -64,108 +66,75 @@ body{background:#0d1b2a;color:#e0e0e0;font-family:system-ui,-apple-system,sans-s
   var seqKey = 'rl_s_' + campaignSlug;
   var seqIdx = parseInt(localStorage.getItem(seqKey) || '0', 10);
 
-  // Faz request ao servidor
-  fetch(SERVER_URL + '/api/rotate', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ slug: campaignSlug, visitor: visitor, sequentialIndex: seqIdx })
-  }).then(function(resp) {
-    if (!resp.ok) {
-      return resp.json().catch(function() { return {}; }).then(function(err) {
-        showError(err.error || 'Erro ao processar redirecionamento.');
-        throw new Error('stop');
+  // Fetch com timeout
+  function fetchWithTimeout(url, opts, ms) {
+    return new Promise(function(resolve, reject) {
+      var timer = setTimeout(function() { reject(new Error('timeout')); }, ms);
+      fetch(url, opts).then(function(resp) {
+        clearTimeout(timer);
+        resolve(resp);
+      }).catch(function(err) {
+        clearTimeout(timer);
+        reject(err);
       });
-    }
-    return resp.json();
-  }).then(function(data) {
-    // Incrementa índice sequencial
-    localStorage.setItem(seqKey, String(seqIdx + 1));
+    });
+  }
 
-    // REDIRECIONA PRIMEIRO - prioridade máxima
-    window.location.replace(data.url);
+  // Tenta rotate com retry
+  function attemptRotate(retries) {
+    return fetchWithTimeout(SERVER_URL + '/api/rotate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug: campaignSlug, visitor: visitor, sequentialIndex: seqIdx })
+    }, 5000).then(function(resp) {
+      if (!resp.ok) {
+        return resp.json().catch(function() { return {}; }).then(function(err) {
+          throw new Error(err.error || 'Erro do servidor');
+        });
+      }
+      return resp.json();
+    }).catch(function(err) {
+      if (retries > 0) {
+        return new Promise(function(resolve) { setTimeout(resolve, 1000); }).then(function() {
+          return attemptRotate(retries - 1);
+        });
+      }
+      throw err;
+    });
+  }
 
-    // Dispara pixels DEPOIS do redirect (browser ainda executa JS pendente)
-    firePixels(data.campaign, data.link);
-  }).catch(function(err) {
-    if (err.message !== 'stop') {
-      showError('Erro ao processar redirecionamento. Tente novamente.');
-    }
-  });
+  // Cache de URL para fallback
+  var cacheKey = 'rl_url_' + campaignSlug;
 
-  // ===== PIXELS DE RASTREAMENTO =====
-  function firePixels(campData, link) {
+  function cacheUrl(url) {
     try {
-      // Facebook Pixel
-      if (campData.fbPixelId) {
-        !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?
-        n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;
-        n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;
-        t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,
-        document,'script','https://connect.facebook.net/en_US/fbevents.js');
-        fbq('init', campData.fbPixelId);
-        fbq('track', 'PageView');
-        fbq('track', campData.fbEventName || 'Lead', {
-          content_name: link.name || '',
-          content_category: campData.name || '',
-          value: 1,
-          currency: 'BRL'
-        });
-      }
-
-      // TikTok Pixel
-      if (campData.ttPixelId) {
-        !function(w,d,t){w.TiktokAnalyticsObject=t;var ttq=w[t]=w[t]||[];ttq.methods=
-        ["page","track","identify","instances","debug","on","off","once","ready","alias",
-        "group","enableCookie","disableCookie"];ttq.setAndDefer=function(t,e){t[e]=function()
-        {t.push([e].concat(Array.prototype.slice.call(arguments,0)))}};for(var i=0;i<
-        ttq.methods.length;i++)ttq.setAndDefer(ttq,ttq.methods[i]);ttq.instance=function(t)
-        {for(var e=ttq._i[t]||[],n=0;n<ttq.methods.length;n++)ttq.setAndDefer(e,ttq.methods[n]);
-        return e};ttq.load=function(e,n){var i="https://analytics.tiktok.com/i18n/pixel/events.js";
-        ttq._i=ttq._i||{};ttq._i[e]=[];ttq._i[e]._u=i;ttq._t=ttq._t||{};ttq._t[e]=+new Date;
-        ttq._o=ttq._o||{};ttq._o[e]=n||{};var o=document.createElement("script");o.type=
-        "text/javascript";o.async=!0;o.src=i+"?sdkid="+e+"&lib="+t;var a=
-        document.getElementsByTagName("script")[0];a.parentNode.insertBefore(o,a)};
-        ttq.load(campData.ttPixelId);ttq.page();}(window,document,'ttq');
-        ttq.track(campData.ttEventName || 'SubmitForm', {
-          content_name: link.name || '',
-          content_type: 'product'
-        });
-      }
-
-      // Google Tag Manager
-      if (campData.gtmId) {
-        (function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),
-        event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),
-        dl=l!='dataLayer'?'&l='+l:'';j.async=true;
-        j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;
-        f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer',campData.gtmId);
-        window.dataLayer = window.dataLayer || [];
-        window.dataLayer.push({
-          event: campData.gtmEventName || 'whatsapp_click',
-          linkName: link.name || '',
-          campaignName: campData.name || '',
-          campaignSlug: campData.slug || ''
-        });
-      }
-
-      // Google Ads Conversion (gtag)
-      if (campData.gadsId) {
-        var gs = document.createElement('script');
-        gs.async = true;
-        gs.src = 'https://www.googletagmanager.com/gtag/js?id=' + campData.gadsId;
-        document.head.appendChild(gs);
-        window.dataLayer = window.dataLayer || [];
-        function gtag(){dataLayer.push(arguments);}
-        gtag('js', new Date());
-        gtag('config', campData.gadsId);
-        if (campData.gadsConversionLabel) {
-          gtag('event', 'conversion', {
-            send_to: campData.gadsId + '/' + campData.gadsConversionLabel
-          });
-        }
-      }
+      localStorage.setItem(cacheKey, JSON.stringify({ url: url, ts: Date.now() }));
     } catch(e) {}
   }
+
+  function getCachedUrl() {
+    try {
+      var data = JSON.parse(localStorage.getItem(cacheKey));
+      if (data && data.url && (Date.now() - data.ts) < CACHE_TTL) return data.url;
+    } catch(e) {}
+    return null;
+  }
+
+  // Executa: 2 tentativas → cache fallback → erro com botão retry
+  attemptRotate(1).then(function(data) {
+    localStorage.setItem(seqKey, String(seqIdx + 1));
+    cacheUrl(data.url);
+    window.location.replace(data.url);
+  }).catch(function(err) {
+    var cached = getCachedUrl();
+    if (cached) {
+      document.getElementById('msg').textContent = 'Usando link salvo...';
+      window.location.replace(cached);
+    } else {
+      showError(err.message || 'Erro ao processar redirecionamento.');
+      document.getElementById('retryBtn').style.display = 'inline-block';
+    }
+  });
 
   function showError(msg) {
     document.getElementById('error').textContent = msg;
