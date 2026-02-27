@@ -956,6 +956,67 @@ select.form-control {
 .to-grid.list-view .top-offer-card .to-actions { min-width: 120px; }
 .to-grid.list-view .top-offer-card .to-discount { position: static; display: inline-block; }
 .to-grid.list-view .top-offer-card .to-check { position: static; margin: auto 0; margin-right: 8px; margin-left: 12px; }
+/* Search bar */
+.to-search-bar {
+  display: flex; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--border); align-items: center;
+}
+.to-search-input-wrap {
+  flex: 1; display: flex; align-items: center; gap: 8px;
+  background: var(--bg-primary); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0 10px;
+  transition: var(--transition);
+}
+.to-search-input-wrap:focus-within { border-color: #EE4D2D; box-shadow: 0 0 0 2px rgba(238,77,45,0.15); }
+.to-search-input-wrap i { color: var(--text-muted); font-size: 12px; }
+.to-search-input-wrap input {
+  flex: 1; border: none; background: none; color: var(--text-primary);
+  font-size: 13px; padding: 8px 0; outline: none; font-family: inherit;
+}
+.to-search-input-wrap input::placeholder { color: var(--text-muted); }
+.to-search-clear {
+  background: none; border: none; color: var(--text-muted); cursor: pointer;
+  padding: 4px; border-radius: 50%; font-size: 11px; transition: var(--transition);
+}
+.to-search-clear:hover { color: var(--danger); background: var(--danger-bg); }
+.to-search-mode-badge {
+  display: none; font-size: 10px; padding: 2px 8px; border-radius: 10px;
+  background: rgba(238,77,45,0.15); color: #EE4D2D; font-weight: 600; white-space: nowrap;
+}
+.to-search-mode-badge.active { display: inline-block; }
+/* Enhanced card visuals */
+.top-offer-card .to-commission-value {
+  color: var(--accent); font-weight: 700; font-size: 13px;
+  background: rgba(37,211,102,0.1); padding: 2px 8px; border-radius: 4px;
+}
+.to-rating-stars { display: inline-flex; gap: 1px; align-items: center; }
+.to-rating-stars i { font-size: 10px; }
+.to-grid.list-view .to-rating-stars i { font-size: 8px; }
+.to-grid.list-view .top-offer-card .to-stats { min-width: 180px; }
+/* WhatsApp message button */
+.to-btn-whatsapp { background: #25D366 !important; border-color: #25D366 !important; color: #fff !important; }
+.to-btn-whatsapp:hover { background: #1da851 !important; }
+/* Favorites */
+.top-offer-card .to-fav-btn {
+  position: absolute; top: 8px; right: 36px; z-index: 2;
+  width: 26px; height: 26px; border-radius: 50%;
+  background: rgba(0,0,0,0.3); border: none; color: rgba(255,255,255,0.7);
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  font-size: 12px; transition: var(--transition);
+}
+.top-offer-card .to-fav-btn:hover { background: rgba(255,66,78,0.3); color: #ff424e; }
+.top-offer-card .to-fav-btn.favorited { background: rgba(255,66,78,0.2); color: #ff424e; }
+.to-fav-filter-btn {
+  background: none; border: 1px solid var(--border); color: var(--text-muted); font-size: 11px;
+  cursor: pointer; padding: 4px 10px; border-radius: 4px; transition: var(--transition);
+  display: flex; align-items: center; gap: 4px; align-self: flex-end;
+}
+.to-fav-filter-btn:hover { border-color: #ff424e; color: #ff424e; }
+.to-fav-filter-btn.active { background: rgba(255,66,78,0.12); border-color: #ff424e; color: #ff424e; }
+.to-grid.list-view .top-offer-card .to-fav-btn { position: static; margin: auto 0; margin-right: 4px; min-width: 24px; width: 24px; height: 24px; }
+/* Onboarding */
+.to-onboarding { text-align: center; padding: 48px 16px; grid-column: 1 / -1; }
+.to-onboarding h3 { font-size: 16px; margin-bottom: 8px; color: var(--text-primary); }
+.to-onboarding p { font-size: 13px; color: var(--text-secondary); margin-bottom: 16px; max-width: 360px; margin-left: auto; margin-right: auto; }
+.to-onboarding .btn { background: #EE4D2D; border-color: #EE4D2D; }
 /* Skeleton */
 .to-skeleton-card { background: var(--bg-secondary); border-radius: var(--radius-sm); border: 1px solid var(--border); overflow: hidden; }
 .to-skeleton-card .to-skel-img { height: 160px; }
@@ -1000,6 +1061,13 @@ select.form-control {
   .to-grid.list-view .top-offer-card .to-shop { display: none; }
   .to-grid.list-view .top-offer-card .to-stats { min-width: auto; }
   .to-batch-bar { flex-direction: column; text-align: center; }
+  .to-search-bar { flex-direction: column; }
+  .to-search-bar .btn { width: 100%; }
+  .top-offer-card .to-fav-btn { right: 8px; top: 36px; }
+  .to-rating-stars i { font-size: 8px; }
+}
+@media (max-width: 400px) {
+  .to-rating-stars i { display: none; }
 }
 
 /* Toggle switch */
@@ -2545,6 +2613,16 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
               </button>
             </div>
           </div>
+          <!-- Search bar -->
+          <div class="to-search-bar">
+            <div class="to-search-input-wrap">
+              <i class="fas fa-search"></i>
+              <input type="text" id="topOffersSearchInput" placeholder="Buscar produtos na Shopee..." oninput="toggleTopSearchClear(this)" onkeydown="if(event.key==='Enter')searchTopOffers()">
+              <button class="to-search-clear" id="topOffersSearchClear" onclick="clearTopOffersSearch()" style="display:none"><i class="fas fa-times"></i></button>
+            </div>
+            <span class="to-search-mode-badge" id="topOffersSearchBadge">Busca ativa</span>
+            <button class="btn btn-primary btn-sm" onclick="searchTopOffers()" style="background:#EE4D2D;border-color:#EE4D2D"><i class="fas fa-search"></i> Buscar</button>
+          </div>
           <!-- Mobile: collapsed filter toggle -->
           <button class="to-mobile-filter-toggle" onclick="toggleTopOffersFilterPanel()">
             <i class="fas fa-sliders-h"></i> Filtros <span class="to-filter-count" id="topOffersActiveFilterCount" style="display:none">0</span>
@@ -2581,7 +2659,18 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
                 <option value="4.5">&#9733; 4.5+</option>
               </select>
             </div>
+            <div class="to-filter-group">
+              <label>Preço</label>
+              <select class="form-control" id="topOffersPriceRange" onchange="applyTopOffersClientFilter()">
+                <option value="">Todos</option>
+                <option value="0-50">Até R$50</option>
+                <option value="50-100">R$50 - R$100</option>
+                <option value="100-300">R$100 - R$300</option>
+                <option value="300+">Acima de R$300</option>
+              </select>
+            </div>
             <button class="to-clear-filters" onclick="clearTopOffersFilters()" title="Limpar filtros"><i class="fas fa-times"></i> Limpar</button>
+            <button class="to-fav-filter-btn" id="topOffersFavFilter" onclick="toggleTopOffersFavFilter()" title="Ver favoritos"><i class="fas fa-heart"></i> <span id="topOffersFavCount">0</span></button>
             <div class="to-view-toggle">
               <button onclick="toggleTopOffersView('grid')" class="active" title="Grade"><i class="fas fa-th"></i></button>
               <button onclick="toggleTopOffersView('list')" title="Lista"><i class="fas fa-list"></i></button>
@@ -2608,6 +2697,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
             <span id="topOffersBatchCount" style="font-size:13px;font-weight:600"></span>
             <div style="display:flex;gap:8px">
               <button class="btn btn-secondary btn-sm" onclick="clearTopOffersSelection()"><i class="fas fa-times"></i> Limpar</button>
+              <button class="btn btn-primary btn-sm" id="topOffersBatchWaBtn" onclick="batchGenerateWhatsAppMessages()" style="background:#25D366;border-color:#25D366"><i class="fab fa-whatsapp"></i> Mensagens WhatsApp</button>
               <button class="btn btn-primary btn-sm" id="topOffersBatchBtn" onclick="batchGenerateLinks()" style="background:#EE4D2D;border-color:#EE4D2D"><i class="fas fa-link"></i> Gerar Links em Lote</button>
             </div>
           </div>
@@ -6277,6 +6367,11 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
   var topOffersSelected = {};
   var topOffersUpdatedTime = null;
   var topOffersTimeInterval = null;
+  var topOffersSearchMode = false;
+  var topOffersSearchPage = 1;
+  var topOffersFavorites = {};
+  var topOffersShowFavoritesOnly = false;
+  try { topOffersFavorites = JSON.parse(localStorage.getItem('rl_topOffers_favs') || '{}'); } catch(e) {}
 
   function getTopOffersPrefs() {
     try { return JSON.parse(localStorage.getItem('rl_topOffers_prefs') || '{}'); } catch(e) { return {}; }
@@ -6288,6 +6383,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
       sort: document.getElementById('topOffersSort').value,
       minComm: document.getElementById('topOffersMinComm').value,
       minRating: document.getElementById('topOffersMinRating').value,
+      priceRange: document.getElementById('topOffersPriceRange').value,
       perPage: document.getElementById('topOffersPerPage').value,
       subId: document.getElementById('topOffersSubId').value,
       viewMode: activeBtn && activeBtn.title === 'Lista' ? 'list' : 'grid'
@@ -6300,9 +6396,11 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     if (prefs.sort) document.getElementById('topOffersSort').value = prefs.sort;
     if (prefs.minComm) document.getElementById('topOffersMinComm').value = prefs.minComm;
     if (prefs.minRating) document.getElementById('topOffersMinRating').value = prefs.minRating;
+    if (prefs.priceRange) document.getElementById('topOffersPriceRange').value = prefs.priceRange;
     if (prefs.perPage) document.getElementById('topOffersPerPage').value = prefs.perPage;
     if (prefs.subId) document.getElementById('topOffersSubId').value = prefs.subId;
     if (prefs.viewMode) toggleTopOffersView(prefs.viewMode, true);
+    updateTopOffersFavCount();
   }
 
   function showTopOffersSkeleton() {
@@ -6324,6 +6422,23 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     return (str || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
+  function formatSalesCount(n) {
+    if (n >= 1000) return (n / 1000).toFixed(1).replace('.0', '') + 'k';
+    return String(n);
+  }
+
+  function renderStarRating(rating) {
+    var full = Math.floor(rating);
+    var half = (rating - full) >= 0.3 ? 1 : 0;
+    var empty = 5 - full - half;
+    var html = '<span class="to-rating-stars">';
+    for (var i = 0; i < full; i++) html += '<i class="fas fa-star" style="color:#FFB400"></i>';
+    if (half) html += '<i class="fas fa-star-half-alt" style="color:#FFB400"></i>';
+    for (var i = 0; i < empty; i++) html += '<i class="far fa-star" style="color:#FFB400;opacity:.3"></i>';
+    html += ' <span style="font-size:10px;color:var(--text-muted)">' + rating.toFixed(1) + '</span></span>';
+    return html;
+  }
+
   function updateTopOffersTimestamp() {
     if (!topOffersUpdatedTime) return;
     var el = document.getElementById('topOffersUpdatedAt');
@@ -6338,9 +6453,16 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     var count = 0;
     if (document.getElementById('topOffersMinComm').value !== '0') count++;
     if (document.getElementById('topOffersMinRating').value !== '0') count++;
+    if (document.getElementById('topOffersPriceRange').value !== '') count++;
     var badge = document.getElementById('topOffersActiveFilterCount');
     if (count > 0) { badge.textContent = count; badge.style.display = 'inline'; }
     else { badge.style.display = 'none'; }
+  }
+
+  function updateTopOffersFavCount() {
+    var count = Object.keys(topOffersFavorites).length;
+    var el = document.getElementById('topOffersFavCount');
+    if (el) el.textContent = count;
   }
 
   function renderTopOfferCard(p, idx) {
@@ -6355,6 +6477,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     var sales = p.sales || 0;
     var itemId = p.itemId || idx;
     var isChecked = topOffersSelected[itemId] ? ' checked' : '';
+    var isFav = topOffersFavorites[itemId] ? true : false;
 
     var shopType = (p.shopType || '').toLowerCase();
     var shopBadge = '';
@@ -6364,7 +6487,6 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     var discountBadge = discount > 0 ? '<span class="to-discount">-' + discount.toFixed(0) + '%</span>' : '';
     var originalPrice = discount > 0 && priceMax > price ? '<span class="to-price-original">R$ ' + priceMax.toFixed(2) + '</span>' : '';
 
-    // Commission tooltip with breakdown
     var commTitle = 'Comiss\u00e3o: ' + commRate.toFixed(1) + '%';
     if (sellerComm > 0) commTitle += ' (Seller: ' + sellerComm.toFixed(1) + '%)';
     if (shopeeComm > 0) commTitle += ' (Shopee: ' + shopeeComm.toFixed(1) + '%)';
@@ -6374,6 +6496,9 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
 
     return '<div class="top-offer-card" data-item-id="' + itemId + '" style="animation-delay:' + (idx * 0.03) + 's">' +
       '<input type="checkbox" class="to-check" aria-label="Selecionar ' + productName + '"' + isChecked + ' onchange="toggleTopOfferSelect(\'' + itemId + '\',this)">' +
+      '<button class="to-fav-btn' + (isFav ? ' favorited' : '') + '" onclick="toggleTopOfferFavorite(\'' + itemId + '\',this)" title="Favoritar">' +
+        '<i class="' + (isFav ? 'fas' : 'far') + ' fa-heart"></i>' +
+      '</button>' +
       discountBadge +
       '<div class="to-image">' +
         (p.imageUrl ? '<img src="' + escTopAttr(p.imageUrl) + '" loading="lazy" alt="' + productName + '">' : '<i class="fas fa-image" style="font-size:40px;color:#ddd"></i>') +
@@ -6383,16 +6508,18 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
         '<div class="to-shop">' + escTopAttr(p.shopName || '') + ' ' + shopBadge + '</div>' +
         '<div class="to-price-row">' +
           '<span><span class="to-price">R$ ' + price.toFixed(2) + '</span>' + originalPrice + '</span>' +
-          '<span class="to-commission-badge" title="' + escTopAttr(commTitle) + '">' + commRate.toFixed(1) + '%</span>' +
+          '<span class="to-commission-badge" title="' + escTopAttr(commTitle) + '">' + commRate.toFixed(1) + '% &middot; <span class="to-commission-value">R$ ' + commission.toFixed(2) + '</span></span>' +
         '</div>' +
         '<div class="to-stats">' +
-          '<span><i class="fas fa-coins"></i> R$ ' + commission.toFixed(2) + '</span>' +
-          '<span><i class="fas fa-star" style="color:var(--warning)"></i> ' + rating.toFixed(1) + '</span>' +
-          '<span><i class="fas fa-shopping-cart"></i> ' + sales + '</span>' +
+          '<span>' + renderStarRating(rating) + '</span>' +
+          '<span><i class="fas fa-shopping-cart"></i> ' + formatSalesCount(sales) + ' vendas</span>' +
         '</div>' +
         '<div class="to-actions">' +
           '<button class="btn btn-primary btn-sm" style="background:#EE4D2D;border-color:#EE4D2D;font-size:11px" onclick="quickGenerateTopLink(this,\'' + productUrl + '\',\'' + productName + '\',' + price + ',' + commRate + ')">' +
-            '<i class="fas fa-copy"></i> Copiar Link' +
+            '<i class="fas fa-copy"></i> Link' +
+          '</button>' +
+          '<button class="btn btn-sm to-btn-whatsapp" style="font-size:11px" onclick="copyTopOfferWhatsAppMsg(this,\'' + productUrl + '\',\'' + productName + '\',' + price + ',' + priceMax + ',' + discount + ',' + commRate + ')" title="Copiar mensagem WhatsApp">' +
+            '<i class="fab fa-whatsapp"></i> Msg' +
           '</button>' +
           '<button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="window.open(\'' + productUrl + '\',\'_blank\')" title="Abrir na Shopee">' +
             '<i class="fas fa-external-link-alt"></i>' +
@@ -6403,6 +6530,9 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
   }
 
   window.loadTopOffers = async function(reset) {
+    // Intercept: if search mode is active, redirect to search
+    if (topOffersSearchMode) { searchTopOffers(reset); return; }
+
     if (reset) { topOffersPage = 1; topOffersAllData = []; }
     var grid = document.getElementById('shopeeTopOffersGrid');
     var loadMoreBtn = document.getElementById('topOffersLoadMore');
@@ -6435,27 +6565,68 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
         loadMoreBtn.style.display = 'none';
       }
 
-      // Relative timestamp
       topOffersUpdatedTime = Date.now();
       updateTopOffersTimestamp();
       if (topOffersTimeInterval) clearInterval(topOffersTimeInterval);
       topOffersTimeInterval = setInterval(updateTopOffersTimestamp, 30000);
     } catch(e) {
       if (topOffersPage === 1) {
-        grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><i class="fas fa-exclamation-triangle"></i><p>Erro ao carregar ofertas</p><p style="font-size:11px">' + escTopAttr(e.message) + '</p></div>';
+        var msg = (e.message || '').toLowerCase();
+        if (msg.indexOf('configur') >= 0 || msg.indexOf('not found') >= 0 || msg.indexOf('401') >= 0) {
+          grid.innerHTML = '<div class="to-onboarding">' +
+            '<i class="fas fa-store" style="font-size:40px;color:#EE4D2D;margin-bottom:16px"></i>' +
+            '<h3>Configure a Shopee</h3>' +
+            '<p>Para ver as melhores ofertas, configure seu App ID e Secret da Shopee Affiliate nas configura\u00e7\u00f5es.</p>' +
+            '<button class="btn btn-primary btn-sm" onclick="switchView(\'settings\')" style="background:#EE4D2D;border-color:#EE4D2D">' +
+              '<i class="fas fa-cog"></i> Ir para Configura\u00e7\u00f5es</button></div>';
+        } else {
+          grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><i class="fas fa-exclamation-triangle"></i>' +
+            '<p>Erro ao carregar ofertas</p><p style="font-size:11px">' + escTopAttr(e.message) + '</p>' +
+            '<button class="btn btn-primary btn-sm" onclick="loadTopOffers(true)" style="margin-top:8px;background:#EE4D2D;border-color:#EE4D2D"><i class="fas fa-redo"></i> Tentar novamente</button></div>';
+        }
       }
-      showToast('Erro ao carregar ofertas: ' + e.message, 'error');
+      loadMoreBtn.style.display = 'none';
     }
   };
 
   window.applyTopOffersClientFilter = function() {
     var minComm = parseFloat(document.getElementById('topOffersMinComm').value) || 0;
     var minRating = parseFloat(document.getElementById('topOffersMinRating').value) || 0;
+    var priceRange = document.getElementById('topOffersPriceRange').value;
     var grid = document.getElementById('shopeeTopOffersGrid');
     updateActiveFilterCount();
+    updateTopOffersFavCount();
 
-    var filtered = topOffersAllData.filter(function(p) {
-      return parseFloat(p.commissionRate || 0) >= minComm && parseFloat(p.ratingStar || 0) >= minRating;
+    // Refresh stale favorites data
+    topOffersAllData.forEach(function(p) {
+      var id = p.itemId || '';
+      if (topOffersFavorites[id]) topOffersFavorites[id] = p;
+    });
+
+    // Favorites-only mode
+    if (topOffersShowFavoritesOnly) {
+      if (Object.keys(topOffersFavorites).length === 0) {
+        grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><i class="far fa-heart" style="font-size:32px;margin-bottom:8px"></i>' +
+          '<p>Nenhum favorito salvo</p><p style="font-size:11px;color:var(--text-muted)">Clique no <i class="fas fa-heart" style="color:#ff424e"></i> nos produtos para salv\u00e1-los aqui</p></div>';
+        document.getElementById('topOffersCount').textContent = '0 favoritos';
+        return;
+      }
+    }
+
+    var sourceData = topOffersShowFavoritesOnly ? Object.values(topOffersFavorites) : topOffersAllData;
+
+    var filtered = sourceData.filter(function(p) {
+      var pPrice = parseFloat(p.priceMin || p.priceMax || 0);
+      if (parseFloat(p.commissionRate || 0) < minComm) return false;
+      if (parseFloat(p.ratingStar || 0) < minRating) return false;
+      if (priceRange) {
+        if (priceRange === '300+') { if (pPrice < 300) return false; }
+        else {
+          var parts = priceRange.split('-');
+          if (pPrice < parseFloat(parts[0]) || pPrice > parseFloat(parts[1])) return false;
+        }
+      }
+      return true;
     });
 
     if (filtered.length === 0) {
@@ -6477,6 +6648,10 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
   window.clearTopOffersFilters = function() {
     document.getElementById('topOffersMinComm').value = '0';
     document.getElementById('topOffersMinRating').value = '0';
+    document.getElementById('topOffersPriceRange').value = '';
+    topOffersShowFavoritesOnly = false;
+    var favBtn = document.getElementById('topOffersFavFilter');
+    if (favBtn) favBtn.classList.remove('active');
     if (topOffersAllData.length > 0) applyTopOffersClientFilter();
     updateActiveFilterCount();
   };
@@ -6596,6 +6771,182 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
       btnEl.disabled = false;
       showToast('Erro: ' + e.message, 'error');
     }
+  };
+
+  // ===== SEARCH =====
+  window.searchTopOffers = async function(reset) {
+    var keyword = (document.getElementById('topOffersSearchInput').value || '').trim();
+    if (!keyword) { clearTopOffersSearch(); return; }
+
+    topOffersSearchMode = true;
+    if (reset) { topOffersSearchPage = 1; topOffersAllData = []; }
+
+    var grid = document.getElementById('shopeeTopOffersGrid');
+    var loadMoreBtn = document.getElementById('topOffersLoadMore');
+    var sort = document.getElementById('topOffersSort').value;
+    var limit = document.getElementById('topOffersPerPage').value;
+    var badge = document.getElementById('topOffersSearchBadge');
+
+    if (topOffersSearchPage === 1) showTopOffersSkeleton();
+    badge.classList.add('active');
+    saveTopOffersPrefs();
+
+    try {
+      var result = await serverFetch('/api/shopee/products?keyword=' + encodeURIComponent(keyword) + '&sort=' + sort + '&limit=' + limit + '&page=' + topOffersSearchPage);
+      if (!result || !result.nodes || result.nodes.length === 0) {
+        if (topOffersSearchPage === 1) {
+          grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><i class="fas fa-search"></i><p>Nenhum produto encontrado para "' + escTopAttr(keyword) + '"</p></div>';
+          document.getElementById('topOffersCount').textContent = '0 resultados';
+        }
+        loadMoreBtn.style.display = 'none';
+        return;
+      }
+
+      topOffersAllData = topOffersAllData.concat(result.nodes);
+      topOffersSearchPage++;
+      applyTopOffersClientFilter();
+
+      if (result.pageInfo && result.pageInfo.hasNextPage) {
+        loadMoreBtn.style.display = 'block';
+      } else {
+        loadMoreBtn.style.display = 'none';
+      }
+
+      topOffersUpdatedTime = Date.now();
+      updateTopOffersTimestamp();
+      if (topOffersTimeInterval) clearInterval(topOffersTimeInterval);
+      topOffersTimeInterval = setInterval(updateTopOffersTimestamp, 30000);
+    } catch(e) {
+      if (topOffersSearchPage === 1) {
+        grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><i class="fas fa-exclamation-triangle"></i><p>Erro na busca</p><p style="font-size:11px">' + escTopAttr(e.message) + '</p></div>';
+      }
+      showToast('Erro na busca: ' + e.message, 'error');
+    }
+  };
+
+  window.clearTopOffersSearch = function() {
+    topOffersSearchMode = false;
+    topOffersSearchPage = 1;
+    document.getElementById('topOffersSearchInput').value = '';
+    document.getElementById('topOffersSearchClear').style.display = 'none';
+    document.getElementById('topOffersSearchBadge').classList.remove('active');
+    topOffersAllData = [];
+    topOffersLoaded = false;
+    loadTopOffers(true);
+  };
+
+  window.toggleTopSearchClear = function(input) {
+    document.getElementById('topOffersSearchClear').style.display = input.value.trim() ? 'block' : 'none';
+  };
+
+  // ===== WHATSAPP MESSAGE =====
+  window.copyTopOfferWhatsAppMsg = async function(btnEl, url, name, price, priceMax, discount, commRate) {
+    var origHtml = btnEl.innerHTML;
+    btnEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    btnEl.disabled = true;
+    try {
+      var subId = document.getElementById('topOffersSubId').value || 'whatsapp';
+      var result = await serverPost('/api/shopee/generate-link', { url: url, subId: subId, productName: name, price: price, commissionRate: commRate });
+      if (result && result.affiliateUrl) {
+        var msg = '\uD83D\uDD25 *' + (name || 'Produto').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'") + '*\n\n';
+        if (discount > 0 && priceMax > price) {
+          msg += '\uD83D\uDCB0 De ~R$ ' + parseFloat(priceMax).toFixed(2) + '~ por *R$ ' + parseFloat(price).toFixed(2) + '*\n';
+          msg += '\uD83C\uDFF7\uFE0F ' + parseFloat(discount).toFixed(0) + '% OFF\n\n';
+        } else {
+          msg += '\uD83D\uDCB0 Por apenas *R$ ' + parseFloat(price).toFixed(2) + '*\n\n';
+        }
+        msg += '\uD83D\uDC49 ' + result.affiliateUrl + '\n\n';
+        msg += '\u23F0 Corre que \u00e9 por tempo limitado!';
+
+        await navigator.clipboard.writeText(msg).catch(function() { prompt('Mensagem:', msg); });
+        btnEl.innerHTML = '<i class="fas fa-check"></i>';
+        btnEl.style.background = 'var(--accent)';
+        btnEl.style.borderColor = 'var(--accent)';
+        showToast('Mensagem WhatsApp copiada!', 'success');
+        setTimeout(function() {
+          btnEl.innerHTML = origHtml;
+          btnEl.style.background = '#25D366';
+          btnEl.style.borderColor = '#25D366';
+          btnEl.disabled = false;
+        }, 2000);
+      }
+    } catch(e) {
+      btnEl.innerHTML = origHtml;
+      btnEl.disabled = false;
+      showToast('Erro: ' + e.message, 'error');
+    }
+  };
+
+  window.batchGenerateWhatsAppMessages = function() {
+    var items = Object.values(topOffersSelected);
+    if (items.length === 0) return;
+    showConfirm('Gerar mensagens WhatsApp para ' + items.length + ' produto' + (items.length > 1 ? 's' : '') + '?', async function() {
+      var subId = document.getElementById('topOffersSubId').value || 'whatsapp';
+      var messages = [];
+      var errors = 0;
+      var btn = document.getElementById('topOffersBatchWaBtn');
+      var origHtml = btn.innerHTML;
+
+      for (var i = 0; i < items.length; i++) {
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> ' + (i + 1) + '/' + items.length;
+        btn.disabled = true;
+        try {
+          var p = items[i];
+          var result = await serverPost('/api/shopee/generate-link', {
+            url: p.productLink || p.offerLink || '', subId: subId,
+            productName: p.productName || '', price: p.priceMin || p.priceMax || 0, commissionRate: p.commissionRate || 0
+          });
+          if (result && result.affiliateUrl) {
+            var price = parseFloat(p.priceMin || p.priceMax || 0);
+            var discount = parseFloat(p.priceDiscountRate || 0);
+            var msg = '\uD83D\uDD25 *' + (p.productName || 'Produto') + '*\n';
+            msg += '\uD83D\uDCB0 *R$ ' + price.toFixed(2) + '*';
+            if (discount > 0) msg += ' (-' + discount.toFixed(0) + '%)';
+            msg += '\n\uD83D\uDED2 ' + result.affiliateUrl;
+            messages.push(msg);
+          }
+        } catch(e) { errors++; }
+      }
+
+      btn.innerHTML = origHtml;
+      btn.disabled = false;
+
+      if (messages.length > 0) {
+        var allMessages = messages.join('\n\n---\n\n');
+        navigator.clipboard.writeText(allMessages).then(function() {
+          showToast(messages.length + ' mensagen' + (messages.length > 1 ? 's' : '') + ' copiada' + (messages.length > 1 ? 's' : '') + '!', 'success');
+        }).catch(function() { prompt('Mensagens geradas:', allMessages); });
+      }
+      if (errors > 0) showToast(errors + ' erro' + (errors > 1 ? 's' : ''), 'warning');
+      clearTopOffersSelection();
+    });
+  };
+
+  // ===== FAVORITES =====
+  window.toggleTopOfferFavorite = function(itemId, btnEl) {
+    if (topOffersFavorites[itemId]) {
+      delete topOffersFavorites[itemId];
+      btnEl.classList.remove('favorited');
+      btnEl.innerHTML = '<i class="far fa-heart"></i>';
+    } else {
+      var product = topOffersAllData.find(function(p) { return (p.itemId || '') == itemId; });
+      if (product) topOffersFavorites[itemId] = product;
+      btnEl.classList.add('favorited');
+      btnEl.innerHTML = '<i class="fas fa-heart"></i>';
+    }
+    try { localStorage.setItem('rl_topOffers_favs', JSON.stringify(topOffersFavorites)); } catch(e) {}
+    updateTopOffersFavCount();
+  };
+
+  window.toggleTopOffersFavFilter = function() {
+    topOffersShowFavoritesOnly = !topOffersShowFavoritesOnly;
+    var btn = document.getElementById('topOffersFavFilter');
+    if (topOffersShowFavoritesOnly) {
+      btn.classList.add('active');
+    } else {
+      btn.classList.remove('active');
+    }
+    applyTopOffersClientFilter();
   };
 
   // ===== SHOPEE CONFIG =====
