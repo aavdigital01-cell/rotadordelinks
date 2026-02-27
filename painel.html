@@ -6982,7 +6982,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     var isChecked = topOffersSelected[itemId] ? ' checked' : '';
     var isFav = topOffersFavorites[itemId] ? true : false;
 
-    var shopType = StringString(p.shopType || '').toLowerCase();
+    var shopType = String(p.shopType || '').toLowerCase();
     var shopBadge = '';
     if (shopType.indexOf('mall') >= 0 || shopType === '1') shopBadge = '<span class="to-shop-badge mall">Mall</span>';
     else if (shopType.indexOf('preferred') >= 0 || shopType.indexOf('star') >= 0 || shopType === '2') shopBadge = '<span class="to-shop-badge preferred">Star</span>';
