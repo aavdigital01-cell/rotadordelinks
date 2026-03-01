@@ -3803,7 +3803,9 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     filtered.forEach(function(l) {
       var camp = campaigns.find(function(c) { return c.id === l.campaignId; });
       var campName = camp ? camp.name : 'N/A';
-      var fill = l.maxVacancies ? ((l.currentClicks || 0) / l.maxVacancies * 100) : 0;
+      var membersForVagas = l.groupMembers != null ? l.groupMembers : (l._groupMembers != null ? l._groupMembers : null);
+      var vagasValue = membersForVagas != null ? membersForVagas : (l.currentClicks || 0);
+      var fill = l.maxVacancies ? (vagasValue / l.maxVacancies * 100) : 0;
       var fillColor = fill >= 90 ? 'var(--danger)' : fill >= 70 ? 'var(--warning)' : 'var(--accent)';
       var statusBadge = l.deactivatedReason ? '<span class="badge badge-danger" title="' + escHtml(l.deactivatedReason) + '"><i class="fas fa-unlink"></i> Banido</span>' :
                         l.isFull ? '<span class="badge badge-danger">Cheio</span>' :
@@ -3823,14 +3825,13 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
         healthBadge = '<span class="badge badge-success"><i class="fas fa-check-circle"></i> OK</span>';
       }
 
-      // Real members from whatsapp group (cached from group_members collection)
-      var realMembers = '-';
+      // Real members from whatsapp group
+      var realMembers = membersForVagas != null ? membersForVagas : '-';
       var fugaRate = '-';
-      if (l.whatsappGroupId && l._groupMembers !== undefined) {
-        realMembers = l._groupMembers;
+      if (membersForVagas != null) {
         var clicks = l.currentClicks || 0;
         if (clicks > 0) {
-          var fuga = Math.round(((clicks - l._groupMembers) / clicks) * 100);
+          var fuga = Math.round(((clicks - membersForVagas) / clicks) * 100);
           fugaRate = Math.max(0, fuga) + '%';
         }
       }
@@ -3844,7 +3845,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
         '<td><span class="link-url">' + escHtml(l.url || '') + '</span> <button class="copy-btn" onclick="copyToClipboard(\'' + escHtml(l.url || '') + '\')"><i class="fas fa-copy"></i></button></td>' +
         '<td><span class="badge badge-purple">' + escHtml(campName) + '</span></td>' +
         '<td style="min-width:130px">' +
-        '<div style="display:flex;align-items:center;gap:8px"><span style="font-size:13px;font-weight:600">' + (l.currentClicks || 0) + '/' + (l.maxVacancies || '1000') + '</span></div>' +
+        '<div style="display:flex;align-items:center;gap:8px"><span style="font-size:13px;font-weight:600">' + vagasValue + '/' + (l.maxVacancies || '1000') + '</span></div>' +
         '<div class="progress-bar"><div class="progress-fill" style="width:' + Math.min(fill, 100) + '%;background:' + fillColor + '"></div></div>' +
         '<div class="progress-text">' + Math.round(fill) + '% preenchido</div>' +
         '</td>' +

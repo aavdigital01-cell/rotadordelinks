@@ -78,6 +78,7 @@ function mapLink(r) {
     id: r.id, name: r.name, url: r.url,
     campaignId: r.campaign_id, whatsappGroupId: r.whatsapp_group_id,
     currentClicks: r.current_clicks, maxVacancies: r.max_vacancies,
+    groupMembers: r.group_members != null ? r.group_members : null,
     weight: r.weight, isActive: r.is_active, isFull: r.is_full,
     redirectType: r.redirect_type,
     healthCheckFailures: r.health_check_failures,
@@ -211,7 +212,9 @@ app.delete('/api/campaigns/:id', authMiddleware, async function(req, res) {
 
 app.get('/api/links', authMiddleware, async function(req, res) {
   try {
-    var result = await pool.query('SELECT * FROM links ORDER BY created_at DESC');
+    var result = await pool.query(
+      'SELECT l.*, wg.current_members AS group_members FROM links l LEFT JOIN whatsapp_groups wg ON l.whatsapp_group_id = wg.id ORDER BY l.created_at DESC'
+    );
     res.json(result.rows.map(mapLink));
   } catch (err) {
     res.status(500).json({ error: err.message });
