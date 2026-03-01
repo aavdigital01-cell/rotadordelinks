@@ -24,20 +24,26 @@ let connectionStatus = {
 function initialize(pgPool) {
   pool = pgPool;
 
-  client = new Client({
-    authStrategy: new LocalAuth({ dataPath: './whatsapp-session' }),
-    puppeteer: {
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--disable-gpu'
-      ]
-    }
-  });
+  try {
+    client = new Client({
+      authStrategy: new LocalAuth({ dataPath: './whatsapp-session' }),
+      puppeteer: {
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--no-first-run',
+          '--disable-gpu'
+        ]
+      }
+    });
+  } catch (err) {
+    console.error('[WHATSAPP] Erro ao criar cliente:', err.message);
+    connectionStatus.error = err.message;
+    return;
+  }
 
   // QR Code para autenticação
   client.on('qr', function(qr) {

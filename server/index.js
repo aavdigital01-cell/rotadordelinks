@@ -11,13 +11,26 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ===== FIREBASE ADMIN (apenas para Auth) =====
-admin.initializeApp({
-  credential: admin.credential.cert({
-    projectId: process.env.FIREBASE_PROJECT_ID,
-    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-    privateKey: (process.env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n')
-  })
-});
+var firebaseReady = false;
+if (process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL) {
+  try {
+    admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId: process.env.FIREBASE_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
+      })
+    });
+    firebaseReady = true;
+    console.log('[FIREBASE] Inicializado com sucesso');
+  } catch (err) {
+    console.warn('[FIREBASE] Erro ao inicializar:', err.message);
+    console.warn('[FIREBASE] Auth endpoints não funcionarão até configurar as credenciais no .env');
+  }
+} else {
+  console.warn('[FIREBASE] Credenciais não configuradas no .env. Auth endpoints desabilitados.');
+  console.warn('[FIREBASE] Configure FIREBASE_CLIENT_EMAIL e FIREBASE_PRIVATE_KEY para habilitar autenticação.');
+}
 
 // ===== POSTGRESQL =====
 const pool = new Pool({
@@ -43,6 +56,11 @@ app.use(express.json());
 
 // Auth middleware - verifica Firebase token
 async function authMiddleware(req, res, next) {
+  if (!firebaseReady) {
+    // Firebase not configured - allow requests without auth for development
+    req.user = { uid: 'dev-user', email: 'dev@localhost' };
+    return next();
+  }
   var token = req.headers.authorization;
   if (!token || !token.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Token não fornecido' });
