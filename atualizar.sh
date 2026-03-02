@@ -4,7 +4,8 @@
 # Puxa as últimas mudanças e reinicia tudo
 # ============================================
 
-REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_DIR="/root/rotadordelinks"
+SERVER_DIR="/root/rotadordelinks/server"
 BRANCH="claude/whatsapp-link-rotator-ElC9M"
 
 echo ""
@@ -24,7 +25,7 @@ echo ""
 
 # 2. Instala/atualiza dependências do servidor
 echo "[2/4] Atualizando dependências..."
-cd "$REPO_DIR/server" || { echo "ERRO: Pasta server não encontrada!"; exit 1; }
+cd "$SERVER_DIR" || { echo "ERRO: Pasta server não encontrada!"; exit 1; }
 npm install --production
 echo "      OK!"
 echo ""
@@ -35,7 +36,7 @@ if pm2 describe linkrotator > /dev/null 2>&1; then
     pm2 restart linkrotator
     echo "      Servidor reiniciado!"
 else
-    pm2 start index.js --name linkrotator
+    pm2 start "$SERVER_DIR/index.js" --name linkrotator
     pm2 save
     echo "      Servidor iniciado!"
 fi
