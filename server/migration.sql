@@ -150,6 +150,20 @@ CREATE INDEX IF NOT EXISTS idx_broadcast_logs_broadcast ON broadcast_logs(broadc
 CREATE INDEX IF NOT EXISTS idx_shopee_commissions_subid ON shopee_commissions(sub_id);
 CREATE INDEX IF NOT EXISTS idx_shopee_commissions_date ON shopee_commissions(order_created_at);
 
+-- ===== WhatsApp Monitor v2.0 =====
+
+-- Snapshot de membros para persistir entre restarts do servidor
+ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS member_snapshot JSONB;
+
+-- Invite code do grupo para correlação automática link → grupo
+ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS invite_code VARCHAR(255);
+
+-- Origem do evento (realtime = capturado ao vivo, diff = detectado por scan)
+ALTER TABLE member_events ADD COLUMN IF NOT EXISTS source VARCHAR(20) DEFAULT 'realtime';
+
+-- Index para filtrar eventos por origem
+CREATE INDEX IF NOT EXISTS idx_member_events_source ON member_events(source);
+
 -- Grant permissions
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO linkrotator;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO linkrotator;

@@ -1,12 +1,23 @@
 /**
- * WhatsApp Group Monitor
- * Monitora entradas/saídas de membros nos grupos
- * Usa @whiskeysockets/baileys (mesma lib da Evolution API) + PostgreSQL
- * Suporta conexão por Pairing Code (número de telefone) e QR Code
+ * WhatsApp Group Monitor v2.0
+ * Monitora entradas/saídas de membros nos grupos com precisão profissional
+ * Usa @whiskeysockets/baileys + PostgreSQL
+ *
+ * Melhorias v2.0:
+ * - Scan a cada 3 minutos (era 10 min) para capturar mais eventos
+ * - Hash de telefone melhorado (sem colisões)
+ * - Eventos marcam origem (realtime vs diff) para auditoria
+ * - Deduplicação de eventos para evitar contagem duplicada
+ * - Snapshot de membros persistido no DB para sobreviver a restarts
+ * - Atualiza max_members real do grupo (não assume 1024)
+ * - getGroups() retorna formato consistente em todos os caminhos
+ * - Throttle no scan para evitar rate limit do WhatsApp
+ * - Tracking de invite code por grupo
  */
 
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, makeCacheableSignalKeyStore } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
+const crypto = require('crypto');
 const pino = require('pino');
 
 var sock = null;
@@ -18,6 +29,7 @@ var authState = null;
 var saveCreds = null;
 var pairingCodeRequested = false;
 var pendingPairingPhone = null;
+var scanInProgress = false;
 
 var connectionStatus = {
   connected: false,
@@ -40,8 +52,44 @@ var eventRetryQueue = [];
 var RETRY_INTERVAL = 10000; // 10 segundos
 var MAX_RETRY_ATTEMPTS = 5;
 
+// Intervalo de scan periódico (3 minutos - mais agressivo que os 10 min anteriores)
+var SCAN_INTERVAL = 3 * 60 * 1000;
+
+// Janela de deduplicação para evitar eventos duplicados (realtime + diff)
+var recentEvents = {};
+var DEDUP_WINDOW = 60 * 1000; // 60 segundos
+
 // Logger silencioso para Baileys (evita spam no console)
 var logger = pino({ level: 'silent' });
+
+/**
+ * Hash seguro para telefone usando SHA-256 (sem colisões)
+ */
+function hashPhone(phone) {
+  return 'ph_' + crypto.createHash('sha256').update(phone).digest('hex').substring(0, 12);
+}
+
+/**
+ * Verifica se um evento é duplicado (mesmo telefone+grupo+ação dentro da janela)
+ */
+function isDuplicateEvent(groupId, phone, action) {
+  var key = groupId + ':' + phone + ':' + action;
+  var now = Date.now();
+
+  // Limpa eventos antigos
+  var keys = Object.keys(recentEvents);
+  for (var i = 0; i < keys.length; i++) {
+    if (now - recentEvents[keys[i]] > DEDUP_WINDOW) {
+      delete recentEvents[keys[i]];
+    }
+  }
+
+  if (recentEvents[key]) {
+    return true;
+  }
+  recentEvents[key] = now;
+  return false;
+}
 
 /**
  * Executa query com retry automático
@@ -103,6 +151,55 @@ async function saveEventSafe(sql, params, description) {
 }
 
 /**
+ * Registra um evento de membro (join/leave) com deduplicação e origem
+ * @param {string} groupId - ID do grupo WhatsApp
+ * @param {string} groupName - Nome do grupo
+ * @param {string} memberPhone - Telefone do membro (sem @s.whatsapp.net)
+ * @param {string} action - 'join' ou 'leave'
+ * @param {string} source - 'realtime' ou 'diff'
+ */
+async function recordMemberEvent(groupId, groupName, memberPhone, action, source) {
+  // Deduplicação: evita registrar o mesmo evento duas vezes
+  if (isDuplicateEvent(groupId, memberPhone, action)) {
+    return;
+  }
+
+  await saveEventSafe(
+    'INSERT INTO member_events (whatsapp_group_id, group_name, phone, phone_partial, action, source) VALUES ($1, $2, $3, $4, $5, $6)',
+    [groupId, groupName, hashPhone(memberPhone), memberPhone.slice(-4), action, source],
+    source + ':' + action + ':' + memberPhone.slice(-4) + '@' + groupName
+  );
+
+  if (action === 'join') {
+    // Alerta de novo membro
+    await saveEventSafe(
+      'INSERT INTO alerts (type, whatsapp_group_id, group_name, member_phone, message) VALUES ($1, $2, $3, $4, $5)',
+      ['member_joined', groupId, groupName, '***' + memberPhone.slice(-4), 'Novo membro entrou no grupo ' + groupName],
+      'alert:join:' + memberPhone.slice(-4)
+    );
+
+    // Backup lead contact
+    if (memberPhone && memberPhone !== 'desconhecido') {
+      await saveEventSafe(
+        'INSERT INTO lead_contacts (phone, whatsapp_group_id, group_name, joined_at, is_active) VALUES ($1, $2, $3, NOW(), true) ' +
+        'ON CONFLICT (phone, whatsapp_group_id) DO UPDATE SET is_active=true, left_at=NULL, joined_at=NOW()',
+        [memberPhone, groupId, groupName],
+        'lead:join:' + memberPhone.slice(-4)
+      );
+    }
+  } else if (action === 'leave') {
+    // Mark lead as inactive
+    if (memberPhone && memberPhone !== 'desconhecido') {
+      await saveEventSafe(
+        'UPDATE lead_contacts SET is_active=false, left_at=NOW() WHERE phone=$1 AND whatsapp_group_id=$2',
+        [memberPhone, groupId],
+        'lead:leave:' + memberPhone.slice(-4)
+      );
+    }
+  }
+}
+
+/**
  * Cria o socket Baileys e configura todos os eventos
  */
 async function createSocket() {
@@ -160,9 +257,10 @@ async function createSocket() {
       }
       console.log('[WHATSAPP] Conectado! Número: ' + connectionStatus.phone);
 
-      // Scan inicial dos grupos
-      setTimeout(function() {
-        scanGroupsWithDiff();
+      // Carrega snapshots do DB e faz scan inicial
+      setTimeout(async function() {
+        await loadSnapshotsFromDB();
+        await scanGroupsWithDiff();
       }, 3000);
     }
 
@@ -209,47 +307,14 @@ async function createSocket() {
       var groupName = await getGroupName(groupId);
       var eventAction = action === 'add' ? 'join' : 'leave';
 
-      console.log('[WHATSAPP] ' + participants.length + ' membro(s) ' + (action === 'add' ? 'entrou(ram)' : 'saiu(ram)') + ' do grupo ' + groupName);
+      console.log('[WHATSAPP] [REALTIME] ' + participants.length + ' membro(s) ' + (action === 'add' ? 'entrou(ram)' : 'saiu(ram)') + ' do grupo ' + groupName);
 
       for (var i = 0; i < participants.length; i++) {
         var memberPhone = participants[i].split('@')[0];
-
-        await saveEventSafe(
-          'INSERT INTO member_events (whatsapp_group_id, group_name, phone, phone_partial, action) VALUES ($1, $2, $3, $4, $5)',
-          [groupId, groupName, hashPhone(memberPhone), memberPhone.slice(-4), eventAction],
-          eventAction + ':' + memberPhone.slice(-4) + '@' + groupName
-        );
-
-        if (action === 'add') {
-          // Alerta
-          await saveEventSafe(
-            'INSERT INTO alerts (type, whatsapp_group_id, group_name, member_phone, message) VALUES ($1, $2, $3, $4, $5)',
-            ['member_joined', groupId, groupName, '***' + memberPhone.slice(-4), 'Novo membro entrou no grupo ' + groupName],
-            'alert:join:' + memberPhone.slice(-4)
-          );
-
-          // Backup lead contact
-          if (memberPhone && memberPhone !== 'desconhecido') {
-            await saveEventSafe(
-              'INSERT INTO lead_contacts (phone, whatsapp_group_id, group_name, joined_at, is_active) VALUES ($1, $2, $3, NOW(), true) ' +
-              'ON CONFLICT (phone, whatsapp_group_id) DO UPDATE SET is_active=true, left_at=NULL, joined_at=NOW()',
-              [memberPhone, groupId, groupName],
-              'lead:join:' + memberPhone.slice(-4)
-            );
-          }
-        } else {
-          // Mark lead as inactive
-          if (memberPhone && memberPhone !== 'desconhecido') {
-            await saveEventSafe(
-              'UPDATE lead_contacts SET is_active=false, left_at=NOW() WHERE phone=$1 AND whatsapp_group_id=$2',
-              [memberPhone, groupId],
-              'lead:leave:' + memberPhone.slice(-4)
-            );
-          }
-        }
+        await recordMemberEvent(groupId, groupName, memberPhone, eventAction, 'realtime');
       }
 
-      // Atualiza contagem de membros
+      // Atualiza contagem de membros e snapshot
       await updateGroupMemberCount(groupId);
 
     } catch (err) {
@@ -277,6 +342,46 @@ async function createSocket() {
 }
 
 /**
+ * Carrega snapshots de membros do DB para não perder eventos entre restarts
+ */
+async function loadSnapshotsFromDB() {
+  try {
+    var result = await pool.query('SELECT id, member_snapshot FROM whatsapp_groups WHERE member_snapshot IS NOT NULL');
+    var loaded = 0;
+    for (var row of result.rows) {
+      if (row.member_snapshot && Array.isArray(row.member_snapshot)) {
+        lastKnownMembers[row.id] = row.member_snapshot;
+        loaded++;
+      }
+    }
+    if (loaded > 0) {
+      console.log('[WHATSAPP] Carregados ' + loaded + ' snapshots de membros do DB');
+    }
+  } catch (err) {
+    // Coluna pode não existir ainda, ignora silenciosamente
+    if (err.message && err.message.includes('member_snapshot')) {
+      console.log('[WHATSAPP] Coluna member_snapshot não existe ainda, será criada na migration');
+    } else {
+      console.error('[WHATSAPP] Erro ao carregar snapshots:', err.message);
+    }
+  }
+}
+
+/**
+ * Salva snapshot de membros no DB para persistência
+ */
+async function saveSnapshotToDB(groupId, members) {
+  try {
+    await pool.query(
+      'UPDATE whatsapp_groups SET member_snapshot = $1 WHERE id = $2',
+      [JSON.stringify(members), groupId]
+    );
+  } catch (err) {
+    // Ignora se coluna não existe
+  }
+}
+
+/**
  * Inicializa o auth state e cria o socket
  */
 async function initializeSocket() {
@@ -298,6 +403,13 @@ function initialize(pgPool) {
   pool = pgPool;
   reconnectAttempts = 0;
   pairingCodeRequested = false;
+
+  // Garante que a coluna member_snapshot existe
+  pool.query('ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS member_snapshot JSONB').catch(function() {});
+  // Garante que a coluna source existe em member_events
+  pool.query('ALTER TABLE member_events ADD COLUMN IF NOT EXISTS source VARCHAR(20) DEFAULT \'realtime\'').catch(function() {});
+  // Garante que a coluna invite_code existe em whatsapp_groups
+  pool.query('ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS invite_code VARCHAR(255)').catch(function() {});
 
   console.log('[WHATSAPP] Inicializando cliente Baileys...');
   initializeSocket();
@@ -412,15 +524,26 @@ async function getGroupName(groupId, forceRefresh) {
 
 /**
  * Faz scan de todos os grupos COM detecção de diferenças
+ * Inclui throttle entre grupos para evitar rate limit
  */
 async function scanGroupsWithDiff() {
+  if (scanInProgress) {
+    console.log('[WHATSAPP] Scan já em andamento, ignorando...');
+    return;
+  }
+
+  scanInProgress = true;
+
   try {
-    if (!sock) return;
+    if (!sock) { scanInProgress = false; return; }
 
     var groups = await sock.groupFetchAllParticipating();
     var groupIds = Object.keys(groups);
 
-    console.log('[WHATSAPP] Encontrados ' + groupIds.length + ' grupos');
+    console.log('[WHATSAPP] Escaneando ' + groupIds.length + ' grupos...');
+
+    var totalNewJoins = 0;
+    var totalNewLeaves = 0;
 
     for (var i = 0; i < groupIds.length; i++) {
       var groupId = groupIds[i];
@@ -433,56 +556,53 @@ async function scanGroupsWithDiff() {
         });
         var memberCount = currentParticipants.length;
 
-        // Detecta diferenças com snapshot anterior
+        // Captura max_members real do grupo (size = limite do WhatsApp)
+        var maxMembers = group.size || memberCount;
+        // WhatsApp groups can have 512 or 1024 max depending on type
+        if (maxMembers < memberCount) maxMembers = memberCount;
+
+        // Extrai invite code se disponível
+        var inviteCode = null;
+        if (group.inviteCode) {
+          inviteCode = group.inviteCode;
+        }
+
+        // Detecta diferenças com snapshot anterior usando Set para performance
         var previousMembers = lastKnownMembers[groupId];
         if (previousMembers && previousMembers.length > 0 && currentParticipants.length > 0) {
-          var newMembers = currentParticipants.filter(function(m) {
-            return previousMembers.indexOf(m) === -1;
-          });
-          var leftMembers = previousMembers.filter(function(m) {
-            return currentParticipants.indexOf(m) === -1;
-          });
+          var prevSet = new Set(previousMembers);
+          var currSet = new Set(currentParticipants);
+
+          var newMembers = currentParticipants.filter(function(m) { return !prevSet.has(m); });
+          var leftMembers = previousMembers.filter(function(m) { return !currSet.has(m); });
 
           if (newMembers.length > 0 || leftMembers.length > 0) {
-            console.log('[WHATSAPP] Diff detectado em ' + groupName + ': +' + newMembers.length + ' -' + leftMembers.length + ' (eventos possivelmente perdidos)');
+            console.log('[WHATSAPP] [DIFF] ' + groupName + ': +' + newMembers.length + ' -' + leftMembers.length);
+            totalNewJoins += newMembers.length;
+            totalNewLeaves += leftMembers.length;
 
             for (var j = 0; j < newMembers.length; j++) {
-              await saveEventSafe(
-                'INSERT INTO member_events (whatsapp_group_id, group_name, phone, phone_partial, action) VALUES ($1, $2, $3, $4, $5)',
-                [groupId, groupName, hashPhone(newMembers[j]), newMembers[j].slice(-4), 'join'],
-                'diff:join:' + newMembers[j].slice(-4) + '@' + groupName
-              );
-              await saveEventSafe(
-                'INSERT INTO lead_contacts (phone, whatsapp_group_id, group_name, joined_at, is_active) VALUES ($1, $2, $3, NOW(), true) ' +
-                'ON CONFLICT (phone, whatsapp_group_id) DO UPDATE SET is_active=true, left_at=NULL, joined_at=NOW()',
-                [newMembers[j], groupId, groupName],
-                'diff:lead:join:' + newMembers[j].slice(-4)
-              );
+              await recordMemberEvent(groupId, groupName, newMembers[j], 'join', 'diff');
             }
 
             for (var l = 0; l < leftMembers.length; l++) {
-              await saveEventSafe(
-                'INSERT INTO member_events (whatsapp_group_id, group_name, phone, phone_partial, action) VALUES ($1, $2, $3, $4, $5)',
-                [groupId, groupName, hashPhone(leftMembers[l]), leftMembers[l].slice(-4), 'leave'],
-                'diff:leave:' + leftMembers[l].slice(-4) + '@' + groupName
-              );
-              await saveEventSafe(
-                'UPDATE lead_contacts SET is_active=false, left_at=NOW() WHERE phone=$1 AND whatsapp_group_id=$2',
-                [leftMembers[l], groupId],
-                'diff:lead:leave:' + leftMembers[l].slice(-4)
-              );
+              await recordMemberEvent(groupId, groupName, leftMembers[l], 'leave', 'diff');
             }
           }
         }
 
-        // Atualiza snapshot
+        // Atualiza snapshot em memória
         lastKnownMembers[groupId] = currentParticipants;
 
-        // Upsert no PostgreSQL
+        // Upsert no PostgreSQL com max_members e invite_code
         await queryWithRetry(
-          'INSERT INTO whatsapp_groups (id, group_name, current_members, last_scanned) VALUES ($1, $2, $3, NOW()) ON CONFLICT (id) DO UPDATE SET group_name=$2, current_members=$3, last_scanned=NOW()',
-          [groupId, groupName, memberCount]
+          'INSERT INTO whatsapp_groups (id, group_name, current_members, max_members, invite_code, last_scanned) VALUES ($1, $2, $3, $4, $5, NOW()) ' +
+          'ON CONFLICT (id) DO UPDATE SET group_name=$2, current_members=$3, max_members=GREATEST(whatsapp_groups.max_members, $4), invite_code=COALESCE($5, whatsapp_groups.invite_code), last_scanned=NOW()',
+          [groupId, groupName, memberCount, maxMembers, inviteCode]
         );
+
+        // Persiste snapshot no DB (a cada scan)
+        saveSnapshotToDB(groupId, currentParticipants);
 
         // Cache do nome com TTL
         groupNameCache[groupId] = { name: groupName, timestamp: Date.now() };
@@ -490,12 +610,24 @@ async function scanGroupsWithDiff() {
       } catch (err) {
         console.error('[WHATSAPP] Erro ao escanear grupo ' + (group.subject || groupId) + ':', err.message);
       }
+
+      // Throttle: pequeno delay entre grupos para evitar rate limit (50ms)
+      if (i < groupIds.length - 1) {
+        await new Promise(function(resolve) { setTimeout(resolve, 50); });
+      }
     }
 
-    console.log('[WHATSAPP] Scan de grupos concluído (' + groupIds.length + ' grupos, ' + Object.keys(lastKnownMembers).length + ' com snapshot)');
+    var diffMsg = '';
+    if (totalNewJoins > 0 || totalNewLeaves > 0) {
+      diffMsg = ' | Diff detectou: +' + totalNewJoins + ' -' + totalNewLeaves + ' eventos';
+    }
+    console.log('[WHATSAPP] Scan concluído (' + groupIds.length + ' grupos)' + diffMsg);
+
   } catch (err) {
     console.error('[WHATSAPP] Erro no scan:', err.message);
   }
+
+  scanInProgress = false;
 }
 
 var scanGroups = scanGroupsWithDiff;
@@ -508,15 +640,22 @@ async function updateGroupMemberCount(groupId) {
     if (!sock) return;
     var metadata = await sock.groupMetadata(groupId);
     if (metadata && metadata.participants) {
+      var memberCount = metadata.participants.length;
+      var maxMembers = metadata.size || memberCount;
+      if (maxMembers < memberCount) maxMembers = memberCount;
+
       await queryWithRetry(
-        'INSERT INTO whatsapp_groups (id, group_name, current_members, last_scanned) VALUES ($1, $2, $3, NOW()) ON CONFLICT (id) DO UPDATE SET group_name=$2, current_members=$3, last_scanned=NOW()',
-        [groupId, metadata.subject, metadata.participants.length]
+        'INSERT INTO whatsapp_groups (id, group_name, current_members, max_members, last_scanned) VALUES ($1, $2, $3, $4, NOW()) ' +
+        'ON CONFLICT (id) DO UPDATE SET group_name=$2, current_members=$3, max_members=GREATEST(whatsapp_groups.max_members, $4), last_scanned=NOW()',
+        [groupId, metadata.subject, memberCount, maxMembers]
       );
       groupNameCache[groupId] = { name: metadata.subject, timestamp: Date.now() };
 
-      lastKnownMembers[groupId] = metadata.participants.map(function(p) {
+      var members = metadata.participants.map(function(p) {
         return p.id.split('@')[0];
       });
+      lastKnownMembers[groupId] = members;
+      saveSnapshotToDB(groupId, members);
     }
   } catch (err) {
     console.error('[WHATSAPP] Erro ao atualizar contagem:', err.message);
@@ -530,7 +669,9 @@ function getStatus() {
     retryQueueSize: eventRetryQueue.length,
     cachedGroups: Object.keys(groupNameCache).length,
     trackedGroups: Object.keys(lastKnownMembers).length,
-    pairingCodeRequested: pairingCodeRequested
+    pairingCodeRequested: pairingCodeRequested,
+    scanInterval: SCAN_INTERVAL / 1000 + 's',
+    dedupWindowSize: Object.keys(recentEvents).length
   });
 }
 
@@ -541,16 +682,34 @@ function getQR() {
 var groupsCache = { data: null, timestamp: 0 };
 var GROUPS_CACHE_TTL = 60000;
 
+/**
+ * Retorna lista de grupos com formato CONSISTENTE independente da fonte
+ */
 async function getGroups() {
   // Return cache if fresh
   if (groupsCache.data && (Date.now() - groupsCache.timestamp) < GROUPS_CACHE_TTL) {
     return groupsCache.data;
   }
 
+  // Formato padrão de resposta para qualquer caminho
+  function formatGroup(id, name, members, maxMembers, lastScanned, inviteCode, isReadOnly) {
+    return {
+      id: id,
+      name: name,
+      groupName: name,
+      participants: members,
+      currentMembers: members,
+      maxMembers: maxMembers || 1024,
+      inviteCode: inviteCode || null,
+      isReadOnly: isReadOnly || false,
+      lastScanned: lastScanned ? { seconds: Math.floor(new Date(lastScanned).getTime() / 1000) } : null
+    };
+  }
+
   if (!sock || !connectionStatus.ready) {
     var result = await pool.query('SELECT * FROM whatsapp_groups ORDER BY group_name');
     var groups = result.rows.map(function(r) {
-      return { id: r.id, name: r.group_name, participants: r.current_members, currentMembers: r.current_members, groupName: r.group_name, lastScanned: { seconds: Math.floor(new Date(r.last_scanned).getTime() / 1000) } };
+      return formatGroup(r.id, r.group_name, r.current_members, r.max_members, r.last_scanned, r.invite_code, false);
     });
     groupsCache = { data: groups, timestamp: Date.now() };
     return groups;
@@ -564,13 +723,18 @@ async function getGroups() {
     for (var i = 0; i < groupIds.length; i++) {
       var g = allGroups[groupIds[i]];
       var memberCount = g.participants ? g.participants.length : 0;
+      var maxMembers = g.size || memberCount;
+      if (maxMembers < memberCount) maxMembers = memberCount;
 
-      result.push({
-        id: groupIds[i],
-        name: g.subject || groupIds[i],
-        participants: memberCount,
-        isReadOnly: g.announce || false
-      });
+      result.push(formatGroup(
+        groupIds[i],
+        g.subject || groupIds[i],
+        memberCount,
+        maxMembers,
+        new Date(),
+        g.inviteCode || null,
+        g.announce || false
+      ));
     }
 
     groupsCache = { data: result, timestamp: Date.now() };
@@ -578,8 +742,9 @@ async function getGroups() {
     // Update PostgreSQL in background
     result.forEach(function(g) {
       pool.query(
-        'INSERT INTO whatsapp_groups (id, group_name, current_members, last_scanned) VALUES ($1, $2, $3, NOW()) ON CONFLICT (id) DO UPDATE SET group_name=$2, current_members=$3, last_scanned=NOW()',
-        [g.id, g.name, g.participants]
+        'INSERT INTO whatsapp_groups (id, group_name, current_members, max_members, invite_code, last_scanned) VALUES ($1, $2, $3, $4, $5, NOW()) ' +
+        'ON CONFLICT (id) DO UPDATE SET group_name=$2, current_members=$3, max_members=GREATEST(whatsapp_groups.max_members, $4), invite_code=COALESCE($5, whatsapp_groups.invite_code), last_scanned=NOW()',
+        [g.id, g.name, g.participants, g.maxMembers, g.inviteCode]
       ).catch(function() {});
     });
 
@@ -587,9 +752,10 @@ async function getGroups() {
   } catch (err) {
     try {
       var result = await pool.query('SELECT * FROM whatsapp_groups ORDER BY group_name');
-      return result.rows.map(function(r) {
-        return { id: r.id, name: r.group_name, participants: r.current_members, currentMembers: r.current_members };
+      var groups = result.rows.map(function(r) {
+        return formatGroup(r.id, r.group_name, r.current_members, r.max_members, r.last_scanned, r.invite_code, false);
       });
+      return groups;
     } catch (e2) {
       throw new Error('Erro ao listar grupos: ' + err.message);
     }
@@ -610,6 +776,7 @@ async function getGroupMembers(groupId) {
     return {
       groupName: metadata.subject,
       totalMembers: metadata.participants.length,
+      maxMembers: metadata.size || metadata.participants.length,
       participants: metadata.participants.map(function(p) {
         var phone = p.id.split('@')[0];
         return {
@@ -625,23 +792,12 @@ async function getGroupMembers(groupId) {
   }
 }
 
-// Hash simples para privacidade dos telefones
-function hashPhone(phone) {
-  var hash = 0;
-  for (var i = 0; i < phone.length; i++) {
-    var char = phone.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash |= 0;
-  }
-  return 'ph_' + Math.abs(hash).toString(36);
-}
-
-// Re-scan periódico com detecção de diff (a cada 10 minutos)
+// Re-scan periódico com detecção de diff (a cada 3 minutos)
 setInterval(function() {
   if (connectionStatus.ready) {
     scanGroupsWithDiff();
   }
-}, 10 * 60 * 1000);
+}, SCAN_INTERVAL);
 
 async function restart() {
   console.log('[WHATSAPP] Reiniciando cliente...');
@@ -653,6 +809,7 @@ async function restart() {
   connectionStatus.reconnectAttempts = 0;
   pairingCodeRequested = false;
   pendingPairingPhone = null;
+  scanInProgress = false;
 
   if (sock) {
     try {
@@ -681,6 +838,7 @@ async function disconnect() {
   connectionStatus.ready = false;
   currentQR = null;
   pairingCodeRequested = false;
+  scanInProgress = false;
 
   if (sock) {
     try { sock.end(); } catch(e) {}

@@ -4263,9 +4263,10 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     var fugaEl = document.getElementById('statTaxaFuga');
     if (fugaEl) { fugaEl.textContent = taxaFuga + '%'; fugaEl.style.color = taxaFuga > 50 ? 'var(--danger)' : taxaFuga > 30 ? 'var(--warning)' : 'var(--accent)'; }
 
-    var taxaSaida = totalMembers > 0 ? ((leavesToday / totalMembers) * 100).toFixed(1) : '0';
+    // Taxa de saída: proporção de saídas vs entradas do dia (não vs total de membros)
+    var taxaSaida = joinsToday > 0 ? ((leavesToday / joinsToday) * 100).toFixed(1) : '0';
     var saidaEl = document.getElementById('statTaxaSaida');
-    if (saidaEl) { saidaEl.textContent = taxaSaida + '%'; saidaEl.style.color = parseFloat(taxaSaida) > 5 ? 'var(--danger)' : parseFloat(taxaSaida) > 2 ? 'var(--warning)' : 'var(--accent)'; }
+    if (saidaEl) { saidaEl.textContent = taxaSaida + '%'; saidaEl.style.color = parseFloat(taxaSaida) > 60 ? 'var(--danger)' : parseFloat(taxaSaida) > 30 ? 'var(--warning)' : 'var(--accent)'; }
 
     // Funil de conversão
     var funnelClicks = document.getElementById('dashFunnelClicks');
@@ -5672,8 +5673,8 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
         var clicks = linkedLink ? (linkedLink.currentClicks || 0) : 0;
         var retention = clicks > 0 ? Math.round((members / clicks) * 100) : 0;
         var retentionColor = retention >= 70 ? 'var(--accent)' : retention >= 40 ? 'var(--warning)' : 'var(--danger)';
-        var exitRate = members > 0 ? ((gLeaves / members) * 100).toFixed(1) : '0';
-        var exitColor = parseFloat(exitRate) > 5 ? 'var(--danger)' : parseFloat(exitRate) > 2 ? 'var(--warning)' : 'var(--accent)';
+        var exitRate = gJoins > 0 ? ((gLeaves / gJoins) * 100).toFixed(1) : '0';
+        var exitColor = parseFloat(exitRate) > 60 ? 'var(--danger)' : parseFloat(exitRate) > 30 ? 'var(--warning)' : 'var(--accent)';
         var lastUpdate = g.lastScanned ? new Date(g.lastScanned.seconds * 1000).toLocaleString('pt-BR') : 'Agora';
 
         html += '<tr>' +

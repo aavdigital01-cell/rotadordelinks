@@ -811,25 +811,46 @@ app.get('/api/member-events/range', authMiddleware, async function(req, res) {
 
 app.get('/api/stats/dashboard', authMiddleware, async function(req, res) {
   try {
-    var [groupsR, eventsR, clicksR] = await Promise.all([
+    var [groupsR, eventsR, clicksR, groupCountR] = await Promise.all([
       pool.query('SELECT COALESCE(SUM(current_members),0) as total FROM whatsapp_groups'),
       pool.query("SELECT action, COUNT(*) as cnt FROM member_events WHERE timestamp >= CURRENT_DATE GROUP BY action"),
-      pool.query("SELECT COUNT(*) as cnt FROM clicks WHERE timestamp >= CURRENT_DATE")
+      pool.query("SELECT COUNT(*) as cnt FROM clicks WHERE timestamp >= CURRENT_DATE"),
+      pool.query('SELECT COUNT(*) as cnt FROM whatsapp_groups')
     ]);
     var totalMembers = parseInt(groupsR.rows[0].total);
+    var totalGroups = parseInt(groupCountR.rows[0].cnt);
     var joins = 0, leaves = 0;
     eventsR.rows.forEach(function(r) {
       if (r.action === 'join') joins = parseInt(r.cnt);
       else leaves = parseInt(r.cnt);
     });
     var clicksToday = parseInt(clicksR.rows[0].cnt);
+
+    // Taxa de fuga: pessoas que clicaram mas não entraram no grupo
     var taxaFuga = clicksToday > 0 ? Math.round(((clicksToday - joins) / clicksToday) * 100) : 0;
-    var taxaSaida = totalMembers > 0 ? ((leaves / totalMembers) * 100).toFixed(1) : 0;
+
+    // Taxa de saída: proporção de saídas vs entradas (não vs total de membros)
+    // Usar joins como base dá uma métrica mais significativa do dia
+    var taxaSaida = joins > 0 ? ((leaves / joins) * 100).toFixed(1) : 0;
+
+    // Taxa de retenção: quantos dos que entraram ficaram
+    var retained = Math.max(0, joins - leaves);
+    var taxaRetencao = joins > 0 ? ((retained / joins) * 100).toFixed(1) : '100.0';
+
+    // Taxa de conversão: clicks que viraram entradas
+    var taxaConversao = clicksToday > 0 ? ((joins / clicksToday) * 100).toFixed(1) : 0;
 
     res.json({
-      totalMembers: totalMembers, joinsToday: joins, leavesToday: leaves,
-      clicksToday: clicksToday, taxaFuga: Math.max(0, taxaFuga),
-      taxaSaida: parseFloat(taxaSaida), saldoLiquido: joins - leaves
+      totalMembers: totalMembers,
+      totalGroups: totalGroups,
+      joinsToday: joins,
+      leavesToday: leaves,
+      clicksToday: clicksToday,
+      taxaFuga: Math.max(0, taxaFuga),
+      taxaSaida: parseFloat(taxaSaida),
+      taxaRetencao: parseFloat(taxaRetencao),
+      taxaConversao: parseFloat(taxaConversao),
+      saldoLiquido: joins - leaves
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
