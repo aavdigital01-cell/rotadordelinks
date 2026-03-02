@@ -1703,6 +1703,36 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
             </div>
             <div class="stat-value" id="metaCostPerLead">R$ 0</div>
           </div>
+          <div class="stat-card">
+            <div class="stat-header">
+              <div class="stat-icon purple"><i class="fas fa-hand-holding-usd"></i></div>
+              <span class="stat-label">CPC Médio</span>
+            </div>
+            <div class="stat-value" id="metaCPCAvg">-</div>
+            <div class="stat-sub" id="metaCPCAvgUSD" style="font-size:10px;color:var(--text-muted)"></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-header">
+              <div class="stat-icon blue"><i class="fas fa-chart-area"></i></div>
+              <span class="stat-label">CPM Médio</span>
+            </div>
+            <div class="stat-value" id="metaCPMAvg">-</div>
+            <div class="stat-sub" id="metaCPMAvgUSD" style="font-size:10px;color:var(--text-muted)"></div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-header">
+              <div class="stat-icon green"><i class="fas fa-percentage"></i></div>
+              <span class="stat-label">CTR Médio</span>
+            </div>
+            <div class="stat-value" id="metaCTRAvg">-</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-header">
+              <div class="stat-icon yellow"><i class="fas fa-broadcast-tower"></i></div>
+              <span class="stat-label">Alcance Total</span>
+            </div>
+            <div class="stat-value" id="metaReachTotal">0</div>
+          </div>
         </div>
 
         <!-- Cotação editável com toggle Auto/Manual -->
@@ -5316,31 +5346,66 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     }
   }
 
-  // Recalcula e atualiza todos os stats do topo + funil completo
+  /**
+   * Recalcula e atualiza todos os stats do topo + funil completo.
+   * Todos os valores monetários vêm em USD e são convertidos para BRL.
+   *
+   * Métricas calculadas:
+   * - CPC = totalSpend / totalClicks (USD, depois converte BRL)
+   * - CPM = (totalSpend / totalImpressions) * 1000 (USD, depois converte BRL)
+   * - CTR = (totalClicks / totalImpressions) * 100 (%)
+   * - CPL Meta = totalSpend / totalConversions (conversões da Meta)
+   * - CPL Real = totalSpend / totalRealMembers (membros WhatsApp reais)
+   */
   async function updateMetaStats() {
-    var totalSpend = 0, totalImpressions = 0, totalClicks = 0, totalConversions = 0;
+    var totalSpendUSD = 0, totalImpressions = 0, totalClicks = 0, totalConversions = 0;
     metaCampaignsRendered.forEach(function(c) {
-      totalSpend += c.spend;
-      totalImpressions += c.impressions;
-      totalClicks += c.clicks;
-      totalConversions += c.conversions;
+      totalSpendUSD += parseFloat(c.spend || 0);
+      totalImpressions += parseInt(c.impressions || 0);
+      totalClicks += parseInt(c.clicks || 0);
+      totalConversions += parseInt(c.conversions || 0);
     });
 
-    var spendBRL = totalSpend * usdToBrl;
-    document.getElementById('metaSpendToday').textContent = 'R$ ' + spendBRL.toFixed(2);
+    var totalSpendBRL = totalSpendUSD * usdToBrl;
+    var totalReach = 0;
+    metaCampaignsRendered.forEach(function(c) {
+      totalReach += parseInt(c.reach || 0);
+    });
+
+    // Métricas agregadas calculadas corretamente a partir dos totais
+    // CPC = Total Spend / Total Clicks (em USD)
+    var cpcUSD = totalClicks > 0 ? totalSpendUSD / totalClicks : 0;
+    // CPM = (Total Spend / Total Impressions) * 1000 (em USD)
+    var cpmUSD = totalImpressions > 0 ? (totalSpendUSD / totalImpressions) * 1000 : 0;
+    // CTR = (Total Clicks / Total Impressions) * 100 (%)
+    var ctrPct = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
+
+    document.getElementById('metaSpendToday').textContent = 'R$ ' + totalSpendBRL.toFixed(2);
     document.getElementById('metaImpressions').textContent = totalImpressions.toLocaleString();
     document.getElementById('metaClicks').textContent = totalClicks.toLocaleString();
     document.getElementById('metaTotalLeads').textContent = totalConversions.toLocaleString();
-    var cplMeta = totalConversions > 0 ? spendBRL / totalConversions : 0;
-    document.getElementById('metaCPLMeta').textContent = cplMeta > 0 ? 'R$ ' + cplMeta.toFixed(2) : '-';
+
+    // CPC, CPM, CTR e Alcance
+    var cpcBRL = cpcUSD * usdToBrl;
+    var cpmBRL = cpmUSD * usdToBrl;
+    document.getElementById('metaCPCAvg').textContent = cpcBRL > 0 ? 'R$ ' + cpcBRL.toFixed(2) : '-';
+    document.getElementById('metaCPCAvgUSD').textContent = cpcUSD > 0 ? '$' + cpcUSD.toFixed(2) + ' USD' : '';
+    document.getElementById('metaCPMAvg').textContent = cpmBRL > 0 ? 'R$ ' + cpmBRL.toFixed(2) : '-';
+    document.getElementById('metaCPMAvgUSD').textContent = cpmUSD > 0 ? '$' + cpmUSD.toFixed(2) + ' USD' : '';
+    document.getElementById('metaCTRAvg').textContent = ctrPct > 0 ? ctrPct.toFixed(2) + '%' : '-';
+    document.getElementById('metaReachTotal').textContent = totalReach.toLocaleString();
+
+    // CPL Meta (custo por lead da Meta) = spend / conversões da Meta
+    var cplMetaBRL = totalConversions > 0 ? totalSpendBRL / totalConversions : 0;
+    document.getElementById('metaCPLMeta').textContent = cplMetaBRL > 0 ? 'R$ ' + cplMetaBRL.toFixed(2) : '-';
 
     // Membros reais do WhatsApp para CPL Real
     try {
       var groups = await serverFetch('/api/whatsapp/groups');
       var totalRealMembers = 0;
       if (groups) groups.forEach(function(g) { totalRealMembers += (g.participants || g.currentMembers || 0); });
-      var cplReal = totalRealMembers > 0 ? spendBRL / totalRealMembers : 0;
-      document.getElementById('metaCostPerLead').textContent = cplReal > 0 ? 'R$ ' + cplReal.toFixed(2) : '-';
+      var cplRealBRL = totalRealMembers > 0 ? totalSpendBRL / totalRealMembers : 0;
+      document.getElementById('metaCostPerLead').textContent = cplRealBRL > 0 ? 'R$ ' + cplRealBRL.toFixed(2) : '-';
     } catch(e) {}
 
     // Cotação - sempre mostra o estado correto
@@ -5382,11 +5447,18 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
       metaCampaignsRendered = [];
       if (batch && batch.campaigns) {
         batch.campaigns.forEach(function(c) {
+          // Todos os valores monetários em USD (moeda da conta Meta)
           metaCampaignsRendered.push({
             id: c.id, name: c.name || 'N/A', status: c.status || 'N/A',
             spend: c.spend || 0, impressions: c.impressions || 0, clicks: c.clicks || 0,
             cpc: c.cpc || 0, cpm: c.cpm || 0, ctr: c.ctr || 0,
-            conversions: c.conversions || 0, costPerResult: c.costPerResult || 0
+            reach: c.reach || 0, frequency: c.frequency || 0,
+            uniqueClicks: c.uniqueClicks || 0,
+            conversions: c.conversions || 0, costPerResult: c.costPerResult || 0,
+            roas: c.roas || 0,
+            qualityRanking: c.qualityRanking || '',
+            engagementRanking: c.engagementRanking || '',
+            conversionRanking: c.conversionRanking || ''
           });
         });
       }
@@ -5418,11 +5490,16 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
 
       metaCampaignsRendered = [];
       metaCamps.forEach(function(c) {
+        // Todos os valores monetários em USD (moeda da conta Meta)
         metaCampaignsRendered.push({
           id: c.id, name: c.name || 'N/A', status: c.status || 'N/A',
           spend: c.spend || 0, impressions: c.impressions || 0, clicks: c.clicks || 0,
           cpc: c.cpc || 0, cpm: c.cpm || 0, ctr: c.ctr || 0,
-          conversions: c.conversions || 0, costPerResult: c.costPerResult || 0
+          reach: c.reach || 0, frequency: 0,
+          uniqueClicks: 0,
+          conversions: c.conversions || 0, costPerResult: c.costPerResult || 0,
+          roas: 0,
+          qualityRanking: '', engagementRanking: '', conversionRanking: ''
         });
       });
 
@@ -5434,6 +5511,16 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     } catch(e) { console.error('Cache error:', e); }
   }
 
+  /**
+   * Renderiza tabela de campanhas Meta Ads.
+   * NOTA: Os valores monetários (spend, cpc, cpm, costPerResult) vêm em USD da API.
+   * São convertidos para BRL usando toBRL() com a cotação atual do dólar.
+   *
+   * Fórmulas corretas:
+   * - CPC (BRL) = CPC_USD * cotação = (spend_USD / clicks) * cotação
+   * - CPM (BRL) = CPM_USD * cotação = ((spend_USD / impressions) * 1000) * cotação
+   * - CTR (%) = (clicks / impressions) * 100 (não converte - é percentual)
+   */
   function renderMetaTable() {
     var statusFilter = document.getElementById('metaStatusFilter').value;
     var searchFilter = (document.getElementById('metaSearchFilter').value || '').toLowerCase();
@@ -5455,25 +5542,49 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     filtered.forEach(function(c) {
       var status = c.status;
       var isActive = status === 'ACTIVE';
-      var isPaused = status === 'PAUSED' || status.includes('PAUSED');
+      var isPaused = status === 'PAUSED' || (status && status.includes('PAUSED'));
       var statusBadge = isActive ? '<span class="badge badge-success">Ativo</span>' :
                         isPaused ? '<span class="badge badge-warning">Pausado</span>' :
                         '<span class="badge badge-info">' + status + '</span>';
 
-      var spendBRL = parseFloat(toBRL(c.spend));
+      // Recalcula CPC e CPM a partir de spend/clicks para garantir precisão
+      var spendUSD = parseFloat(c.spend || 0);
+      var clicks = parseInt(c.clicks || 0);
+      var impressions = parseInt(c.impressions || 0);
+
+      // CPC: usa valor da API ou recalcula
+      var cpcUSD = c.cpc > 0 ? c.cpc : (clicks > 0 ? spendUSD / clicks : 0);
+      // CPM: usa valor da API ou recalcula
+      var cpmUSD = c.cpm > 0 ? c.cpm : (impressions > 0 ? (spendUSD / impressions) * 1000 : 0);
+      // CTR: usa valor da API ou recalcula
+      var ctr = c.ctr > 0 ? c.ctr : (impressions > 0 ? (clicks / impressions) * 100 : 0);
+
+      var spendBRL = spendUSD * usdToBrl;
+      var cpcBRL = cpcUSD * usdToBrl;
+      var cpmBRL = cpmUSD * usdToBrl;
+      var costPerResultBRL = parseFloat(c.costPerResult || 0) * usdToBrl;
+
       var safeName = escHtml(c.name).replace(/'/g, "\\'").replace(/"/g, '&quot;');
 
+      // Quality ranking badge
+      var qualityBadge = '';
+      if (c.qualityRanking) {
+        var qColor = c.qualityRanking === 'ABOVE_AVERAGE_35' || c.qualityRanking === 'ABOVE_AVERAGE_55' ? 'var(--accent)' :
+                     c.qualityRanking === 'AVERAGE' ? 'var(--warning)' : 'var(--danger)';
+        qualityBadge = '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:' + qColor + ';margin-left:4px" title="Qualidade: ' + c.qualityRanking + '"></span>';
+      }
+
       html += '<tr>' +
-        '<td><strong>' + escHtml(c.name) + '</strong><br><span style="font-size:10px;color:var(--text-muted)">' + c.id + '</span></td>' +
+        '<td><strong>' + escHtml(c.name) + '</strong>' + qualityBadge + '<br><span style="font-size:10px;color:var(--text-muted)">' + c.id + '</span></td>' +
         '<td data-sort="' + status + '">' + statusBadge + '</td>' +
-        '<td data-sort="' + spendBRL + '">R$ ' + spendBRL.toFixed(2) + '</td>' +
-        '<td data-sort="' + c.impressions + '">' + c.impressions.toLocaleString() + '</td>' +
-        '<td data-sort="' + c.clicks + '">' + c.clicks.toLocaleString() + '</td>' +
-        '<td data-sort="' + parseFloat(toBRL(c.cpc)) + '">R$ ' + toBRL(c.cpc) + '</td>' +
-        '<td data-sort="' + parseFloat(toBRL(c.cpm)) + '">R$ ' + toBRL(c.cpm) + '</td>' +
-        '<td data-sort="' + c.ctr + '">' + c.ctr.toFixed(2) + '%</td>' +
-        '<td data-sort="' + c.conversions + '">' + c.conversions + '</td>' +
-        '<td data-sort="' + parseFloat(toBRL(c.costPerResult)) + '">R$ ' + toBRL(c.costPerResult) + '</td>' +
+        '<td data-sort="' + spendBRL + '"><span title="$' + spendUSD.toFixed(2) + ' USD">R$ ' + spendBRL.toFixed(2) + '</span></td>' +
+        '<td data-sort="' + impressions + '">' + impressions.toLocaleString() + '</td>' +
+        '<td data-sort="' + clicks + '">' + clicks.toLocaleString() + '</td>' +
+        '<td data-sort="' + cpcBRL + '"><span title="$' + cpcUSD.toFixed(2) + ' USD">R$ ' + cpcBRL.toFixed(2) + '</span></td>' +
+        '<td data-sort="' + cpmBRL + '"><span title="$' + cpmUSD.toFixed(2) + ' USD">R$ ' + cpmBRL.toFixed(2) + '</span></td>' +
+        '<td data-sort="' + ctr + '">' + ctr.toFixed(2) + '%</td>' +
+        '<td data-sort="' + c.conversions + '">' + (c.conversions || 0) + '</td>' +
+        '<td data-sort="' + costPerResultBRL + '"><span title="$' + parseFloat(c.costPerResult || 0).toFixed(2) + ' USD">' + (costPerResultBRL > 0 ? 'R$ ' + costPerResultBRL.toFixed(2) : '-') + '</span></td>' +
         '<td style="white-space:nowrap">' +
           (isActive ?
             '<button class="btn btn-warning btn-sm btn-icon" onclick="metaPauseCampaign(\'' + c.id + '\')" title="Pausar"><i class="fas fa-pause"></i></button>' :
@@ -6255,14 +6366,17 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
   // ===== UPDATE META FUNNEL (enhanced with 6 steps) =====
   async function updateMetaFunnelComplete() {
     try {
-      var totalImpressions = 0, totalMetaClicks = 0, totalSpend = 0;
+      var totalImpressions = 0, totalMetaClicks = 0, totalSpendUSD = 0;
+      var totalReach = 0, totalConversions = 0;
       metaCampaignsRendered.forEach(function(c) {
-        totalImpressions += c.impressions;
-        totalMetaClicks += c.clicks;
-        totalSpend += c.spend;
+        totalImpressions += parseInt(c.impressions || 0);
+        totalMetaClicks += parseInt(c.clicks || 0);
+        totalSpendUSD += parseFloat(c.spend || 0);
+        totalReach += parseInt(c.reach || 0);
+        totalConversions += parseInt(c.conversions || 0);
       });
 
-      var spendBRL = totalSpend * usdToBrl;
+      var spendBRL = totalSpendUSD * usdToBrl;
 
       // Rotator clicks
       var totalRotatorClicks = links.reduce(function(sum, l) { return sum + (l.currentClicks || 0); }, 0);
@@ -6297,15 +6411,15 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
       var rate5 = joins > 0 ? ((leaves / joins) * 100).toFixed(1) : '0';
       document.getElementById('funnelRate5').textContent = rate5 + '% saiu';
 
-      // ROI metrics
-      var costRetained = retained > 0 ? spendBRL / retained : 0;
-      document.getElementById('funnelCostRetained').textContent = costRetained > 0 ? 'R$ ' + costRetained.toFixed(2) : '-';
+      // ROI metrics (todos convertidos para BRL)
+      var costRetainedBRL = retained > 0 ? spendBRL / retained : 0;
+      document.getElementById('funnelCostRetained').textContent = costRetainedBRL > 0 ? 'R$ ' + costRetainedBRL.toFixed(2) : '-';
 
       var roiPct = joins > 0 ? ((retained / joins) * 100).toFixed(0) : '0';
       document.getElementById('funnelROI').textContent = roiPct + '%';
 
-      var costClick = totalRotatorClicks > 0 ? spendBRL / totalRotatorClicks : 0;
-      document.getElementById('funnelCostClick').textContent = costClick > 0 ? 'R$ ' + costClick.toFixed(2) : '-';
+      var costClickBRL = totalRotatorClicks > 0 ? spendBRL / totalRotatorClicks : 0;
+      document.getElementById('funnelCostClick').textContent = costClickBRL > 0 ? 'R$ ' + costClickBRL.toFixed(2) : '-';
     } catch(e) { console.error('Funnel update error:', e); }
   }
 

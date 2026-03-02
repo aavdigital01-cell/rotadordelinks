@@ -918,13 +918,26 @@ app.delete('/api/alerts/clear-all', authMiddleware, async function(req, res) {
 app.get('/api/meta-campaigns', authMiddleware, async function(req, res) {
   try {
     var result = await pool.query('SELECT * FROM meta_campaigns ORDER BY last_synced DESC');
+    // NOTA: Todos os valores monetários estão em USD (moeda da conta Meta)
     res.json(result.rows.map(function(r) {
+      var spend = parseFloat(r.spend || 0);
+      var clicks = parseInt(r.clicks || 0);
+      var impressions = parseInt(r.impressions || 0);
+      var cpc = r.cpc ? parseFloat(r.cpc) : (clicks > 0 ? spend / clicks : 0);
+      var cpm = r.cpm ? parseFloat(r.cpm) : (impressions > 0 ? (spend / impressions) * 1000 : 0);
+      var ctr = r.ctr ? parseFloat(r.ctr) : (impressions > 0 ? (clicks / impressions) * 100 : 0);
       return {
         id: r.id, name: r.name, status: r.status, objective: r.objective,
-        dailyBudget: parseFloat(r.daily_budget), spend: parseFloat(r.spend),
-        impressions: r.impressions, clicks: r.clicks, cpc: parseFloat(r.cpc),
-        cpm: parseFloat(r.cpm), ctr: parseFloat(r.ctr), reach: r.reach,
-        conversions: r.conversions, costPerResult: parseFloat(r.cost_per_result)
+        dailyBudget: parseFloat(r.daily_budget || 0),  // USD
+        spend: spend,                                    // USD
+        impressions: impressions,
+        clicks: clicks,
+        cpc: cpc,                                        // USD
+        cpm: cpm,                                        // USD
+        ctr: ctr,                                        // %
+        reach: parseInt(r.reach || 0),
+        conversions: parseInt(r.conversions || 0),
+        costPerResult: parseFloat(r.cost_per_result || 0) // USD
       };
     }));
   } catch (err) {
@@ -997,23 +1010,63 @@ app.post('/api/meta/sync', authMiddleware, async function(req, res) {
   }
 });
 
+// Token health check - verifica se o token Meta ainda é válido
+app.get('/api/meta/token-status', authMiddleware, async function(req, res) {
+  try {
+    var tokenInfo = await metaApi.debugToken();
+    if (tokenInfo && tokenInfo.data) {
+      var d = tokenInfo.data;
+      var expiresAt = d.expires_at ? new Date(d.expires_at * 1000) : null;
+      var daysLeft = expiresAt ? Math.ceil((expiresAt - Date.now()) / (1000 * 60 * 60 * 24)) : null;
+      res.json({
+        valid: d.is_valid !== false,
+        expiresAt: expiresAt ? expiresAt.toISOString() : null,
+        daysLeft: daysLeft,
+        scopes: d.scopes || [],
+        appId: d.app_id,
+        warning: daysLeft !== null && daysLeft < 7 ? 'Token expira em ' + daysLeft + ' dias!' : null
+      });
+    } else {
+      res.json({ valid: false, error: 'Não foi possível verificar o token' });
+    }
+  } catch (err) {
+    res.json({ valid: false, error: err.message });
+  }
+});
+
 // Batch insights - fetch all campaigns with insights in parallel (fast)
 app.get('/api/meta/insights-batch', authMiddleware, async function(req, res) {
   try {
     var dateRange = req.query.date_range || 'today';
 
     // For "today", return DB cache (instant)
+    // NOTA: Todos os valores monetários (spend, cpc, cpm, costPerResult) estão em USD
     if (dateRange === 'today') {
       var dbResult = await pool.query('SELECT * FROM meta_campaigns ORDER BY name');
       var mapped = dbResult.rows.map(function(r) {
+        var spend = parseFloat(r.spend || 0);
+        var clicks = parseInt(r.clicks || 0);
+        var impressions = parseInt(r.impressions || 0);
+        // Recalcula CPC e CPM para garantir consistência
+        var cpc = r.cpc ? parseFloat(r.cpc) : (clicks > 0 ? spend / clicks : 0);
+        var cpm = r.cpm ? parseFloat(r.cpm) : (impressions > 0 ? (spend / impressions) * 1000 : 0);
+        var ctr = r.ctr ? parseFloat(r.ctr) : (impressions > 0 ? (clicks / impressions) * 100 : 0);
         return {
           id: r.id, name: r.name, status: r.status, objective: r.objective,
-          dailyBudget: parseFloat(r.daily_budget || 0),
-          spend: parseFloat(r.spend || 0), impressions: parseInt(r.impressions || 0),
-          clicks: parseInt(r.clicks || 0), cpc: parseFloat(r.cpc || 0),
-          cpm: parseFloat(r.cpm || 0), ctr: parseFloat(r.ctr || 0),
-          reach: parseInt(r.reach || 0), conversions: parseInt(r.conversions || 0),
-          costPerResult: parseFloat(r.cost_per_result || 0)
+          dailyBudget: parseFloat(r.daily_budget || 0),   // USD
+          spend: spend,                                     // USD
+          impressions: impressions,
+          clicks: clicks,
+          cpc: cpc,                                         // USD
+          cpm: cpm,                                         // USD
+          ctr: ctr,                                         // %
+          reach: parseInt(r.reach || 0),
+          frequency: 0,
+          uniqueClicks: 0,
+          conversions: parseInt(r.conversions || 0),
+          costPerResult: parseFloat(r.cost_per_result || 0), // USD
+          roas: 0,
+          qualityRanking: '', engagementRanking: '', conversionRanking: ''
         };
       });
       return res.json({ campaigns: mapped, source: 'cache' });
@@ -1026,24 +1079,32 @@ app.get('/api/meta/insights-batch', authMiddleware, async function(req, res) {
     var promises = campaigns.data.map(function(camp) {
       return metaApi.getCampaignInsights(camp.id, dateRange).then(function(insights) {
         var d = insights && insights.data && insights.data[0] ? insights.data[0] : {};
-        var conversions = 0, costPerResult = 0;
-        if (d.actions) {
-          conversions = extractConversions(d.actions);
-        }
-        if (d.cost_per_action_type) {
-          costPerResult = extractCostPerResult(d.cost_per_action_type);
-        }
+        var normalized = metaApi.normalizeInsight(d);
         return {
           id: camp.id, name: camp.name, status: camp.effective_status || camp.status || 'N/A',
-          spend: parseFloat(d.spend || 0), impressions: parseInt(d.impressions || 0),
-          clicks: parseInt(d.clicks || 0), cpc: parseFloat(d.cpc || 0),
-          cpm: parseFloat(d.cpm || 0), ctr: parseFloat(d.ctr || 0),
-          conversions: conversions, costPerResult: costPerResult
+          spend: normalized.spend,          // USD
+          impressions: normalized.impressions,
+          clicks: normalized.clicks,
+          cpc: normalized.cpc,              // USD
+          cpm: normalized.cpm,              // USD
+          ctr: normalized.ctr,              // %
+          reach: normalized.reach,
+          frequency: normalized.frequency,
+          uniqueClicks: normalized.uniqueClicks,
+          conversions: normalized.conversions,
+          costPerResult: normalized.costPerResult,  // USD
+          roas: normalized.roas,
+          qualityRanking: normalized.qualityRanking,
+          engagementRanking: normalized.engagementRanking,
+          conversionRanking: normalized.conversionRanking
         };
       }).catch(function() {
         return {
           id: camp.id, name: camp.name, status: camp.effective_status || camp.status || 'N/A',
-          spend: 0, impressions: 0, clicks: 0, cpc: 0, cpm: 0, ctr: 0, conversions: 0, costPerResult: 0
+          spend: 0, impressions: 0, clicks: 0, cpc: 0, cpm: 0, ctr: 0,
+          reach: 0, frequency: 0, uniqueClicks: 0,
+          conversions: 0, costPerResult: 0, roas: 0,
+          qualityRanking: '', engagementRanking: '', conversionRanking: ''
         };
       });
     });
@@ -1378,19 +1439,31 @@ app.get('/api/analytics/summary', authMiddleware, async function(req, res) {
     var metaClicks = parseInt(metaR.rows[0].clicks);
     var metaImpressions = parseInt(metaR.rows[0].impressions);
     var metaConversions = parseInt(metaR.rows[0].conversions);
-    var metaSpend = parseFloat(metaSpendR.rows[0].spend);
+    var metaSpend = parseFloat(metaSpendR.rows[0].spend); // USD
 
+    // Métricas calculadas corretamente
     var convRate = clicks > 0 ? ((joins / clicks) * 100).toFixed(1) : '0';
     var retentionRate = joins > 0 ? ((retained / joins) * 100).toFixed(1) : '0';
     var exitRate = joins > 0 ? ((leaves / joins) * 100).toFixed(1) : '0';
     var flightRate = clicks > 0 ? (((clicks - joins) / clicks) * 100).toFixed(1) : '0';
+
+    // CPC e CPM calculados a partir dos totais (em USD)
+    var metaCPC = metaClicks > 0 ? metaSpend / metaClicks : 0;
+    var metaCPM = metaImpressions > 0 ? (metaSpend / metaImpressions) * 1000 : 0;
+    var metaCTR = metaImpressions > 0 ? (metaClicks / metaImpressions) * 100 : 0;
+    var metaCPL = metaConversions > 0 ? metaSpend / metaConversions : 0;
 
     res.json({
       period: days === 1 ? 'today' : days + 'd',
       clicks: clicks, joins: joins, leaves: leaves, retained: retained,
       totalMembers: totalMembers, totalGroups: totalGroups,
       metaClicks: metaClicks, metaImpressions: metaImpressions,
-      metaConversions: metaConversions, metaSpendUSD: metaSpend,
+      metaConversions: metaConversions,
+      metaSpendUSD: metaSpend,       // USD - converter no frontend
+      metaCPC_USD: metaCPC,           // USD - converter no frontend
+      metaCPM_USD: metaCPM,           // USD - converter no frontend
+      metaCTR: metaCTR,               // % - não converter
+      metaCPL_USD: metaCPL,           // USD - converter no frontend
       conversionRate: parseFloat(convRate), retentionRate: parseFloat(retentionRate),
       exitRate: parseFloat(exitRate), flightRate: parseFloat(flightRate),
       timestamp: new Date().toISOString()
@@ -1601,23 +1674,31 @@ app.get('/api/analytics/smart-alerts', authMiddleware, async function(req, res) 
     });
 
     // 3. High CPC campaigns (CPC > 2x average)
-    var activeMeta = metaR.rows.filter(function(c) { return parseInt(c.spend) > 0; });
+    // CPC está em USD no banco - recalcula a partir de spend/clicks para precisão
+    var activeMeta = metaR.rows.filter(function(c) { return parseFloat(c.spend) > 0; });
     if (activeMeta.length > 1) {
       var cpcs = [];
-      var metaDetailsR = await pool.query('SELECT id, name, cpc, spend FROM meta_campaigns WHERE spend > 0');
-      metaDetailsR.rows.forEach(function(c) { cpcs.push({ id: c.id, name: c.name, cpc: parseFloat(c.cpc) }); });
-      var avgCpc = cpcs.reduce(function(s, c) { return s + c.cpc; }, 0) / cpcs.length;
-      cpcs.forEach(function(c) {
-        if (c.cpc > avgCpc * 2 && c.cpc > 0) {
-          alerts.push({
-            type: 'high_cpc',
-            severity: 'info',
-            title: 'CPC elevado',
-            message: c.name + ': CPC $' + c.cpc.toFixed(2) + ' (média $' + avgCpc.toFixed(2) + ')',
-            campaignId: c.id, campaignName: c.name
-          });
-        }
+      var metaDetailsR = await pool.query('SELECT id, name, cpc, spend, clicks FROM meta_campaigns WHERE spend > 0 AND clicks > 0');
+      metaDetailsR.rows.forEach(function(c) {
+        // Recalcula CPC para garantir precisão: spend / clicks (ambos em USD)
+        var realCpc = parseFloat(c.spend) / parseInt(c.clicks);
+        cpcs.push({ id: c.id, name: c.name, cpc: realCpc });
       });
+      if (cpcs.length > 1) {
+        var avgCpc = cpcs.reduce(function(s, c) { return s + c.cpc; }, 0) / cpcs.length;
+        cpcs.forEach(function(c) {
+          if (c.cpc > avgCpc * 2 && c.cpc > 0) {
+            alerts.push({
+              type: 'high_cpc',
+              severity: 'info',
+              title: 'CPC elevado',
+              message: c.name + ': CPC $' + c.cpc.toFixed(2) + ' USD (média $' + avgCpc.toFixed(2) + ' USD)',
+              campaignId: c.id, campaignName: c.name,
+              cpcUSD: c.cpc, avgCpcUSD: avgCpc
+            });
+          }
+        });
+      }
     }
 
     // 4. Links near full
@@ -1700,54 +1781,50 @@ app.get('/api/stats/overview', authMiddleware, async function(req, res) {
 
 // ===== SYNC META → DB =====
 
+/**
+ * Sincroniza dados do Meta Ads para o banco de dados local.
+ * NOTA: Todos os valores monetários (spend, cpc, cpm, cost_per_result) são
+ * armazenados em USD (moeda da conta Meta). A conversão para BRL é feita
+ * apenas no frontend usando a cotação atual do dólar.
+ */
 async function syncMetaToDB() {
   try {
     var campaigns = await metaApi.getCampaigns();
     if (!campaigns || !campaigns.data) return;
 
     for (var camp of campaigns.data) {
-      var insights = await metaApi.getCampaignInsights(camp.id, 'today');
-      var d = insights && insights.data && insights.data[0] ? insights.data[0] : {};
+      try {
+        var insights = await metaApi.getCampaignInsights(camp.id, 'today');
+        var d = insights && insights.data && insights.data[0] ? insights.data[0] : {};
+        var normalized = metaApi.normalizeInsight(d);
 
-      await pool.query(
-        `INSERT INTO meta_campaigns (id, name, status, objective, daily_budget, spend, impressions, clicks, cpc, cpm, ctr, reach, conversions, cost_per_result, last_synced)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW())
-         ON CONFLICT (id) DO UPDATE SET name=$2, status=$3, objective=$4, daily_budget=$5, spend=$6, impressions=$7, clicks=$8, cpc=$9, cpm=$10, ctr=$11, reach=$12, conversions=$13, cost_per_result=$14, last_synced=NOW()`,
-        [
-          camp.id, camp.name, camp.status || camp.effective_status, camp.objective,
-          camp.daily_budget ? parseFloat(camp.daily_budget) / 100 : 0,
-          d.spend ? parseFloat(d.spend) : 0,
-          d.impressions ? parseInt(d.impressions) : 0,
-          d.clicks ? parseInt(d.clicks) : 0,
-          d.cpc ? parseFloat(d.cpc) : 0,
-          d.cpm ? parseFloat(d.cpm) : 0,
-          d.ctr ? parseFloat(d.ctr) : 0,
-          d.reach ? parseInt(d.reach) : 0,
-          d.actions ? extractConversions(d.actions) : 0,
-          d.cost_per_action_type ? extractCostPerResult(d.cost_per_action_type) : 0
-        ]
-      );
+        await pool.query(
+          `INSERT INTO meta_campaigns (id, name, status, objective, daily_budget, spend, impressions, clicks, cpc, cpm, ctr, reach, conversions, cost_per_result, last_synced)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW())
+           ON CONFLICT (id) DO UPDATE SET name=$2, status=$3, objective=$4, daily_budget=$5, spend=$6, impressions=$7, clicks=$8, cpc=$9, cpm=$10, ctr=$11, reach=$12, conversions=$13, cost_per_result=$14, last_synced=NOW()`,
+          [
+            camp.id, camp.name, camp.effective_status || camp.status, camp.objective,
+            camp.daily_budget ? parseFloat(camp.daily_budget) / 100 : 0, // centavos → USD
+            normalized.spend,        // USD
+            normalized.impressions,
+            normalized.clicks,
+            normalized.cpc,          // USD (spend / clicks)
+            normalized.cpm,          // USD (spend / impressions * 1000)
+            normalized.ctr,          // % (clicks / impressions * 100)
+            normalized.reach,
+            normalized.conversions,
+            normalized.costPerResult  // USD
+          ]
+        );
+      } catch (campErr) {
+        // Não falha toda a sync por causa de uma campanha
+        console.error('[META] Erro sincronizando campanha ' + camp.name + ':', campErr.message);
+      }
     }
     console.log('[META] Sincronizados ' + campaigns.data.length + ' campanhas');
   } catch (err) {
     console.error('[META] Erro na sincronização:', err.message);
   }
-}
-
-function extractConversions(actions) {
-  if (!actions) return 0;
-  var conv = actions.find(function(a) {
-    return a.action_type === 'offsite_conversion.fb_pixel_lead' || a.action_type === 'lead' || a.action_type === 'onsite_conversion.messaging_first_reply';
-  });
-  return conv ? parseInt(conv.value) : 0;
-}
-
-function extractCostPerResult(costPerAction) {
-  if (!costPerAction) return 0;
-  var cost = costPerAction.find(function(a) {
-    return a.action_type === 'offsite_conversion.fb_pixel_lead' || a.action_type === 'lead';
-  });
-  return cost ? parseFloat(cost.value) : 0;
 }
 
 // Auto-sync Meta every 5 minutes
