@@ -1917,14 +1917,59 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     <div class="view" id="view-whatsapp">
       <div id="whatsappNotConnected" style="display:none">
         <div class="card">
-          <div class="card-body" style="text-align:center;padding:48px">
-            <i class="fab fa-whatsapp" style="font-size:48px;color:var(--accent);opacity:.4;margin-bottom:16px"></i>
-            <h3 style="margin-bottom:8px">Conectar WhatsApp</h3>
-            <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px">Escaneie o QR Code abaixo com o WhatsApp do número que administra os grupos</p>
-            <div id="qrCodeContainer" style="margin:20px auto;max-width:256px">
-              <div class="empty-state"><p>Carregando QR Code...</p></div>
+          <div class="card-body" style="padding:32px">
+            <div style="text-align:center;margin-bottom:24px">
+              <i class="fab fa-whatsapp" style="font-size:48px;color:var(--accent);opacity:.4;margin-bottom:16px"></i>
+              <h3 style="margin-bottom:4px">Conectar WhatsApp</h3>
+              <p style="font-size:13px;color:var(--text-secondary)">Escolha como conectar seu número</p>
             </div>
-            <button class="btn btn-primary" onclick="refreshQR()"><i class="fas fa-sync"></i> Atualizar QR Code</button>
+
+            <!-- Tabs de conexão -->
+            <div style="display:flex;gap:0;margin-bottom:24px;border-radius:8px;overflow:hidden;border:1px solid var(--border)">
+              <button id="tabPhone" onclick="switchConnectTab('phone')" style="flex:1;padding:10px 16px;font-size:13px;font-weight:600;cursor:pointer;border:none;background:var(--accent);color:#fff;transition:all .2s">
+                <i class="fas fa-mobile-alt" style="margin-right:6px"></i> Número de Telefone
+              </button>
+              <button id="tabQR" onclick="switchConnectTab('qr')" style="flex:1;padding:10px 16px;font-size:13px;font-weight:600;cursor:pointer;border:none;background:var(--card-bg);color:var(--text-secondary);transition:all .2s">
+                <i class="fas fa-qrcode" style="margin-right:6px"></i> QR Code
+              </button>
+            </div>
+
+            <!-- Tab: Conectar por Número -->
+            <div id="connectPhoneTab" style="text-align:center">
+              <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px">
+                Digite o número com DDI (ex: 55 11 99999-9999) e um código será enviado para seu WhatsApp
+              </p>
+              <div style="display:flex;gap:8px;max-width:360px;margin:0 auto 16px">
+                <input type="tel" id="pairingPhone" class="form-control" placeholder="5511999999999" style="flex:1;text-align:center;font-size:18px;letter-spacing:2px;font-weight:600" oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+                <button class="btn btn-primary" id="pairingBtn" onclick="requestPairingCode()" style="white-space:nowrap;background:#25D366;border-color:#25D366">
+                  <i class="fas fa-paper-plane"></i> Conectar
+                </button>
+              </div>
+              <div id="pairingResult" style="display:none;margin:16px auto;max-width:360px">
+                <div style="background:var(--bg-dark);border-radius:12px;padding:20px;border:2px solid var(--accent)">
+                  <p style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">Seu código de pareamento:</p>
+                  <div id="pairingCode" style="font-size:32px;font-weight:800;letter-spacing:6px;color:var(--accent);font-family:monospace"></div>
+                  <p style="font-size:11px;color:var(--text-muted);margin-top:12px">
+                    <i class="fas fa-info-circle"></i> Abra o WhatsApp no celular &rarr; <strong>Aparelhos Conectados</strong> &rarr; <strong>Conectar Dispositivo</strong> &rarr; <strong>Conectar com Número de Telefone</strong> e digite este código
+                  </p>
+                </div>
+              </div>
+              <div id="pairingError" style="display:none;color:var(--danger);font-size:13px;margin-top:8px"></div>
+              <div id="pairingWaiting" style="display:none;margin-top:16px">
+                <div style="display:inline-flex;align-items:center;gap:8px;color:var(--text-secondary);font-size:13px">
+                  <i class="fas fa-spinner fa-spin"></i> Aguardando confirmação no WhatsApp...
+                </div>
+              </div>
+            </div>
+
+            <!-- Tab: Conectar por QR Code -->
+            <div id="connectQRTab" style="display:none;text-align:center">
+              <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px">Escaneie o QR Code com o WhatsApp do número que administra os grupos</p>
+              <div id="qrCodeContainer" style="margin:20px auto;max-width:256px">
+                <div class="empty-state"><p>Carregando QR Code...</p></div>
+              </div>
+              <button class="btn btn-secondary" onclick="refreshQR()"><i class="fas fa-sync"></i> Atualizar QR Code</button>
+            </div>
           </div>
         </div>
       </div>
@@ -3028,14 +3073,19 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
         </div>
         <div class="card-body">
           <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px">
-            O monitor WhatsApp permite rastrear membros dos grupos automaticamente. Ao reconectar, um novo QR Code será gerado no terminal do VPS.
+            O monitor WhatsApp permite rastrear membros dos grupos automaticamente. Conecte pelo número de telefone ou QR Code diretamente pelo painel.
           </p>
-          <button class="btn btn-secondary" onclick="restartWhatsapp()">
-            <i class="fas fa-sync-alt"></i> Reconectar WhatsApp
-          </button>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-secondary" onclick="restartWhatsapp()">
+              <i class="fas fa-sync-alt"></i> Reconectar WhatsApp
+            </button>
+            <button class="btn btn-secondary" onclick="navigateTo('whatsapp')" style="border-color:var(--accent);color:var(--accent)">
+              <i class="fas fa-mobile-alt"></i> Conectar pelo Número
+            </button>
+          </div>
           <div class="form-hint" style="margin-top:10px">
             <i class="fas fa-info-circle" style="margin-right:4px;color:var(--info)"></i>
-            Após clicar, verifique o terminal do servidor para escanear o QR Code com seu celular.
+            Conecte diretamente pelo painel: digite seu número e receba um código no WhatsApp. Sem precisar de QR Code!
           </div>
         </div>
       </div>
@@ -5097,7 +5147,8 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     btn.textContent = 'Reiniciando...';
     try {
       await serverPost('/api/whatsapp/restart', {});
-      showToast('WhatsApp reiniciado! Verifique o QR Code no terminal do VPS.', 'success');
+      showToast('WhatsApp reiniciado! Use a aba WhatsApp Monitor para conectar.', 'success');
+      navigateTo('whatsapp');
     } catch(e) {
       showToast('Erro: ' + e.message, 'error');
     }
@@ -5644,6 +5695,81 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     } catch(err) {
       console.error('Erro ao carregar grupos:', err);
     }
+  };
+
+  // ===== TABS DE CONEXÃO =====
+  window.switchConnectTab = function(tab) {
+    var tabPhone = document.getElementById('tabPhone');
+    var tabQR = document.getElementById('tabQR');
+    var phonePanel = document.getElementById('connectPhoneTab');
+    var qrPanel = document.getElementById('connectQRTab');
+
+    if (tab === 'phone') {
+      tabPhone.style.background = 'var(--accent)';
+      tabPhone.style.color = '#fff';
+      tabQR.style.background = 'var(--card-bg)';
+      tabQR.style.color = 'var(--text-secondary)';
+      phonePanel.style.display = 'block';
+      qrPanel.style.display = 'none';
+    } else {
+      tabQR.style.background = 'var(--accent)';
+      tabQR.style.color = '#fff';
+      tabPhone.style.background = 'var(--card-bg)';
+      tabPhone.style.color = 'var(--text-secondary)';
+      phonePanel.style.display = 'none';
+      qrPanel.style.display = 'block';
+      loadQRCode();
+    }
+  };
+
+  // ===== PAIRING CODE (Conectar por Número) =====
+  window.requestPairingCode = async function() {
+    var phone = document.getElementById('pairingPhone').value.replace(/[^0-9]/g, '');
+    if (!phone || phone.length < 10) {
+      document.getElementById('pairingError').style.display = 'block';
+      document.getElementById('pairingError').textContent = 'Digite um número válido com DDI (ex: 5511999999999)';
+      return;
+    }
+
+    var btn = document.getElementById('pairingBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Enviando...';
+    document.getElementById('pairingError').style.display = 'none';
+    document.getElementById('pairingResult').style.display = 'none';
+
+    try {
+      var data = await serverPost('/api/whatsapp/pair', { phone: phone });
+      if (data.code) {
+        // Formata o código com hífen no meio para ficar mais legível
+        var code = data.code;
+        var formattedCode = code.length === 8 ? code.substring(0,4) + '-' + code.substring(4) : code;
+        document.getElementById('pairingCode').textContent = formattedCode;
+        document.getElementById('pairingResult').style.display = 'block';
+        document.getElementById('pairingWaiting').style.display = 'block';
+
+        // Poll para verificar se conectou
+        var pollInterval = setInterval(async function() {
+          try {
+            var status = await serverFetch('/api/whatsapp/status');
+            if (status.connected) {
+              clearInterval(pollInterval);
+              document.getElementById('pairingWaiting').style.display = 'none';
+              showToast('WhatsApp conectado com sucesso!', 'success');
+              setTimeout(loadWhatsAppData, 500);
+            }
+          } catch(e) {}
+        }, 3000);
+
+        // Para de verificar após 2 minutos
+        setTimeout(function() { clearInterval(pollInterval); }, 120000);
+      }
+    } catch(err) {
+      document.getElementById('pairingError').style.display = 'block';
+      document.getElementById('pairingError').textContent = err.error || err.message || 'Erro ao gerar código';
+    }
+
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-paper-plane"></i> Conectar';
   };
 
   async function loadQRCode() {

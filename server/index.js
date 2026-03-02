@@ -1123,7 +1123,31 @@ app.post('/api/whatsapp/groups/:groupId/link', authMiddleware, async function(re
 app.post('/api/whatsapp/restart', authMiddleware, async function(req, res) {
   try {
     await whatsappMonitor.restart();
-    res.json({ success: true, message: 'WhatsApp reiniciado' });
+    res.json({ success: true, message: 'WhatsApp reiniciado. Use QR Code ou Pairing Code para conectar.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Conectar WhatsApp pelo número de telefone (Pairing Code)
+app.post('/api/whatsapp/pair', authMiddleware, async function(req, res) {
+  try {
+    var phone = req.body.phone;
+    if (!phone) {
+      return res.status(400).json({ error: 'Número de telefone é obrigatório' });
+    }
+    var code = await whatsappMonitor.requestPairingCode(phone);
+    res.json({ success: true, code: code, message: 'Código gerado! Abra WhatsApp > Aparelhos Conectados > Conectar com Número de Telefone e digite o código.' });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Desconectar WhatsApp (sem limpar sessão)
+app.post('/api/whatsapp/disconnect', authMiddleware, async function(req, res) {
+  try {
+    await whatsappMonitor.disconnect();
+    res.json({ success: true, message: 'WhatsApp desconectado' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
