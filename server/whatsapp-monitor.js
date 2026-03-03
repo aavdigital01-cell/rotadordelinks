@@ -67,6 +67,13 @@ var SCAN_INTERVAL = 2 * 60 * 1000;
 var recentEvents = {};
 var DEDUP_WINDOW = 60 * 1000; // 60 segundos
 
+// Debounce para updateGroupMemberCount - evita rate-overlimit do WhatsApp
+var pendingMemberCountUpdates = {};
+var MEMBER_COUNT_DEBOUNCE = 5000; // 5 segundos de debounce
+var memberCountQueue = [];
+var memberCountProcessing = false;
+var MEMBER_COUNT_THROTTLE = 2000; // 2 segundos entre chamadas API
+
 // Logger silencioso para Baileys (evita spam no console)
 var logger = pino({ level: 'silent' });
 
@@ -135,9 +142,22 @@ async function processRetryQueue() {
 
   for (var item of batch) {
     try {
-      await pool.query(item.sql, item.params);
+      // Se sabemos que a coluna source não existe, ajusta o SQL antes de tentar
+      var sql = item.sql;
+      var params = item.params;
+      if (!sourceColumnExists && sql.indexOf(', source') !== -1) {
+        sql = sql.replace(', source', '').replace(', $6', '');
+        params = params.slice(0, 5);
+      }
+      await pool.query(sql, params);
       console.log('[WHATSAPP] Evento pendente salvo com sucesso: ' + item.description);
     } catch (err) {
+      // Se o erro é sobre a coluna source, ajusta e retenta
+      if (err.message && err.message.indexOf('"source"') !== -1 && err.message.indexOf('does not exist') !== -1) {
+        sourceColumnExists = false;
+        item.sql = item.sql.replace(', source', '').replace(', $6', '');
+        item.params = item.params.slice(0, 5);
+      }
       item.attempts = (item.attempts || 1) + 1;
       if (item.attempts <= MAX_RETRY_ATTEMPTS) {
         failed.push(item);
@@ -155,13 +175,35 @@ async function processRetryQueue() {
 // Processa fila de retry periodicamente
 setInterval(processRetryQueue, RETRY_INTERVAL);
 
+// Flag para saber se a coluna 'source' existe na tabela member_events
+var sourceColumnExists = true; // assume que existe, desativa no primeiro erro
+
 /**
  * Salva evento no DB com fallback para fila de retry
+ * Se a coluna 'source' não existir, tenta sem ela automaticamente
  */
 async function saveEventSafe(sql, params, description) {
   try {
     await queryWithRetry(sql, params, 2);
   } catch (err) {
+    // Se o erro é sobre a coluna 'source' não existir, tenta sem ela
+    if (err.message && err.message.indexOf('"source"') !== -1 && err.message.indexOf('does not exist') !== -1) {
+      if (sourceColumnExists) {
+        sourceColumnExists = false;
+        console.warn('[WHATSAPP] Coluna "source" não existe em member_events. Execute a migration: ALTER TABLE member_events ADD COLUMN IF NOT EXISTS source VARCHAR(20) DEFAULT \'realtime\';');
+      }
+      // Retry sem a coluna source
+      try {
+        var sqlNoSource = sql.replace(', source', '').replace(', $6', '');
+        var paramsNoSource = params.slice(0, 5); // remove o param source
+        await queryWithRetry(sqlNoSource, paramsNoSource, 2);
+        return;
+      } catch (err2) {
+        console.error('[WHATSAPP] Falha ao salvar evento (sem source), adicionando à fila: ' + description + ' - ' + err2.message);
+        eventRetryQueue.push({ sql: sql.replace(', source', '').replace(', $6', ''), params: params.slice(0, 5), description: description, attempts: 1 });
+        return;
+      }
+    }
     console.error('[WHATSAPP] Falha ao salvar evento, adicionando à fila: ' + description + ' - ' + err.message);
     eventRetryQueue.push({ sql: sql, params: params, description: description, attempts: 1 });
   }
@@ -334,8 +376,8 @@ async function createSocket() {
         await recordMemberEvent(groupId, groupName, memberPhone, eventAction, 'realtime');
       }
 
-      // Atualiza contagem de membros e snapshot
-      await updateGroupMemberCount(groupId);
+      // Agenda atualização de contagem de membros (debounced para evitar rate limit)
+      updateGroupMemberCount(groupId);
 
     } catch (err) {
       console.error('[WHATSAPP] Erro ao registrar evento de grupo:', err.message);
@@ -351,7 +393,8 @@ async function createSocket() {
 
         // Force refresh do nome
         await getGroupName(groupId, true);
-        await updateGroupMemberCount(groupId);
+        // Agenda atualização de contagem (debounced para evitar rate limit)
+        updateGroupMemberCount(groupId);
       } catch (err) {
         console.error('[WHATSAPP] Erro ao processar atualização do grupo:', err.message);
       }
@@ -629,7 +672,12 @@ async function scanGroupsWithDiff() {
                   leftMembers = previousMembers.filter(function(m) { return !freshCurrSet.has(m); });
                 }
               } catch (verifyErr) {
-                console.warn('[WHATSAPP] [DIFF] Falha ao verificar grupo ' + groupName + ': ' + verifyErr.message + '. Usando dados do batch.');
+                // Se é rate limit, para de verificar - usa dados do batch
+                if (verifyErr.message && (verifyErr.message.indexOf('rate') !== -1 || verifyErr.message.indexOf('overlimit') !== -1)) {
+                  console.warn('[WHATSAPP] [DIFF] Rate limit ao verificar ' + groupName + '. Usando dados do batch.');
+                } else {
+                  console.warn('[WHATSAPP] [DIFF] Falha ao verificar grupo ' + groupName + ': ' + verifyErr.message + '. Usando dados do batch.');
+                }
               }
             }
 
@@ -682,7 +730,11 @@ async function scanGroupsWithDiff() {
     console.log('[WHATSAPP] Scan concluído (' + groupIds.length + ' grupos)' + diffMsg);
 
   } catch (err) {
-    console.error('[WHATSAPP] Erro no scan:', err.message);
+    if (err.message && (err.message.indexOf('rate') !== -1 || err.message.indexOf('overlimit') !== -1)) {
+      console.warn('[WHATSAPP] Scan interrompido por rate limit. Tentará novamente no próximo intervalo.');
+    } else {
+      console.error('[WHATSAPP] Erro no scan:', err.message);
+    }
   }
 
   scanInProgress = false;
@@ -691,33 +743,77 @@ async function scanGroupsWithDiff() {
 var scanGroups = scanGroupsWithDiff;
 
 /**
- * Atualiza contagem de membros de um grupo
+ * Processa fila de atualizações de contagem de membros com throttle
+ * Evita rate-overlimit processando uma chamada API por vez com delay
  */
-async function updateGroupMemberCount(groupId) {
-  try {
-    if (!sock) return;
-    var metadata = await sock.groupMetadata(groupId);
-    if (metadata && metadata.participants) {
-      var memberCount = metadata.participants.length;
-      var maxMembers = metadata.size || memberCount;
-      if (maxMembers < memberCount) maxMembers = memberCount;
+async function processMemberCountQueue() {
+  if (memberCountProcessing) return;
+  memberCountProcessing = true;
 
-      await queryWithRetry(
-        'INSERT INTO whatsapp_groups (id, group_name, current_members, max_members, last_scanned) VALUES ($1, $2, $3, $4, NOW()) ' +
-        'ON CONFLICT (id) DO UPDATE SET group_name=$2, current_members=$3, max_members=GREATEST(whatsapp_groups.max_members, $4), last_scanned=NOW()',
-        [groupId, metadata.subject, memberCount, maxMembers]
-      );
-      groupNameCache[groupId] = { name: metadata.subject, timestamp: Date.now() };
+  while (memberCountQueue.length > 0) {
+    var groupId = memberCountQueue.shift();
+    // Remove do pending para permitir novas entradas
+    delete pendingMemberCountUpdates[groupId];
 
-      var members = metadata.participants.map(function(p) {
-        return p.id.split('@')[0];
-      });
-      lastKnownMembers[groupId] = members;
-      saveSnapshotToDB(groupId, members);
+    try {
+      if (!sock) break;
+      var metadata = await sock.groupMetadata(groupId);
+      if (metadata && metadata.participants) {
+        var memberCount = metadata.participants.length;
+        var maxMembers = metadata.size || memberCount;
+        if (maxMembers < memberCount) maxMembers = memberCount;
+
+        await queryWithRetry(
+          'INSERT INTO whatsapp_groups (id, group_name, current_members, max_members, last_scanned) VALUES ($1, $2, $3, $4, NOW()) ' +
+          'ON CONFLICT (id) DO UPDATE SET group_name=$2, current_members=$3, max_members=GREATEST(whatsapp_groups.max_members, $4), last_scanned=NOW()',
+          [groupId, metadata.subject, memberCount, maxMembers]
+        );
+        groupNameCache[groupId] = { name: metadata.subject, timestamp: Date.now() };
+
+        var members = metadata.participants.map(function(p) {
+          return p.id.split('@')[0];
+        });
+        lastKnownMembers[groupId] = members;
+        saveSnapshotToDB(groupId, members);
+      }
+    } catch (err) {
+      // Silencia rate-overlimit para não poluir logs - o próximo scan vai atualizar
+      if (err.message && (err.message.indexOf('rate') !== -1 || err.message.indexOf('overlimit') !== -1)) {
+        console.warn('[WHATSAPP] Rate limit ao atualizar contagem de ' + groupId + '. Deixando para o próximo scan.');
+        // Limpa a fila restante quando detecta rate limit - será atualizado no próximo scan
+        memberCountQueue.length = 0;
+        break;
+      }
+      console.error('[WHATSAPP] Erro ao atualizar contagem de ' + groupId + ':', err.message);
     }
-  } catch (err) {
-    console.error('[WHATSAPP] Erro ao atualizar contagem:', err.message);
+
+    // Throttle: espera entre chamadas API
+    if (memberCountQueue.length > 0) {
+      await new Promise(function(resolve) { setTimeout(resolve, MEMBER_COUNT_THROTTLE); });
+    }
   }
+
+  memberCountProcessing = false;
+}
+
+/**
+ * Agenda atualização de contagem de membros com debounce
+ * Múltiplas chamadas para o mesmo grupo dentro da janela são consolidadas
+ */
+function updateGroupMemberCount(groupId) {
+  // Se já tem um timer pendente para esse grupo, cancela e reagenda
+  if (pendingMemberCountUpdates[groupId]) {
+    clearTimeout(pendingMemberCountUpdates[groupId]);
+  }
+
+  pendingMemberCountUpdates[groupId] = setTimeout(function() {
+    // Adiciona à fila apenas se não estiver já nela
+    if (memberCountQueue.indexOf(groupId) === -1) {
+      memberCountQueue.push(groupId);
+    }
+    delete pendingMemberCountUpdates[groupId];
+    processMemberCountQueue();
+  }, MEMBER_COUNT_DEBOUNCE);
 }
 
 // ===== API PÚBLICAS =====
