@@ -1,6 +1,10 @@
 -- Migration: Add missing columns for full frontend support
 -- Run this on the live database after the initial schema.sql
 
+-- Configura fuso horário do Brasil
+SET timezone = 'America/Sao_Paulo';
+ALTER DATABASE linkrotator_db SET timezone TO 'America/Sao_Paulo';
+
 -- Campaigns: extra fields for tracking pixels, rotation, slug
 ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS slug VARCHAR(255);
 ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS rotation_mode VARCHAR(50) DEFAULT 'random';

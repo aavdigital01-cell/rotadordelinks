@@ -2,6 +2,7 @@
 echo "Configurando .env..."
 cd /root/rotadordelinks/server
 cat > .env << 'XEOF'
+TZ=America/Sao_Paulo
 PORT=3000
 FRONTEND_URL=*
 FIREBASE_PROJECT_ID=linkrotator-2bae9

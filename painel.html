@@ -4005,7 +4005,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
 
     if (data.timestamp) {
       var d = new Date(data.timestamp);
-      document.getElementById('healthLastCheck').textContent = 'Última verificação: ' + d.toLocaleString('pt-BR');
+      document.getElementById('healthLastCheck').textContent = 'Última verificação: ' + d.toLocaleString('pt-BR', {timeZone: 'America/Sao_Paulo'});
     }
 
     var resultsDiv = document.getElementById('healthResults');
@@ -4220,7 +4220,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     Promise.allSettled([loadExecSummary(), loadSmartAlerts()]);
     // Update timestamp
     var timeEl = document.getElementById('lastUpdateTime');
-    if (timeEl) timeEl.textContent = 'Atualizado ' + new Date().toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
+    if (timeEl) timeEl.textContent = 'Atualizado ' + new Date().toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit',timeZone:'America/Sao_Paulo'});
   }
 
   async function updateDashboardStats() {
@@ -4273,7 +4273,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
       var eventsHtml = '';
       var evList = (evData.events || []).slice(0, 20);
       evList.forEach(function(d) {
-        var time = d.timestamp && d.timestamp._seconds ? new Date(d.timestamp._seconds * 1000).toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'}) : '-';
+        var time = d.timestamp && d.timestamp._seconds ? new Date(d.timestamp._seconds * 1000).toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit',timeZone:'America/Sao_Paulo'}) : '-';
         var groupName = d.groupName || (d.whatsappGroupId ? d.whatsappGroupId.substring(0,25) : '-');
         eventsHtml += '<tr><td>' + time + '</td><td style="max-width:150px;overflow:hidden;text-overflow:ellipsis">' + escHtml(groupName) + '</td><td>' + (d.action === 'join' ? '<span style="color:var(--accent)"><i class="fas fa-arrow-up"></i> Entrou</span>' : '<span style="color:var(--danger)"><i class="fas fa-arrow-down"></i> Saiu</span>') + '</td><td>***' + escHtml(d.phonePartial || '') + '</td></tr>';
       });
@@ -4352,7 +4352,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
 
       var html = '';
       clicks.forEach(function(d) {
-        var time = d.timestamp ? new Date(d.timestamp.seconds * 1000).toLocaleString('pt-BR') : 'N/A';
+        var time = d.timestamp ? new Date(d.timestamp.seconds * 1000).toLocaleString('pt-BR', {timeZone: 'America/Sao_Paulo'}) : 'N/A';
         html += '<tr>' +
           '<td>' + escHtml(d.linkName || 'N/A') + '</td>' +
           '<td><span class="badge badge-purple">' + escHtml(getCampaignName(d.campaignId)) + '</span></td>' +
@@ -4519,7 +4519,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
         var jd = new Date(now);
         jd.setDate(jd.getDate() - j);
         var jKey = jd.toISOString().split('T')[0];
-        jlDays.push(jd.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }));
+        jlDays.push(jd.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' }));
         jlJoinValues.push(jKey === todayKey ? totalJoins : 0);
         jlLeaveValues.push(jKey === todayKey ? totalLeaves : 0);
       }
@@ -4581,7 +4581,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
         var d = new Date(now);
         d.setDate(d.getDate() - i);
         var key = d.toISOString().split('T')[0];
-        days.push(d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }));
+        days.push(d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' }));
         dayValues.push(dailyData[key] || 0);
       }
 
@@ -4707,7 +4707,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
 
     var html = '';
     filtered.forEach(function(d) {
-      var time = d.timestamp ? new Date(d.timestamp.seconds * 1000).toLocaleString('pt-BR') : 'N/A';
+      var time = d.timestamp ? new Date(d.timestamp.seconds * 1000).toLocaleString('pt-BR', {timeZone: 'America/Sao_Paulo'}) : 'N/A';
       var sortTime = d.timestamp ? d.timestamp.seconds : 0;
       html += '<tr>' +
         '<td style="font-size:12px;white-space:nowrap" data-sort="' + sortTime + '">' + time + '</td>' +
@@ -4766,7 +4766,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
 
     var html = '';
     alerts.forEach(function(a) {
-      var time = a.timestamp ? new Date(a.timestamp.seconds * 1000).toLocaleString('pt-BR') : '';
+      var time = a.timestamp ? new Date(a.timestamp.seconds * 1000).toLocaleString('pt-BR', {timeZone: 'America/Sao_Paulo'}) : '';
       var icon, title, color;
 
       switch (a.type) {
@@ -4839,7 +4839,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     var iconMap = { link_broken:'fa-unlink', link_health:'fa-heartbeat', group_banned:'fa-ban', member_drop:'fa-arrow-down', member_joined:'fa-user-plus', link_full:'fa-ban', link_near_full:'fa-exclamation-triangle', all_full:'fa-exclamation-circle' };
     var colorMap = { link_broken:'var(--danger)', link_health:'var(--danger)', group_banned:'var(--danger)', member_drop:'var(--warning)', member_joined:'var(--accent)', link_full:'var(--danger)', link_near_full:'var(--warning)', all_full:'var(--danger)' };
     alerts.slice(0, 20).forEach(function(a) {
-      var time = a.timestamp ? new Date(a.timestamp.seconds * 1000).toLocaleString('pt-BR') : '';
+      var time = a.timestamp ? new Date(a.timestamp.seconds * 1000).toLocaleString('pt-BR', {timeZone: 'America/Sao_Paulo'}) : '';
       var icon = iconMap[a.type] || 'fa-info-circle';
       var color = colorMap[a.type] || 'var(--info)';
       var title = a.linkName || a.groupName || a.campaignName || a.type;
@@ -4905,8 +4905,8 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
 
       usersArr.forEach(function(u) {
         var uid = u.uid;
-        var created = u.createdAt ? new Date(u.createdAt.seconds * 1000).toLocaleDateString('pt-BR') : 'N/A';
-        var lastLogin = u.lastLogin ? new Date(u.lastLogin.seconds * 1000).toLocaleString('pt-BR') : 'N/A';
+        var created = u.createdAt ? new Date(u.createdAt.seconds * 1000).toLocaleDateString('pt-BR', {timeZone: 'America/Sao_Paulo'}) : 'N/A';
+        var lastLogin = u.lastLogin ? new Date(u.lastLogin.seconds * 1000).toLocaleString('pt-BR', {timeZone: 'America/Sao_Paulo'}) : 'N/A';
         var role = u.role || 'admin';
         var isMe = uid === currentUser.uid;
 
@@ -5786,7 +5786,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
         var retentionColor = retention >= 70 ? 'var(--accent)' : retention >= 40 ? 'var(--warning)' : 'var(--danger)';
         var exitRate = gJoins > 0 ? ((gLeaves / gJoins) * 100).toFixed(1) : '0';
         var exitColor = parseFloat(exitRate) > 60 ? 'var(--danger)' : parseFloat(exitRate) > 30 ? 'var(--warning)' : 'var(--accent)';
-        var lastUpdate = g.lastScanned ? new Date(g.lastScanned.seconds * 1000).toLocaleString('pt-BR') : 'Agora';
+        var lastUpdate = g.lastScanned ? new Date(g.lastScanned.seconds * 1000).toLocaleString('pt-BR', {timeZone: 'America/Sao_Paulo'}) : 'Agora';
 
         html += '<tr>' +
           '<td><strong style="font-size:12px">' + escHtml(g.name || g.groupName || 'N/A') + '</strong></td>' +
@@ -5916,7 +5916,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
         leavesToday = evData.leaves || 0;
         evData.events.forEach(function(e) {
           var time = e.timestamp && e.timestamp._seconds ? new Date(e.timestamp._seconds * 1000) : new Date();
-          var timeStr = time.toLocaleString('pt-BR');
+          var timeStr = time.toLocaleString('pt-BR', {timeZone: 'America/Sao_Paulo'});
           var groupName = e.groupName || e.whatsappGroupId || 'N/A';
           var actionBadge = e.action === 'join' ?
             '<span class="badge badge-success"><i class="fas fa-user-plus"></i> Entrou</span>' :
@@ -6121,7 +6121,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
       }
       await loadExecSummary();
       await loadSmartAlerts();
-      timeEl.textContent = 'Atualizado ' + new Date().toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
+      timeEl.textContent = 'Atualizado ' + new Date().toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit',timeZone:'America/Sao_Paulo'});
     } catch(e) {
       timeEl.textContent = 'Erro ao atualizar';
       console.error('Refresh error:', e);
@@ -6169,7 +6169,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
       roiEl.style.color = roiScore >= 70 ? 'var(--accent)' : roiScore >= 40 ? 'var(--warning)' : 'var(--danger)';
       document.getElementById('execROISub').textContent = roiScore >= 70 ? 'Excelente' : roiScore >= 40 ? 'Regular' : 'Precisa melhorar';
 
-      document.getElementById('execTimestamp').textContent = new Date().toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
+      document.getElementById('execTimestamp').textContent = new Date().toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit',timeZone:'America/Sao_Paulo'});
     } catch(e) { console.error('Exec summary error:', e); }
   }
 
@@ -6484,7 +6484,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
           '<span class="badge">' + b.status + '</span>';
         var msgPreview = (b.message_text || '').substring(0, 50) + ((b.message_text || '').length > 50 ? '...' : '');
         html += '<tr>' +
-          '<td style="font-size:12px">' + new Date(b.created_at).toLocaleString('pt-BR') + '</td>' +
+          '<td style="font-size:12px">' + new Date(b.created_at).toLocaleString('pt-BR', {timeZone: 'America/Sao_Paulo'}) + '</td>' +
           '<td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis" title="' + (b.message_text || '').replace(/"/g, '&quot;') + '">' + msgPreview + '</td>' +
           '<td style="font-size:12px">' + (b.total_targets || 0) + '</td>' +
           '<td style="font-size:12px;color:var(--accent)">' + (b.total_sent || 0) + '</td>' +
@@ -6591,7 +6591,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
           '<td style="font-size:12px"><i class="fab fa-whatsapp" style="color:var(--accent);margin-right:4px"></i>' + (g.group_name || g.whatsapp_group_id) + '</td>' +
           '<td style="font-size:12px;color:var(--accent);font-weight:600">' + (g.active_leads || 0) + '</td>' +
           '<td style="font-size:12px">' + (g.total_leads || 0) + '</td>' +
-          '<td style="font-size:12px">' + (g.last_join ? new Date(g.last_join).toLocaleDateString('pt-BR') : '-') + '</td>' +
+          '<td style="font-size:12px">' + (g.last_join ? new Date(g.last_join).toLocaleDateString('pt-BR', {timeZone: 'America/Sao_Paulo'}) : '-') + '</td>' +
           '<td><button class="btn btn-secondary btn-sm" onclick="downloadLeadBackup(\'' + g.whatsapp_group_id + '\')" style="font-size:11px"><i class="fas fa-download"></i> CSV</button></td>' +
         '</tr>';
       });
@@ -7036,7 +7036,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
           '<td style="font-size:12px"><span class="badge badge-info">' + (l.sub_id || 'whatsapp') + '</span></td>' +
           '<td style="font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis"><a href="' + l.affiliate_url + '" target="_blank" style="color:var(--accent)">' + (l.affiliate_url || '-') + '</a></td>' +
           '<td style="font-size:12px">' + parseFloat(l.commission_rate || 0).toFixed(1) + '%</td>' +
-          '<td style="font-size:12px">' + new Date(l.created_at).toLocaleDateString('pt-BR') + '</td>' +
+          '<td style="font-size:12px">' + new Date(l.created_at).toLocaleDateString('pt-BR', {timeZone: 'America/Sao_Paulo'}) + '</td>' +
           '<td><button class="btn btn-sm" onclick="navigator.clipboard.writeText(\'' + l.affiliate_url + '\');showToast(\'Copiado!\',\'success\')" style="font-size:11px"><i class="fas fa-copy"></i></button></td>' +
         '</tr>';
       });
@@ -7076,9 +7076,9 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
 
         var dateStr = '-';
         if (c.purchaseTime) {
-          dateStr = new Date(c.purchaseTime * 1000).toLocaleDateString('pt-BR');
+          dateStr = new Date(c.purchaseTime * 1000).toLocaleDateString('pt-BR', {timeZone: 'America/Sao_Paulo'});
         } else if (c.order_created_at) {
-          dateStr = new Date(c.order_created_at).toLocaleDateString('pt-BR');
+          dateStr = new Date(c.order_created_at).toLocaleDateString('pt-BR', {timeZone: 'America/Sao_Paulo'});
         }
 
         var price = parseFloat(c.itemPrice || c.order_amount || 0);
@@ -7742,7 +7742,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
       if (!ctx) return;
       if (shopeeDailyChart) shopeeDailyChart.destroy();
 
-      var labels = rpl.daily.map(function(d) { return new Date(d.date).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }); });
+      var labels = rpl.daily.map(function(d) { return new Date(d.date).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' }); });
       var clicksData = rpl.daily.map(function(d) { return parseInt(d.clicks) || 0; });
       var ordersData = rpl.daily.map(function(d) { return parseInt(d.orders) || 0; });
       var commData = rpl.daily.map(function(d) { return parseFloat(d.commission) || 0; });

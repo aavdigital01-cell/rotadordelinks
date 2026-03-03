@@ -1,5 +1,9 @@
 -- LinkRotator PostgreSQL Schema (complete)
 
+-- Configura fuso horário do Brasil para todas as operações
+SET timezone = 'America/Sao_Paulo';
+ALTER DATABASE linkrotator_db SET timezone TO 'America/Sao_Paulo';
+
 CREATE TABLE IF NOT EXISTS campaigns (
     id VARCHAR(255) PRIMARY KEY,
     name VARCHAR(255) NOT NULL,

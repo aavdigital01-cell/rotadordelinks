@@ -1,4 +1,10 @@
 require('dotenv').config();
+
+// ===== FUSO HORÁRIO DO BRASIL =====
+// Garante que new Date(), getHours(), setHours(), CURRENT_DATE, etc.
+// usem o horário de Brasília (UTC-3) e não UTC
+process.env.TZ = 'America/Sao_Paulo';
+
 const express = require('express');
 const cors = require('cors');
 const admin = require('firebase-admin');
@@ -41,10 +47,17 @@ const pool = new Pool({
   password: process.env.PG_PASSWORD || 'LinkRotator2026'
 });
 
-// Test connection
-pool.query('SELECT NOW()', function(err) {
-  if (err) console.error('[DB] Erro ao conectar PostgreSQL:', err.message);
-  else console.log('[DB] PostgreSQL conectado com sucesso!');
+// Configura timezone do Brasil no PostgreSQL e testa conexão
+pool.query("SET timezone = 'America/Sao_Paulo'", function() {
+  pool.query('SELECT NOW()', function(err, result) {
+    if (err) console.error('[DB] Erro ao conectar PostgreSQL:', err.message);
+    else console.log('[DB] PostgreSQL conectado com sucesso! Horário atual (Brasil):', result.rows[0].now);
+  });
+});
+
+// Garante que cada nova conexão do pool use timezone do Brasil
+pool.on('connect', function(client) {
+  client.query("SET timezone = 'America/Sao_Paulo'");
 });
 
 // ===== MIDDLEWARE =====
@@ -1480,11 +1493,11 @@ app.get('/api/analytics/heatmap', authMiddleware, async function(req, res) {
 
     var [clicksR, eventsR] = await Promise.all([
       pool.query(
-        "SELECT EXTRACT(HOUR FROM timestamp) as hour, EXTRACT(DOW FROM timestamp) as dow, COUNT(*) as cnt FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') GROUP BY hour, dow ORDER BY dow, hour",
+        "SELECT EXTRACT(HOUR FROM timestamp AT TIME ZONE 'America/Sao_Paulo') as hour, EXTRACT(DOW FROM timestamp AT TIME ZONE 'America/Sao_Paulo') as dow, COUNT(*) as cnt FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') GROUP BY hour, dow ORDER BY dow, hour",
         [days]
       ),
       pool.query(
-        "SELECT EXTRACT(HOUR FROM timestamp) as hour, EXTRACT(DOW FROM timestamp) as dow, action, COUNT(*) as cnt FROM member_events WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') GROUP BY hour, dow, action ORDER BY dow, hour",
+        "SELECT EXTRACT(HOUR FROM timestamp AT TIME ZONE 'America/Sao_Paulo') as hour, EXTRACT(DOW FROM timestamp AT TIME ZONE 'America/Sao_Paulo') as dow, action, COUNT(*) as cnt FROM member_events WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') GROUP BY hour, dow, action ORDER BY dow, hour",
         [days]
       )
     ]);
