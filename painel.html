@@ -1545,26 +1545,40 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     <div class="view" id="view-campaigns">
       <div class="card">
         <div class="card-header">
-          <span class="card-title">Campanhas</span>
+          <div style="display:flex;align-items:center;gap:12px">
+            <span class="card-title">Campanhas</span>
+            <select id="campaignMetricsDays" onchange="loadCampaignMetrics()" style="padding:4px 8px;font-size:11px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;color:var(--text-primary)">
+              <option value="1" selected>Hoje</option>
+              <option value="7">7 dias</option>
+              <option value="14">14 dias</option>
+              <option value="30">30 dias</option>
+            </select>
+          </div>
           <button class="btn btn-primary" onclick="openCampaignModal()">
             <i class="fas fa-plus"></i> Nova Campanha
           </button>
         </div>
         <div class="table-wrap">
-          <table>
+          <table id="campaignsTableWrap">
             <thead>
               <tr>
-                <th>Nome</th>
-                <th>Slug</th>
-                <th>Rotação</th>
-                <th>Links</th>
-                <th>Clicks</th>
+                <th>Campanha</th>
+                <th class="sortable">Links</th>
+                <th class="sortable">Membros</th>
+                <th class="sortable">Clicks</th>
+                <th class="sortable">Entradas</th>
+                <th class="sortable">Saídas</th>
+                <th class="sortable">Retidos</th>
+                <th class="sortable">Tx Entrada</th>
+                <th class="sortable">Tx Retenção</th>
+                <th class="sortable">Tx Saída</th>
+                <th class="sortable">Tx Fuga</th>
                 <th>Status</th>
                 <th>Ações</th>
               </tr>
             </thead>
             <tbody id="campaignsTable">
-              <tr><td colspan="7" class="empty-state"><i class="fas fa-bullhorn"></i><h3>Nenhuma campanha</h3><p>Crie sua primeira campanha</p></td></tr>
+              <tr><td colspan="13" class="empty-state"><i class="fas fa-bullhorn"></i><h3>Nenhuma campanha</h3><p>Crie sua primeira campanha</p></td></tr>
             </tbody>
           </table>
         </div>
@@ -3645,6 +3659,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     document.getElementById('pageTitle').textContent = titles[viewName] || viewName;
 
     // Carrega dados específicos da view
+    if (viewName === 'campaigns') loadCampaignMetrics();
     if (viewName === 'links') loadHealthStatus();
     if (viewName === 'metaads') loadMetaCampaigns();
     if (viewName === 'whatsapp') loadWhatsAppData();
@@ -3698,37 +3713,86 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
   }
 
   // ===== CAMPAIGNS =====
+  var campaignMetrics = {};
+
   async function loadCampaigns() {
     try {
       campaigns = await serverFetch('/api/campaigns');
     } catch(e) { campaigns = []; }
-    renderCampaignsTable();
+    await loadCampaignMetrics();
     populateCampaignSelectors();
+  }
+
+  async function loadCampaignMetrics() {
+    try {
+      var days = document.getElementById('campaignMetricsDays') ? document.getElementById('campaignMetricsDays').value : '1';
+      var data = await serverFetch('/api/campaigns/metrics?days=' + days);
+      campaignMetrics = data && data.metrics ? data.metrics : {};
+    } catch(e) { campaignMetrics = {}; }
+    renderCampaignsTable();
+  }
+
+  function getCampaignMetricColor(value, type) {
+    if (type === 'entrada' || type === 'retencao') {
+      if (value >= 70) return 'var(--accent)';
+      if (value >= 40) return 'var(--warning)';
+      return 'var(--danger)';
+    }
+    if (type === 'saida' || type === 'fuga') {
+      if (value <= 20) return 'var(--accent)';
+      if (value <= 50) return 'var(--warning)';
+      return 'var(--danger)';
+    }
+    return 'var(--text-primary)';
   }
 
   function renderCampaignsTable() {
     var tbody = document.getElementById('campaignsTable');
     if (campaigns.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><i class="fas fa-bullhorn"></i><h3>Nenhuma campanha</h3><p>Crie sua primeira campanha</p></div></td></tr>';
+      tbody.innerHTML = '<tr><td colspan="13"><div class="empty-state"><i class="fas fa-bullhorn"></i><h3>Nenhuma campanha</h3><p>Crie sua primeira campanha</p></div></td></tr>';
       return;
     }
 
     var html = '';
     campaigns.forEach(function(c) {
       var campLinks = links.filter(function(l) { return l.campaignId === c.id; });
-      var totalClicks = campLinks.reduce(function(sum, l) { return sum + (l.currentClicks || 0); }, 0);
       var activeLinks = campLinks.filter(function(l) { return l.isActive && !l.isFull; }).length;
       var rotationLabels = { random: 'Aleatório', sequential: 'Sequencial', weighted: 'Por Peso', 'least-filled': 'Menos Cheio' };
+      var m = campaignMetrics[c.id] || {};
+
+      var clicks = m.clicks || 0;
+      var joins = m.joins || 0;
+      var leaves = m.leaves || 0;
+      var retained = m.retained || 0;
+      var currentMembers = m.currentMembers || 0;
+      var txEntrada = m.taxaEntrada || 0;
+      var txRetencao = m.taxaRetencao || 0;
+      var txSaida = m.taxaSaida || 0;
+      var txFuga = m.taxaFuga || 0;
 
       var fastUrl = 'https://api.promosdetododia.com.br/r/' + c.slug;
 
       html += '<tr>' +
-        '<td><strong>' + escHtml(c.name) + '</strong></td>' +
-        '<td><div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap"><code style="font-size:11px;color:var(--accent)">' + escHtml(fastUrl) + '</code>' +
-        ' <button class="copy-btn" onclick="copyToClipboard(\'' + escHtml(fastUrl) + '\')" title="Copiar URL rápida"><i class="fas fa-copy"></i></button></div></td>' +
-        '<td><span class="badge badge-info">' + (rotationLabels[c.rotationMode] || c.rotationMode) + '</span></td>' +
-        '<td>' + activeLinks + ' / ' + campLinks.length + '</td>' +
-        '<td>' + totalClicks.toLocaleString() + '</td>' +
+        '<td>' +
+          '<div style="display:flex;flex-direction:column;gap:2px">' +
+            '<strong style="font-size:12px">' + escHtml(c.name) + '</strong>' +
+            '<div style="display:flex;align-items:center;gap:4px">' +
+              '<code style="font-size:10px;color:var(--accent)">' + escHtml(c.slug) + '</code>' +
+              '<button class="copy-btn" onclick="copyToClipboard(\'' + escHtml(fastUrl) + '\')" title="Copiar URL" style="padding:1px 3px;font-size:9px"><i class="fas fa-copy"></i></button>' +
+              '<span class="badge badge-info" style="font-size:9px;padding:1px 4px">' + (rotationLabels[c.rotationMode] || c.rotationMode) + '</span>' +
+            '</div>' +
+          '</div>' +
+        '</td>' +
+        '<td data-sort="' + campLinks.length + '"><span style="color:var(--accent);font-weight:600">' + activeLinks + '</span><span style="color:var(--text-muted)"> / ' + campLinks.length + '</span></td>' +
+        '<td data-sort="' + currentMembers + '"><span style="font-weight:600">' + currentMembers.toLocaleString() + '</span></td>' +
+        '<td data-sort="' + clicks + '"><span style="color:var(--info);font-weight:600">' + clicks.toLocaleString() + '</span></td>' +
+        '<td data-sort="' + joins + '"><span style="color:var(--accent);font-weight:600">' + joins.toLocaleString() + '</span></td>' +
+        '<td data-sort="' + leaves + '"><span style="color:var(--danger);font-weight:600">' + leaves.toLocaleString() + '</span></td>' +
+        '<td data-sort="' + retained + '"><span style="color:var(--purple);font-weight:600">' + retained.toLocaleString() + '</span></td>' +
+        '<td data-sort="' + txEntrada + '"><span style="color:' + getCampaignMetricColor(txEntrada, 'entrada') + ';font-weight:700">' + txEntrada + '%</span></td>' +
+        '<td data-sort="' + txRetencao + '"><span style="color:' + getCampaignMetricColor(txRetencao, 'retencao') + ';font-weight:700">' + txRetencao + '%</span></td>' +
+        '<td data-sort="' + txSaida + '"><span style="color:' + getCampaignMetricColor(txSaida, 'saida') + ';font-weight:700">' + txSaida + '%</span></td>' +
+        '<td data-sort="' + txFuga + '"><span style="color:' + getCampaignMetricColor(txFuga, 'fuga') + ';font-weight:700">' + txFuga + '%</span></td>' +
         '<td>' + (c.isActive !== false ? '<span class="badge badge-success">Ativa</span>' : '<span class="badge badge-danger">Inativa</span>') + '</td>' +
         '<td>' +
         '<button class="btn btn-secondary btn-sm btn-icon" onclick="editCampaign(\'' + c.id + '\')" title="Editar"><i class="fas fa-pen"></i></button> ' +
@@ -3737,6 +3801,10 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
         '</td></tr>';
     });
     tbody.innerHTML = html;
+
+    // Make table sortable
+    var table = document.getElementById('campaignsTableWrap');
+    if (table) makeSortable(table);
   }
 
   function populateCampaignSelectors() {

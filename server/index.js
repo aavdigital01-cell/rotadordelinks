@@ -239,6 +239,131 @@ app.delete('/api/campaigns/:id', authMiddleware, async function(req, res) {
   }
 });
 
+// ===== CAMPAIGN METRICS =====
+
+app.get('/api/campaigns/metrics', authMiddleware, async function(req, res) {
+  try {
+    var days = validateDays(req.query.days, 1);
+
+    // 1. Get clicks per campaign in the period
+    var clicksR = await pool.query(
+      "SELECT campaign_id, COUNT(*) as clicks FROM clicks WHERE campaign_id IS NOT NULL AND timestamp >= NOW() - ($1 * INTERVAL '1 day') GROUP BY campaign_id",
+      [days]
+    );
+
+    // 2. Get links → whatsapp_group mapping
+    var linksR = await pool.query(
+      'SELECT campaign_id, whatsapp_group_id FROM links WHERE campaign_id IS NOT NULL AND whatsapp_group_id IS NOT NULL'
+    );
+
+    // 3. Get member events (joins/leaves) per group in the period
+    var eventsR = await pool.query(
+      "SELECT whatsapp_group_id, action, COUNT(*) as cnt FROM member_events WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') GROUP BY whatsapp_group_id, action",
+      [days]
+    );
+
+    // 4. Get current members per group
+    var membersR = await pool.query(
+      'SELECT id, current_members FROM whatsapp_groups'
+    );
+
+    // 5. Get meta spend per campaign (if available)
+    var metaR = await pool.query('SELECT id, spend FROM meta_campaigns');
+
+    // Build campaign → groups mapping
+    var campToGroups = {};
+    linksR.rows.forEach(function(l) {
+      if (!campToGroups[l.campaign_id]) campToGroups[l.campaign_id] = [];
+      if (l.whatsapp_group_id && campToGroups[l.campaign_id].indexOf(l.whatsapp_group_id) === -1) {
+        campToGroups[l.campaign_id].push(l.whatsapp_group_id);
+      }
+    });
+
+    // Build group → events mapping
+    var groupEvents = {};
+    eventsR.rows.forEach(function(r) {
+      if (!groupEvents[r.whatsapp_group_id]) groupEvents[r.whatsapp_group_id] = { joins: 0, leaves: 0 };
+      if (r.action === 'join') groupEvents[r.whatsapp_group_id].joins = parseInt(r.cnt);
+      else groupEvents[r.whatsapp_group_id].leaves = parseInt(r.cnt);
+    });
+
+    // Build group → current members
+    var groupMembers = {};
+    membersR.rows.forEach(function(r) {
+      groupMembers[r.id] = parseInt(r.current_members) || 0;
+    });
+
+    // Build clicks lookup
+    var clicksLookup = {};
+    clicksR.rows.forEach(function(c) {
+      clicksLookup[c.campaign_id] = parseInt(c.clicks);
+    });
+
+    // Build meta spend lookup
+    var metaLookup = {};
+    metaR.rows.forEach(function(m) {
+      metaLookup[m.id] = parseFloat(m.spend) || 0;
+    });
+
+    // Build metrics per campaign
+    var metrics = {};
+    var allCampIds = Object.keys(campToGroups);
+    // Also include campaigns with clicks but no groups
+    clicksR.rows.forEach(function(c) {
+      if (allCampIds.indexOf(c.campaign_id) === -1) allCampIds.push(c.campaign_id);
+    });
+
+    allCampIds.forEach(function(campId) {
+      var groups = campToGroups[campId] || [];
+      var totalJoins = 0, totalLeaves = 0, totalMembers = 0;
+      groups.forEach(function(gid) {
+        if (groupEvents[gid]) {
+          totalJoins += groupEvents[gid].joins;
+          totalLeaves += groupEvents[gid].leaves;
+        }
+        totalMembers += (groupMembers[gid] || 0);
+      });
+
+      var clicks = clicksLookup[campId] || 0;
+      var retained = Math.max(0, totalJoins - totalLeaves);
+      var spend = metaLookup[campId] || 0;
+
+      // Taxa de Entrada = (joins / clicks) * 100
+      var taxaEntrada = clicks > 0 ? parseFloat(((totalJoins / clicks) * 100).toFixed(1)) : 0;
+      // Taxa de Fuga = ((clicks - joins) / clicks) * 100
+      var taxaFuga = clicks > 0 ? parseFloat((((clicks - totalJoins) / clicks) * 100).toFixed(1)) : 0;
+      // Taxa de Retenção = (retained / joins) * 100
+      var taxaRetencao = totalJoins > 0 ? parseFloat(((retained / totalJoins) * 100).toFixed(1)) : 0;
+      // Taxa de Saída = (leaves / joins) * 100
+      var taxaSaida = totalJoins > 0 ? parseFloat(((totalLeaves / totalJoins) * 100).toFixed(1)) : 0;
+      // CPL = spend / retained
+      var cplRetained = retained > 0 && spend > 0 ? parseFloat((spend / retained).toFixed(4)) : 0;
+      // CPL Entrada = spend / joins
+      var cplEntrada = totalJoins > 0 && spend > 0 ? parseFloat((spend / totalJoins).toFixed(4)) : 0;
+
+      metrics[campId] = {
+        clicks: clicks,
+        joins: totalJoins,
+        leaves: totalLeaves,
+        retained: retained,
+        currentMembers: totalMembers,
+        groups: groups.length,
+        taxaEntrada: taxaEntrada,
+        taxaFuga: taxaFuga,
+        taxaRetencao: taxaRetencao,
+        taxaSaida: taxaSaida,
+        spendUSD: spend,
+        cplRetainedUSD: cplRetained,
+        cplEntradaUSD: cplEntrada
+      };
+    });
+
+    res.json({ days: days, metrics: metrics });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ===== LINKS =====
 
 app.get('/api/links', authMiddleware, async function(req, res) {
