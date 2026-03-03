@@ -1,43 +1,32 @@
 /**
- * WhatsApp Group Monitor v2.1
- * Monitora entradas/saídas de membros nos grupos com precisão profissional
- * Usa @whiskeysockets/baileys + PostgreSQL
+ * WhatsApp Group Monitor v3.0 - Evolution API
+ * Monitora entradas/saídas de membros nos grupos via Evolution API REST
+ * Usa Evolution API + PostgreSQL
  *
- * Melhorias v2.0:
- * - Scan a cada 3 minutos (era 10 min) para capturar mais eventos
- * - Hash de telefone melhorado (sem colisões)
- * - Eventos marcam origem (realtime vs diff) para auditoria
- * - Deduplicação de eventos para evitar contagem duplicada
- * - Snapshot de membros persistido no DB para sobreviver a restarts
- * - Atualiza max_members real do grupo (não assume 1024)
- * - getGroups() retorna formato consistente em todos os caminhos
- * - Throttle no scan para evitar rate limit do WhatsApp
- * - Tracking de invite code por grupo
- *
- * Correções v2.1 (taxa de entrada):
- * - Scan reduzido para 2 minutos (era 3 min) para capturar mais entradas
- * - FIX: Snapshot não é mais zerado quando API retorna lista vazia (erro transitório)
- * - FIX: Dedup só marca evento como "visto" DEPOIS do DB confirmar o save
- * - FIX: saveSnapshotToDB agora loga erros reais (não engole tudo silenciosamente)
- * - FIX: saveSnapshotToDB com await no scan para garantir persistência
- * - FIX: Proteção contra diffs absurdos (>50% mudança) com verificação via groupMetadata
+ * Migração v3.0 (Baileys → Evolution API):
+ * - Substitui Baileys por chamadas HTTP à Evolution API
+ * - Eventos em tempo real via webhook (POST /api/whatsapp/webhook)
+ * - QR Code e Pairing Code via Evolution API
+ * - Scan periódico de grupos mantido (via REST)
+ * - Mesma interface pública (initialize, getStatus, getGroups, etc.)
+ * - Envio de mensagens via REST (sendMessage, sendMedia)
+ * - Gerenciamento de instância automático (cria se não existir)
  */
 
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, makeCacheableSignalKeyStore } = require('@whiskeysockets/baileys');
-const qrcode = require('qrcode-terminal');
 const crypto = require('crypto');
-const pino = require('pino');
+const fetch = require('node-fetch');
 
-var sock = null;
 var pool = null; // PostgreSQL pool
 var currentQR = null;
+var currentQRBase64 = null;
 var reconnectAttempts = 0;
 var MAX_RECONNECT_ATTEMPTS = 5;
-var authState = null;
-var saveCreds = null;
-var pairingCodeRequested = false;
-var pendingPairingPhone = null;
 var scanInProgress = false;
+
+// Evolution API config
+var EVOLUTION_API_URL = '';
+var EVOLUTION_API_KEY = '';
+var EVOLUTION_INSTANCE_NAME = '';
 
 var connectionStatus = {
   connected: false,
@@ -60,39 +49,70 @@ var eventRetryQueue = [];
 var RETRY_INTERVAL = 10000; // 10 segundos
 var MAX_RETRY_ATTEMPTS = 5;
 
-// Intervalo de scan periódico (2 minutos - mais frequente para não perder entradas)
+// Intervalo de scan periódico (2 minutos)
 var SCAN_INTERVAL = 2 * 60 * 1000;
 
-// Janela de deduplicação para evitar eventos duplicados (realtime + diff)
+// Janela de deduplicação para evitar eventos duplicados
 var recentEvents = {};
 var DEDUP_WINDOW = 60 * 1000; // 60 segundos
 
-// Debounce para updateGroupMemberCount - evita rate-overlimit do WhatsApp
-var pendingMemberCountUpdates = {};
-var MEMBER_COUNT_DEBOUNCE = 5000; // 5 segundos de debounce
-var memberCountQueue = [];
-var memberCountProcessing = false;
-var MEMBER_COUNT_THROTTLE = 2000; // 2 segundos entre chamadas API
+// Flag para saber se a coluna 'source' existe na tabela member_events
+var sourceColumnExists = true;
 
-// Logger silencioso para Baileys (evita spam no console)
-var logger = pino({ level: 'silent' });
+// Poll interval para verificar conexão
+var CONNECTION_POLL_INTERVAL = 30 * 1000; // 30 segundos
+var connectionPollTimer = null;
+
+// ===== HELPERS =====
 
 /**
- * Hash seguro para telefone usando SHA-256 (sem colisões)
+ * Hash seguro para telefone usando SHA-256
  */
 function hashPhone(phone) {
   return 'ph_' + crypto.createHash('sha256').update(phone).digest('hex').substring(0, 12);
 }
 
 /**
- * Verifica se um evento é duplicado (mesmo telefone+grupo+ação dentro da janela)
- * Retorna true se é duplicado e deve ser ignorado
+ * Faz chamada à Evolution API
+ */
+async function evoApi(method, path, body) {
+  var url = EVOLUTION_API_URL + path;
+  var options = {
+    method: method,
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': EVOLUTION_API_KEY
+    }
+  };
+  if (body && (method === 'POST' || method === 'PUT')) {
+    options.body = JSON.stringify(body);
+  }
+
+  var response = await fetch(url, options);
+  var text = await response.text();
+
+  var data;
+  try {
+    data = JSON.parse(text);
+  } catch (e) {
+    data = { raw: text };
+  }
+
+  if (!response.ok) {
+    var errMsg = data.message || data.error || data.raw || ('HTTP ' + response.status);
+    throw new Error(errMsg);
+  }
+
+  return data;
+}
+
+/**
+ * Verifica se um evento é duplicado
  */
 function isDuplicateEvent(groupId, phone, action) {
   var key = groupId + ':' + phone + ':' + action;
   var now = Date.now();
 
-  // Limpa eventos antigos
   var keys = Object.keys(recentEvents);
   for (var i = 0; i < keys.length; i++) {
     if (now - recentEvents[keys[i]] > DEDUP_WINDOW) {
@@ -103,12 +123,11 @@ function isDuplicateEvent(groupId, phone, action) {
   if (recentEvents[key]) {
     return true;
   }
-  // NÃO marca como visto aqui - será marcado DEPOIS do save confirmar
   return false;
 }
 
 /**
- * Marca um evento como registrado na janela de dedup (chamar DEPOIS do DB save)
+ * Marca um evento como registrado na janela de dedup
  */
 function markEventAsRecorded(groupId, phone, action) {
   var key = groupId + ':' + phone + ':' + action;
@@ -142,7 +161,6 @@ async function processRetryQueue() {
 
   for (var item of batch) {
     try {
-      // Se sabemos que a coluna source não existe, ajusta o SQL antes de tentar
       var sql = item.sql;
       var params = item.params;
       if (!sourceColumnExists && sql.indexOf(', source') !== -1) {
@@ -152,7 +170,6 @@ async function processRetryQueue() {
       await pool.query(sql, params);
       console.log('[WHATSAPP] Evento pendente salvo com sucesso: ' + item.description);
     } catch (err) {
-      // Se o erro é sobre a coluna source, ajusta e retenta
       if (err.message && err.message.indexOf('"source"') !== -1 && err.message.indexOf('does not exist') !== -1) {
         sourceColumnExists = false;
         item.sql = item.sql.replace(', source', '').replace(', $6', '');
@@ -172,53 +189,40 @@ async function processRetryQueue() {
   }
 }
 
-// Processa fila de retry periodicamente
 setInterval(processRetryQueue, RETRY_INTERVAL);
-
-// Flag para saber se a coluna 'source' existe na tabela member_events
-var sourceColumnExists = true; // assume que existe, desativa no primeiro erro
 
 /**
  * Salva evento no DB com fallback para fila de retry
- * Se a coluna 'source' não existir, tenta sem ela automaticamente
  */
 async function saveEventSafe(sql, params, description) {
   try {
     await queryWithRetry(sql, params, 2);
   } catch (err) {
-    // Se o erro é sobre a coluna 'source' não existir, tenta sem ela
     if (err.message && err.message.indexOf('"source"') !== -1 && err.message.indexOf('does not exist') !== -1) {
       if (sourceColumnExists) {
         sourceColumnExists = false;
-        console.warn('[WHATSAPP] Coluna "source" não existe em member_events. Execute a migration: ALTER TABLE member_events ADD COLUMN IF NOT EXISTS source VARCHAR(20) DEFAULT \'realtime\';');
+        console.warn('[WHATSAPP] Coluna "source" não existe em member_events. Execute a migration.');
       }
-      // Retry sem a coluna source
       try {
         var sqlNoSource = sql.replace(', source', '').replace(', $6', '');
-        var paramsNoSource = params.slice(0, 5); // remove o param source
+        var paramsNoSource = params.slice(0, 5);
         await queryWithRetry(sqlNoSource, paramsNoSource, 2);
         return;
       } catch (err2) {
-        console.error('[WHATSAPP] Falha ao salvar evento (sem source), adicionando à fila: ' + description + ' - ' + err2.message);
+        console.error('[WHATSAPP] Falha ao salvar evento (sem source): ' + description + ' - ' + err2.message);
         eventRetryQueue.push({ sql: sql.replace(', source', '').replace(', $6', ''), params: params.slice(0, 5), description: description, attempts: 1 });
         return;
       }
     }
-    console.error('[WHATSAPP] Falha ao salvar evento, adicionando à fila: ' + description + ' - ' + err.message);
+    console.error('[WHATSAPP] Falha ao salvar evento: ' + description + ' - ' + err.message);
     eventRetryQueue.push({ sql: sql, params: params, description: description, attempts: 1 });
   }
 }
 
 /**
- * Registra um evento de membro (join/leave) com deduplicação e origem
- * @param {string} groupId - ID do grupo WhatsApp
- * @param {string} groupName - Nome do grupo
- * @param {string} memberPhone - Telefone do membro (sem @s.whatsapp.net)
- * @param {string} action - 'join' ou 'leave'
- * @param {string} source - 'realtime' ou 'diff'
+ * Registra um evento de membro (join/leave) com deduplicação
  */
 async function recordMemberEvent(groupId, groupName, memberPhone, action, source) {
-  // Deduplicação: evita registrar o mesmo evento duas vezes
   if (isDuplicateEvent(groupId, memberPhone, action)) {
     return;
   }
@@ -229,18 +233,15 @@ async function recordMemberEvent(groupId, groupName, memberPhone, action, source
     source + ':' + action + ':' + memberPhone.slice(-4) + '@' + groupName
   );
 
-  // Marca como registrado DEPOIS do save (se falhou, vai para retry queue mas dedup não bloqueia re-tentativa)
   markEventAsRecorded(groupId, memberPhone, action);
 
   if (action === 'join') {
-    // Alerta de novo membro
     await saveEventSafe(
       'INSERT INTO alerts (type, whatsapp_group_id, group_name, member_phone, message) VALUES ($1, $2, $3, $4, $5)',
       ['member_joined', groupId, groupName, '***' + memberPhone.slice(-4), 'Novo membro entrou no grupo ' + groupName],
       'alert:join:' + memberPhone.slice(-4)
     );
 
-    // Backup lead contact
     if (memberPhone && memberPhone !== 'desconhecido') {
       await saveEventSafe(
         'INSERT INTO lead_contacts (phone, whatsapp_group_id, group_name, joined_at, is_active) VALUES ($1, $2, $3, NOW(), true) ' +
@@ -250,7 +251,6 @@ async function recordMemberEvent(groupId, groupName, memberPhone, action, source
       );
     }
   } else if (action === 'leave') {
-    // Mark lead as inactive
     if (memberPhone && memberPhone !== 'desconhecido') {
       await saveEventSafe(
         'UPDATE lead_contacts SET is_active=false, left_at=NOW() WHERE phone=$1 AND whatsapp_group_id=$2',
@@ -261,152 +261,300 @@ async function recordMemberEvent(groupId, groupName, memberPhone, action, source
   }
 }
 
+// ===== EVOLUTION API INSTANCE MANAGEMENT =====
+
 /**
- * Cria o socket Baileys e configura todos os eventos
+ * Verifica se a instância existe na Evolution API
  */
-async function createSocket() {
-  var { version } = await fetchLatestBaileysVersion();
-
-  sock = makeWASocket({
-    version: version,
-    auth: {
-      creds: authState.creds,
-      keys: makeCacheableSignalKeyStore(authState.keys, logger)
-    },
-    logger: logger,
-    printQRInTerminal: false,
-    browser: ['LinkRotator Pro', 'Chrome', '120.0.0'],
-    generateHighQualityLinkPreview: false,
-    syncFullHistory: false,
-    markOnlineOnConnect: false
-  });
-
-  // Salva credenciais sempre que atualizarem
-  sock.ev.on('creds.update', saveCreds);
-
-  // Evento de conexão
-  sock.ev.on('connection.update', function(update) {
-    var connection = update.connection;
-    var lastDisconnect = update.lastDisconnect;
-    var qr = update.qr;
-
-    // QR Code recebido
-    if (qr && !pairingCodeRequested) {
-      currentQR = qr;
-      console.log('');
-      console.log('[WHATSAPP] Escaneie o QR Code abaixo com seu WhatsApp:');
-      console.log('');
-      qrcode.generate(qr, { small: true });
-      console.log('');
-      console.log('[WHATSAPP] Ou use o painel para conectar pelo número de telefone');
+async function instanceExists() {
+  try {
+    var data = await evoApi('GET', '/instance/fetchInstances');
+    if (Array.isArray(data)) {
+      return data.some(function(inst) {
+        return inst.instance && inst.instance.instanceName === EVOLUTION_INSTANCE_NAME;
+      });
     }
-
-    // Conexão aberta
-    if (connection === 'open') {
-      connectionStatus.connected = true;
-      connectionStatus.ready = true;
-      connectionStatus.error = null;
-      currentQR = null;
-      reconnectAttempts = 0;
-      connectionStatus.reconnectAttempts = 0;
-      pairingCodeRequested = false;
-      pendingPairingPhone = null;
-
-      // Extrai número do telefone
-      var me = sock.user;
-      if (me) {
-        connectionStatus.phone = me.id.split(':')[0].split('@')[0];
-      }
-      console.log('[WHATSAPP] Conectado! Número: ' + connectionStatus.phone);
-
-      // Carrega snapshots do DB e faz scan inicial
-      setTimeout(async function() {
-        await loadSnapshotsFromDB();
-        await scanGroupsWithDiff();
-      }, 3000);
-    }
-
-    // Conexão fechou
-    if (connection === 'close') {
-      connectionStatus.connected = false;
-      connectionStatus.ready = false;
-      connectionStatus.lastDisconnect = new Date().toISOString();
-      sock = null;
-
-      var statusCode = lastDisconnect && lastDisconnect.error && lastDisconnect.error.output
-        ? lastDisconnect.error.output.statusCode
-        : null;
-
-      // 401 = logout, precisa escanear novamente
-      if (statusCode === DisconnectReason.loggedOut) {
-        console.log('[WHATSAPP] Deslogado. Necessário reconectar.');
-        connectionStatus.error = 'Desconectado. Conecte novamente pelo painel.';
-        // Limpa sessão para forçar novo QR/pairing
-        var fs = require('fs');
-        try { fs.rmSync('./whatsapp-session', { recursive: true, force: true }); } catch(e) {}
-        // Re-inicializa para gerar novo QR
-        setTimeout(function() { initializeSocket(); }, 2000);
-      }
-      // 408 = timeout, 428 = rate limit, 500+ = erro servidor
-      else if (statusCode !== DisconnectReason.loggedOut) {
-        var reason = lastDisconnect && lastDisconnect.error ? lastDisconnect.error.message : 'desconhecido';
-        console.log('[WHATSAPP] Desconectado. Motivo: ' + reason + ' (código: ' + statusCode + ')');
-        connectionStatus.error = reason;
-        attemptReconnect();
-      }
-    }
-  });
-
-  // Evento de participantes no grupo (join, leave, promote, demote)
-  sock.ev.on('group-participants.update', async function(update) {
-    try {
-      var groupId = update.id;
-      var participants = update.participants; // Array de JIDs
-      var action = update.action; // 'add', 'remove', 'promote', 'demote'
-
-      if (action !== 'add' && action !== 'remove') return;
-
-      var groupName = await getGroupName(groupId);
-      var eventAction = action === 'add' ? 'join' : 'leave';
-
-      console.log('[WHATSAPP] [REALTIME] ' + participants.length + ' membro(s) ' + (action === 'add' ? 'entrou(ram)' : 'saiu(ram)') + ' do grupo ' + groupName);
-
-      for (var i = 0; i < participants.length; i++) {
-        var memberPhone = participants[i].split('@')[0];
-        await recordMemberEvent(groupId, groupName, memberPhone, eventAction, 'realtime');
-      }
-
-      // Agenda atualização de contagem de membros (debounced para evitar rate limit)
-      updateGroupMemberCount(groupId);
-
-    } catch (err) {
-      console.error('[WHATSAPP] Erro ao registrar evento de grupo:', err.message);
-    }
-  });
-
-  // Evento de atualização de grupo (nome, descrição, etc.)
-  sock.ev.on('groups.update', async function(updates) {
-    for (var update of updates) {
-      try {
-        var groupId = update.id;
-        console.log('[WHATSAPP] Atualização no grupo ' + groupId);
-
-        // Force refresh do nome
-        await getGroupName(groupId, true);
-        // Agenda atualização de contagem (debounced para evitar rate limit)
-        updateGroupMemberCount(groupId);
-      } catch (err) {
-        console.error('[WHATSAPP] Erro ao processar atualização do grupo:', err.message);
-      }
-    }
-  });
-
-  return sock;
+    return false;
+  } catch (err) {
+    console.error('[WHATSAPP] Erro ao verificar instâncias:', err.message);
+    return false;
+  }
 }
 
 /**
- * Carrega snapshots de membros do DB para não perder eventos entre restarts
+ * Cria a instância na Evolution API se não existir
  */
+async function createInstance() {
+  try {
+    var webhookUrl = (process.env.EVOLUTION_WEBHOOK_URL || process.env.FRONTEND_URL || ('http://localhost:' + (process.env.PORT || 3000)));
+    // Garante que a URL do webhook aponte para nosso servidor
+    if (webhookUrl === '*') {
+      webhookUrl = 'http://localhost:' + (process.env.PORT || 3000);
+    }
+    webhookUrl = webhookUrl.replace(/\/$/, '') + '/api/whatsapp/webhook';
+
+    var body = {
+      instanceName: EVOLUTION_INSTANCE_NAME,
+      integration: 'WHATSAPP-BAILEYS',
+      qrcode: true,
+      webhook: {
+        url: webhookUrl,
+        byEvents: false,
+        base64: true,
+        events: [
+          'QRCODE_UPDATED',
+          'CONNECTION_UPDATE',
+          'GROUPS_UPSERT',
+          'GROUP_UPDATE',
+          'GROUP_PARTICIPANTS_UPDATE'
+        ]
+      }
+    };
+
+    console.log('[WHATSAPP] Criando instância "' + EVOLUTION_INSTANCE_NAME + '" na Evolution API...');
+    console.log('[WHATSAPP] Webhook URL: ' + webhookUrl);
+    var data = await evoApi('POST', '/instance/create', body);
+    console.log('[WHATSAPP] Instância criada com sucesso');
+    return data;
+  } catch (err) {
+    // Se já existe, ignora
+    if (err.message && err.message.toLowerCase().includes('already')) {
+      console.log('[WHATSAPP] Instância já existe, usando existente');
+      return null;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Configura o webhook da instância existente
+ */
+async function configureWebhook() {
+  try {
+    var webhookUrl = (process.env.EVOLUTION_WEBHOOK_URL || process.env.FRONTEND_URL || ('http://localhost:' + (process.env.PORT || 3000)));
+    if (webhookUrl === '*') {
+      webhookUrl = 'http://localhost:' + (process.env.PORT || 3000);
+    }
+    webhookUrl = webhookUrl.replace(/\/$/, '') + '/api/whatsapp/webhook';
+
+    await evoApi('POST', '/webhook/set/' + EVOLUTION_INSTANCE_NAME, {
+      webhook: {
+        enabled: true,
+        url: webhookUrl,
+        byEvents: false,
+        base64: true,
+        events: [
+          'QRCODE_UPDATED',
+          'CONNECTION_UPDATE',
+          'GROUPS_UPSERT',
+          'GROUP_UPDATE',
+          'GROUP_PARTICIPANTS_UPDATE'
+        ]
+      }
+    });
+    console.log('[WHATSAPP] Webhook configurado: ' + webhookUrl);
+  } catch (err) {
+    console.warn('[WHATSAPP] Aviso ao configurar webhook:', err.message);
+  }
+}
+
+/**
+ * Verifica estado da conexão via Evolution API
+ */
+async function checkConnectionState() {
+  try {
+    var data = await evoApi('GET', '/instance/connectionState/' + EVOLUTION_INSTANCE_NAME);
+    var state = data.instance && data.instance.state || data.state || 'close';
+
+    if (state === 'open') {
+      if (!connectionStatus.ready) {
+        connectionStatus.connected = true;
+        connectionStatus.ready = true;
+        connectionStatus.error = null;
+        reconnectAttempts = 0;
+        connectionStatus.reconnectAttempts = 0;
+        currentQR = null;
+        currentQRBase64 = null;
+        console.log('[WHATSAPP] Conexão ativa (Evolution API)');
+
+        // Busca info do número conectado
+        try {
+          var info = await evoApi('GET', '/instance/fetchInstances');
+          if (Array.isArray(info)) {
+            var inst = info.find(function(i) { return i.instance && i.instance.instanceName === EVOLUTION_INSTANCE_NAME; });
+            if (inst && inst.instance && inst.instance.owner) {
+              connectionStatus.phone = inst.instance.owner.split('@')[0].split(':')[0];
+              console.log('[WHATSAPP] Número conectado: ' + connectionStatus.phone);
+            }
+          }
+        } catch (e) {}
+
+        // Carrega snapshots e faz scan inicial
+        await loadSnapshotsFromDB();
+        await scanGroupsWithDiff();
+      }
+    } else if (state === 'connecting') {
+      connectionStatus.connected = false;
+      connectionStatus.ready = false;
+      connectionStatus.error = 'Conectando...';
+    } else {
+      connectionStatus.connected = false;
+      connectionStatus.ready = false;
+      if (!connectionStatus.error || connectionStatus.error === 'Conectando...') {
+        connectionStatus.error = 'Desconectado. Conecte pelo painel.';
+      }
+    }
+
+    return state;
+  } catch (err) {
+    console.error('[WHATSAPP] Erro ao verificar conexão:', err.message);
+    return 'close';
+  }
+}
+
+/**
+ * Solicita conexão (gera QR Code)
+ */
+async function connectInstance() {
+  try {
+    var data = await evoApi('GET', '/instance/connect/' + EVOLUTION_INSTANCE_NAME);
+    if (data.base64) {
+      currentQRBase64 = data.base64;
+      currentQR = data.code || data.base64;
+      console.log('[WHATSAPP] QR Code gerado pela Evolution API');
+    } else if (data.code) {
+      currentQR = data.code;
+    }
+    return data;
+  } catch (err) {
+    // Se já está conectado
+    if (err.message && (err.message.includes('already') || err.message.includes('connected') || err.message.includes('open'))) {
+      console.log('[WHATSAPP] Já está conectado');
+      await checkConnectionState();
+      return null;
+    }
+    throw err;
+  }
+}
+
+// ===== WEBHOOK HANDLER =====
+
+/**
+ * Processa eventos recebidos via webhook da Evolution API
+ * Chamado pela rota POST /api/whatsapp/webhook no index.js
+ */
+async function handleWebhook(body) {
+  var event = body.event;
+  var data = body.data;
+  var instance = body.instance;
+
+  // Ignora eventos de outras instâncias
+  if (instance && instance !== EVOLUTION_INSTANCE_NAME) return;
+
+  try {
+    switch (event) {
+      case 'qrcode.updated':
+      case 'QRCODE_UPDATED':
+        if (data && data.qrcode) {
+          currentQRBase64 = data.qrcode.base64 || null;
+          currentQR = data.qrcode.code || data.qrcode.base64 || null;
+          console.log('[WHATSAPP] [WEBHOOK] QR Code atualizado');
+        }
+        break;
+
+      case 'connection.update':
+      case 'CONNECTION_UPDATE':
+        var state = data.state || data.status;
+        console.log('[WHATSAPP] [WEBHOOK] Estado da conexão: ' + state);
+
+        if (state === 'open') {
+          connectionStatus.connected = true;
+          connectionStatus.ready = true;
+          connectionStatus.error = null;
+          currentQR = null;
+          currentQRBase64 = null;
+          reconnectAttempts = 0;
+          connectionStatus.reconnectAttempts = 0;
+
+          // Extrai número
+          if (data.ownerJid || data.wuid) {
+            connectionStatus.phone = (data.ownerJid || data.wuid).split('@')[0].split(':')[0];
+          }
+          console.log('[WHATSAPP] Conectado! Número: ' + connectionStatus.phone);
+
+          // Scan inicial
+          setTimeout(async function() {
+            await loadSnapshotsFromDB();
+            await scanGroupsWithDiff();
+          }, 3000);
+        } else if (state === 'close' || state === 'refused') {
+          connectionStatus.connected = false;
+          connectionStatus.ready = false;
+          connectionStatus.lastDisconnect = new Date().toISOString();
+
+          if (data.statusReason === 401 || state === 'refused') {
+            connectionStatus.error = 'Desconectado. Conecte novamente pelo painel.';
+          } else {
+            connectionStatus.error = data.reason || 'Desconectado';
+            attemptReconnect();
+          }
+        }
+        break;
+
+      case 'group-participants.update':
+      case 'GROUP_PARTICIPANTS_UPDATE':
+        await handleGroupParticipantsUpdate(data);
+        break;
+
+      case 'groups.update':
+      case 'GROUP_UPDATE':
+      case 'groups.upsert':
+      case 'GROUPS_UPSERT':
+        if (data && data.id) {
+          groupNameCache[data.id] = { name: data.subject || data.id, timestamp: Date.now() };
+        }
+        break;
+
+      default:
+        // Evento desconhecido, ignora
+        break;
+    }
+  } catch (err) {
+    console.error('[WHATSAPP] [WEBHOOK] Erro ao processar evento ' + event + ':', err.message);
+  }
+}
+
+/**
+ * Processa evento de participantes do grupo (join/leave)
+ */
+async function handleGroupParticipantsUpdate(data) {
+  try {
+    var groupId = data.id || data.groupJid;
+    var participants = data.participants || [];
+    var action = data.action; // 'add', 'remove', 'promote', 'demote'
+
+    if (action !== 'add' && action !== 'remove') return;
+
+    var groupName = await getGroupName(groupId);
+    var eventAction = action === 'add' ? 'join' : 'leave';
+
+    console.log('[WHATSAPP] [REALTIME] ' + participants.length + ' membro(s) ' + (action === 'add' ? 'entrou(ram)' : 'saiu(ram)') + ' do grupo ' + groupName);
+
+    for (var i = 0; i < participants.length; i++) {
+      var memberPhone = participants[i].split('@')[0];
+      await recordMemberEvent(groupId, groupName, memberPhone, eventAction, 'realtime');
+    }
+
+    // Atualiza contagem de membros
+    updateGroupMemberCount(groupId);
+
+  } catch (err) {
+    console.error('[WHATSAPP] Erro ao registrar evento de grupo:', err.message);
+  }
+}
+
+// ===== SNAPSHOTS =====
+
 async function loadSnapshotsFromDB() {
   try {
     var result = await pool.query('SELECT id, member_snapshot FROM whatsapp_groups WHERE member_snapshot IS NOT NULL');
@@ -421,18 +569,14 @@ async function loadSnapshotsFromDB() {
       console.log('[WHATSAPP] Carregados ' + loaded + ' snapshots de membros do DB');
     }
   } catch (err) {
-    // Coluna pode não existir ainda, ignora silenciosamente
     if (err.message && err.message.includes('member_snapshot')) {
-      console.log('[WHATSAPP] Coluna member_snapshot não existe ainda, será criada na migration');
+      console.log('[WHATSAPP] Coluna member_snapshot não existe ainda');
     } else {
       console.error('[WHATSAPP] Erro ao carregar snapshots:', err.message);
     }
   }
 }
 
-/**
- * Salva snapshot de membros no DB para persistência
- */
 async function saveSnapshotToDB(groupId, members) {
   try {
     await pool.query(
@@ -441,136 +585,14 @@ async function saveSnapshotToDB(groupId, members) {
     );
   } catch (err) {
     if (err.message && err.message.includes('member_snapshot')) {
-      // Coluna não existe ainda - ignora silenciosamente
+      // Coluna não existe ainda
     } else {
       console.warn('[WHATSAPP] Erro ao salvar snapshot do grupo ' + groupId + ': ' + err.message);
     }
   }
 }
 
-/**
- * Inicializa o auth state e cria o socket
- */
-async function initializeSocket() {
-  try {
-    var auth = await useMultiFileAuthState('./whatsapp-session');
-    authState = auth.state;
-    saveCreds = auth.saveCreds;
-    await createSocket();
-  } catch (err) {
-    console.error('[WHATSAPP] Erro ao inicializar socket:', err.message);
-    connectionStatus.error = err.message;
-  }
-}
-
-/**
- * Inicializa o monitor WhatsApp
- */
-function initialize(pgPool) {
-  pool = pgPool;
-  reconnectAttempts = 0;
-  pairingCodeRequested = false;
-
-  // Garante que as colunas necessárias existem ANTES de iniciar o socket
-  Promise.all([
-    pool.query('ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS member_snapshot JSONB'),
-    pool.query('ALTER TABLE member_events ADD COLUMN IF NOT EXISTS source VARCHAR(20) DEFAULT \'realtime\''),
-    pool.query('ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS invite_code VARCHAR(255)')
-  ]).then(function() {
-    console.log('[WHATSAPP] Colunas do banco verificadas com sucesso');
-    console.log('[WHATSAPP] Inicializando cliente Baileys...');
-    initializeSocket();
-  }).catch(function(err) {
-    console.error('[WHATSAPP] Erro ao preparar colunas do banco:', err.message);
-    // Inicializa mesmo assim para não bloquear completamente
-    console.log('[WHATSAPP] Inicializando cliente Baileys...');
-    initializeSocket();
-  });
-}
-
-/**
- * Solicita Pairing Code para conectar pelo número de telefone
- * O usuário recebe um código no WhatsApp que deve digitar no app
- * @param {string} phoneNumber - Número com DDI, ex: 5511999999999
- * @returns {string} Código de pareamento (8 dígitos)
- */
-async function requestPairingCode(phoneNumber) {
-  // Limpa formatação - só números
-  phoneNumber = phoneNumber.replace(/[^0-9]/g, '');
-
-  if (!phoneNumber || phoneNumber.length < 10) {
-    throw new Error('Número inválido. Use formato com DDI: 5511999999999');
-  }
-
-  // Se já está conectado, não precisa parear
-  if (connectionStatus.ready) {
-    throw new Error('WhatsApp já está conectado com o número ' + connectionStatus.phone);
-  }
-
-  console.log('[WHATSAPP] Solicitando pairing code para ' + phoneNumber + '...');
-
-  // Se o socket não existe ainda, cria
-  if (!sock) {
-    pairingCodeRequested = true;
-    pendingPairingPhone = phoneNumber;
-    await initializeSocket();
-
-    // Aguarda socket ficar pronto para solicitar o código
-    await new Promise(function(resolve) { setTimeout(resolve, 3000); });
-  }
-
-  if (!sock) {
-    throw new Error('Erro ao inicializar conexão. Tente novamente.');
-  }
-
-  // Marca que estamos usando pairing code (não mostra QR)
-  pairingCodeRequested = true;
-  currentQR = null;
-
-  try {
-    var code = await sock.requestPairingCode(phoneNumber);
-    console.log('[WHATSAPP] Pairing code gerado: ' + code);
-    console.log('[WHATSAPP] Instrução: Abra WhatsApp > Aparelhos Conectados > Conectar Dispositivo > Conectar com Número de Telefone');
-    return code;
-  } catch (err) {
-    pairingCodeRequested = false;
-    console.error('[WHATSAPP] Erro ao gerar pairing code:', err.message);
-
-    if (err.message.includes('already')) {
-      throw new Error('Já existe uma sessão ativa. Clique em "Desconectar" primeiro.');
-    }
-    throw new Error('Erro ao gerar código: ' + err.message);
-  }
-}
-
-/**
- * Reconexão com backoff exponencial
- */
-function attemptReconnect() {
-  if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-    console.error('[WHATSAPP] Máximo de tentativas de reconexão atingido (' + MAX_RECONNECT_ATTEMPTS + '). Reinicie manualmente.');
-    connectionStatus.error = 'Máximo de tentativas de reconexão atingido. Use o botão Reiniciar.';
-    return;
-  }
-
-  reconnectAttempts++;
-  connectionStatus.reconnectAttempts = reconnectAttempts;
-
-  var delay = Math.min(10000 * Math.pow(2, reconnectAttempts - 1), 300000);
-  console.log('[WHATSAPP] Tentativa de reconexão ' + reconnectAttempts + '/' + MAX_RECONNECT_ATTEMPTS + ' em ' + (delay / 1000) + 's...');
-
-  setTimeout(async function() {
-    if (connectionStatus.ready) return;
-
-    console.log('[WHATSAPP] Tentando reconectar (tentativa ' + reconnectAttempts + ')...');
-    try {
-      await initializeSocket();
-    } catch (err) {
-      console.error('[WHATSAPP] Falha ao reconectar:', err.message);
-      attemptReconnect();
-    }
-  }, delay);
-}
+// ===== SCAN DE GRUPOS =====
 
 /**
  * Busca nome de um grupo (com cache e TTL)
@@ -582,11 +604,11 @@ async function getGroupName(groupId, forceRefresh) {
   }
 
   try {
-    if (sock) {
-      var metadata = await sock.groupMetadata(groupId);
-      if (metadata && metadata.subject) {
-        groupNameCache[groupId] = { name: metadata.subject, timestamp: Date.now() };
-        return metadata.subject;
+    if (connectionStatus.ready) {
+      var data = await evoApi('GET', '/group/findGroupInfos/' + EVOLUTION_INSTANCE_NAME + '?groupJid=' + groupId);
+      if (data && data.subject) {
+        groupNameCache[groupId] = { name: data.subject, timestamp: Date.now() };
+        return data.subject;
       }
     }
   } catch (err) {
@@ -596,8 +618,19 @@ async function getGroupName(groupId, forceRefresh) {
 }
 
 /**
+ * Busca todos os grupos via Evolution API
+ */
+async function fetchAllGroups() {
+  var data = await evoApi('GET', '/group/fetchAllGroups/' + EVOLUTION_INSTANCE_NAME + '?getParticipants=true');
+  // A Evolution API pode retornar array diretamente ou objeto
+  if (Array.isArray(data)) return data;
+  if (data && data.data && Array.isArray(data.data)) return data.data;
+  if (data && Array.isArray(data.groups)) return data.groups;
+  return [];
+}
+
+/**
  * Faz scan de todos os grupos COM detecção de diferenças
- * Inclui throttle entre grupos para evitar rate limit
  */
 async function scanGroupsWithDiff() {
   if (scanInProgress) {
@@ -608,45 +641,42 @@ async function scanGroupsWithDiff() {
   scanInProgress = true;
 
   try {
-    if (!sock) { scanInProgress = false; return; }
+    if (!connectionStatus.ready) { scanInProgress = false; return; }
 
-    var groups = await sock.groupFetchAllParticipating();
-    var groupIds = Object.keys(groups);
+    var groups = await fetchAllGroups();
 
-    console.log('[WHATSAPP] Escaneando ' + groupIds.length + ' grupos...');
+    console.log('[WHATSAPP] Escaneando ' + groups.length + ' grupos...');
 
     var totalNewJoins = 0;
     var totalNewLeaves = 0;
 
-    for (var i = 0; i < groupIds.length; i++) {
-      var groupId = groupIds[i];
-      var group = groups[groupId];
+    for (var i = 0; i < groups.length; i++) {
+      var group = groups[i];
+      var groupId = group.id || group.jid;
 
       try {
-        var groupName = group.subject || groupId;
-        var currentParticipants = (group.participants || []).map(function(p) {
-          return p.id.split('@')[0];
-        });
-        var memberCount = currentParticipants.length;
+        var groupName = group.subject || group.groupName || groupId;
+        var currentParticipants = [];
 
-        // Captura max_members real do grupo (size = limite do WhatsApp)
-        var maxMembers = group.size || memberCount;
-        // WhatsApp groups can have 512 or 1024 max depending on type
+        if (group.participants && Array.isArray(group.participants)) {
+          currentParticipants = group.participants.map(function(p) {
+            var pid = typeof p === 'string' ? p : (p.id || p.jid || '');
+            return pid.split('@')[0];
+          }).filter(function(p) { return p && p.length > 0; });
+        }
+
+        var memberCount = group.size || currentParticipants.length;
+        var maxMembers = group.maxParticipants || group.size || memberCount;
         if (maxMembers < memberCount) maxMembers = memberCount;
 
         // Extrai invite code se disponível
-        var inviteCode = null;
-        if (group.inviteCode) {
-          inviteCode = group.inviteCode;
-        }
+        var inviteCode = group.inviteCode || null;
 
         // Proteção: se API retornou lista vazia, é provável erro transitório
-        // NÃO atualizar snapshot para não perder a referência anterior
         if (currentParticipants.length === 0 && lastKnownMembers[groupId] && lastKnownMembers[groupId].length > 0) {
-          console.warn('[WHATSAPP] [SCAN] ' + groupName + ': API retornou 0 participantes (provável erro). Mantendo snapshot anterior (' + lastKnownMembers[groupId].length + ' membros).');
-          // Mantém o snapshot anterior, não atualiza
+          console.warn('[WHATSAPP] [SCAN] ' + groupName + ': API retornou 0 participantes. Mantendo snapshot anterior.');
         } else {
-          // Detecta diferenças com snapshot anterior usando Set para performance
+          // Detecta diferenças com snapshot anterior
           var previousMembers = lastKnownMembers[groupId];
           if (previousMembers && previousMembers.length > 0 && currentParticipants.length > 0) {
             var prevSet = new Set(previousMembers);
@@ -655,29 +685,25 @@ async function scanGroupsWithDiff() {
             var newMembers = currentParticipants.filter(function(m) { return !prevSet.has(m); });
             var leftMembers = previousMembers.filter(function(m) { return !currSet.has(m); });
 
-            // Proteção contra diffs absurdos (mais de 50% de mudança = provável erro de API)
+            // Proteção contra diffs absurdos (mais de 50% de mudança)
             var totalPrev = previousMembers.length;
             var changeRatio = totalPrev > 0 ? (newMembers.length + leftMembers.length) / totalPrev : 0;
             if (changeRatio > 0.5 && totalPrev > 10) {
-              console.warn('[WHATSAPP] [DIFF] ' + groupName + ': Mudança suspeita detectada (' + Math.round(changeRatio * 100) + '% dos membros). Verificando com groupMetadata...');
-              // Re-busca dados frescos do grupo individual para confirmar
+              console.warn('[WHATSAPP] [DIFF] ' + groupName + ': Mudança suspeita (' + Math.round(changeRatio * 100) + '%). Verificando...');
               try {
-                var freshMeta = await sock.groupMetadata(groupId);
-                if (freshMeta && freshMeta.participants) {
-                  currentParticipants = freshMeta.participants.map(function(p) { return p.id.split('@')[0]; });
+                var freshData = await evoApi('GET', '/group/findGroupInfos/' + EVOLUTION_INSTANCE_NAME + '?groupJid=' + groupId);
+                if (freshData && freshData.participants) {
+                  currentParticipants = freshData.participants.map(function(p) {
+                    var pid = typeof p === 'string' ? p : (p.id || p.jid || '');
+                    return pid.split('@')[0];
+                  }).filter(function(p) { return p && p.length > 0; });
                   memberCount = currentParticipants.length;
-                  // Recalcula diff com dados frescos
                   var freshCurrSet = new Set(currentParticipants);
                   newMembers = currentParticipants.filter(function(m) { return !prevSet.has(m); });
                   leftMembers = previousMembers.filter(function(m) { return !freshCurrSet.has(m); });
                 }
               } catch (verifyErr) {
-                // Se é rate limit, para de verificar - usa dados do batch
-                if (verifyErr.message && (verifyErr.message.indexOf('rate') !== -1 || verifyErr.message.indexOf('overlimit') !== -1)) {
-                  console.warn('[WHATSAPP] [DIFF] Rate limit ao verificar ' + groupName + '. Usando dados do batch.');
-                } else {
-                  console.warn('[WHATSAPP] [DIFF] Falha ao verificar grupo ' + groupName + ': ' + verifyErr.message + '. Usando dados do batch.');
-                }
+                console.warn('[WHATSAPP] [DIFF] Falha ao verificar ' + groupName + ': ' + verifyErr.message);
               }
             }
 
@@ -689,131 +715,175 @@ async function scanGroupsWithDiff() {
               for (var j = 0; j < newMembers.length; j++) {
                 await recordMemberEvent(groupId, groupName, newMembers[j], 'join', 'diff');
               }
-
               for (var l = 0; l < leftMembers.length; l++) {
                 await recordMemberEvent(groupId, groupName, leftMembers[l], 'leave', 'diff');
               }
             }
           }
 
-          // Atualiza snapshot em memória (apenas se temos dados válidos)
           lastKnownMembers[groupId] = currentParticipants;
         }
 
-        // Upsert no PostgreSQL com max_members e invite_code
+        // Upsert no PostgreSQL
         await queryWithRetry(
           'INSERT INTO whatsapp_groups (id, group_name, current_members, max_members, invite_code, last_scanned) VALUES ($1, $2, $3, $4, $5, NOW()) ' +
           'ON CONFLICT (id) DO UPDATE SET group_name=$2, current_members=$3, max_members=GREATEST(whatsapp_groups.max_members, $4), invite_code=COALESCE($5, whatsapp_groups.invite_code), last_scanned=NOW()',
           [groupId, groupName, memberCount, maxMembers, inviteCode]
         );
 
-        // Persiste snapshot no DB (a cada scan) - COM await para garantir persistência
         await saveSnapshotToDB(groupId, currentParticipants);
-
-        // Cache do nome com TTL
         groupNameCache[groupId] = { name: groupName, timestamp: Date.now() };
 
       } catch (err) {
-        console.error('[WHATSAPP] Erro ao escanear grupo ' + (group.subject || groupId) + ':', err.message);
+        console.error('[WHATSAPP] Erro ao escanear grupo ' + groupId + ':', err.message);
       }
 
-      // Throttle: pequeno delay entre grupos para evitar rate limit (50ms)
-      if (i < groupIds.length - 1) {
+      // Throttle entre grupos
+      if (i < groups.length - 1) {
         await new Promise(function(resolve) { setTimeout(resolve, 50); });
       }
     }
 
     var diffMsg = '';
     if (totalNewJoins > 0 || totalNewLeaves > 0) {
-      diffMsg = ' | Diff detectou: +' + totalNewJoins + ' -' + totalNewLeaves + ' eventos';
+      diffMsg = ' | Diff: +' + totalNewJoins + ' -' + totalNewLeaves;
     }
-    console.log('[WHATSAPP] Scan concluído (' + groupIds.length + ' grupos)' + diffMsg);
+    console.log('[WHATSAPP] Scan concluído (' + groups.length + ' grupos)' + diffMsg);
 
   } catch (err) {
-    if (err.message && (err.message.indexOf('rate') !== -1 || err.message.indexOf('overlimit') !== -1)) {
-      console.warn('[WHATSAPP] Scan interrompido por rate limit. Tentará novamente no próximo intervalo.');
-    } else {
-      console.error('[WHATSAPP] Erro no scan:', err.message);
-    }
+    console.error('[WHATSAPP] Erro no scan:', err.message);
   }
 
   scanInProgress = false;
 }
 
-var scanGroups = scanGroupsWithDiff;
-
 /**
- * Processa fila de atualizações de contagem de membros com throttle
- * Evita rate-overlimit processando uma chamada API por vez com delay
+ * Atualiza contagem de membros de um grupo específico
  */
-async function processMemberCountQueue() {
-  if (memberCountProcessing) return;
-  memberCountProcessing = true;
+async function updateGroupMemberCount(groupId) {
+  try {
+    if (!connectionStatus.ready) return;
 
-  while (memberCountQueue.length > 0) {
-    var groupId = memberCountQueue.shift();
-    // Remove do pending para permitir novas entradas
-    delete pendingMemberCountUpdates[groupId];
+    var data = await evoApi('GET', '/group/findGroupInfos/' + EVOLUTION_INSTANCE_NAME + '?groupJid=' + groupId);
+    if (data && data.participants) {
+      var memberCount = data.participants.length;
+      var maxMembers = data.size || memberCount;
+      if (maxMembers < memberCount) maxMembers = memberCount;
 
-    try {
-      if (!sock) break;
-      var metadata = await sock.groupMetadata(groupId);
-      if (metadata && metadata.participants) {
-        var memberCount = metadata.participants.length;
-        var maxMembers = metadata.size || memberCount;
-        if (maxMembers < memberCount) maxMembers = memberCount;
+      await queryWithRetry(
+        'INSERT INTO whatsapp_groups (id, group_name, current_members, max_members, last_scanned) VALUES ($1, $2, $3, $4, NOW()) ' +
+        'ON CONFLICT (id) DO UPDATE SET group_name=$2, current_members=$3, max_members=GREATEST(whatsapp_groups.max_members, $4), last_scanned=NOW()',
+        [groupId, data.subject || groupId, memberCount, maxMembers]
+      );
 
-        await queryWithRetry(
-          'INSERT INTO whatsapp_groups (id, group_name, current_members, max_members, last_scanned) VALUES ($1, $2, $3, $4, NOW()) ' +
-          'ON CONFLICT (id) DO UPDATE SET group_name=$2, current_members=$3, max_members=GREATEST(whatsapp_groups.max_members, $4), last_scanned=NOW()',
-          [groupId, metadata.subject, memberCount, maxMembers]
-        );
-        groupNameCache[groupId] = { name: metadata.subject, timestamp: Date.now() };
-
-        var members = metadata.participants.map(function(p) {
-          return p.id.split('@')[0];
-        });
-        lastKnownMembers[groupId] = members;
-        saveSnapshotToDB(groupId, members);
-      }
-    } catch (err) {
-      // Silencia rate-overlimit para não poluir logs - o próximo scan vai atualizar
-      if (err.message && (err.message.indexOf('rate') !== -1 || err.message.indexOf('overlimit') !== -1)) {
-        console.warn('[WHATSAPP] Rate limit ao atualizar contagem de ' + groupId + '. Deixando para o próximo scan.');
-        // Limpa a fila restante quando detecta rate limit - será atualizado no próximo scan
-        memberCountQueue.length = 0;
-        break;
-      }
-      console.error('[WHATSAPP] Erro ao atualizar contagem de ' + groupId + ':', err.message);
+      var members = data.participants.map(function(p) {
+        var pid = typeof p === 'string' ? p : (p.id || p.jid || '');
+        return pid.split('@')[0];
+      }).filter(function(p) { return p && p.length > 0; });
+      lastKnownMembers[groupId] = members;
+      saveSnapshotToDB(groupId, members);
     }
+  } catch (err) {
+    console.warn('[WHATSAPP] Erro ao atualizar contagem de ' + groupId + ':', err.message);
+  }
+}
 
-    // Throttle: espera entre chamadas API
-    if (memberCountQueue.length > 0) {
-      await new Promise(function(resolve) { setTimeout(resolve, MEMBER_COUNT_THROTTLE); });
-    }
+// ===== RECONEXÃO =====
+
+function attemptReconnect() {
+  if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    console.error('[WHATSAPP] Máximo de tentativas de reconexão atingido.');
+    connectionStatus.error = 'Máximo de tentativas de reconexão atingido. Use o botão Reiniciar.';
+    return;
   }
 
-  memberCountProcessing = false;
+  reconnectAttempts++;
+  connectionStatus.reconnectAttempts = reconnectAttempts;
+
+  var delay = Math.min(10000 * Math.pow(2, reconnectAttempts - 1), 300000);
+  console.log('[WHATSAPP] Reconexão ' + reconnectAttempts + '/' + MAX_RECONNECT_ATTEMPTS + ' em ' + (delay / 1000) + 's...');
+
+  setTimeout(async function() {
+    if (connectionStatus.ready) return;
+    try {
+      await connectInstance();
+    } catch (err) {
+      console.error('[WHATSAPP] Falha ao reconectar:', err.message);
+      attemptReconnect();
+    }
+  }, delay);
+}
+
+// ===== INICIALIZAÇÃO =====
+
+/**
+ * Inicializa o monitor WhatsApp via Evolution API
+ */
+function initialize(pgPool) {
+  pool = pgPool;
+  reconnectAttempts = 0;
+
+  EVOLUTION_API_URL = (process.env.EVOLUTION_API_URL || 'http://localhost:8080').replace(/\/$/, '');
+  EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY || '';
+  EVOLUTION_INSTANCE_NAME = process.env.EVOLUTION_INSTANCE_NAME || 'linkrotator';
+
+  if (!EVOLUTION_API_URL || !EVOLUTION_API_KEY) {
+    console.error('[WHATSAPP] EVOLUTION_API_URL e EVOLUTION_API_KEY são obrigatórios no .env');
+    connectionStatus.error = 'Evolution API não configurada. Verifique o .env';
+    return;
+  }
+
+  // Garante que as colunas necessárias existem
+  Promise.all([
+    pool.query('ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS member_snapshot JSONB'),
+    pool.query('ALTER TABLE member_events ADD COLUMN IF NOT EXISTS source VARCHAR(20) DEFAULT \'realtime\''),
+    pool.query('ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS invite_code VARCHAR(255)')
+  ]).then(async function() {
+    console.log('[WHATSAPP] Colunas do banco verificadas');
+    console.log('[WHATSAPP] Inicializando Evolution API...');
+    console.log('[WHATSAPP] URL: ' + EVOLUTION_API_URL);
+    console.log('[WHATSAPP] Instância: ' + EVOLUTION_INSTANCE_NAME);
+
+    try {
+      // Verifica se instância já existe
+      var exists = await instanceExists();
+      if (!exists) {
+        await createInstance();
+      } else {
+        console.log('[WHATSAPP] Instância "' + EVOLUTION_INSTANCE_NAME + '" encontrada');
+        // Reconfigura webhook para garantir que aponta para nosso servidor
+        await configureWebhook();
+      }
+
+      // Verifica estado da conexão
+      var state = await checkConnectionState();
+      if (state !== 'open') {
+        console.log('[WHATSAPP] Instância não conectada. Solicitando QR Code...');
+        await connectInstance();
+      }
+
+      // Inicia poll periódico de conexão (backup para webhooks)
+      startConnectionPoll();
+
+    } catch (err) {
+      console.error('[WHATSAPP] Erro ao inicializar Evolution API:', err.message);
+      connectionStatus.error = 'Erro ao conectar com Evolution API: ' + err.message;
+    }
+  }).catch(function(err) {
+    console.error('[WHATSAPP] Erro ao preparar colunas:', err.message);
+  });
 }
 
 /**
- * Agenda atualização de contagem de membros com debounce
- * Múltiplas chamadas para o mesmo grupo dentro da janela são consolidadas
+ * Inicia polling periódico do estado da conexão
  */
-function updateGroupMemberCount(groupId) {
-  // Se já tem um timer pendente para esse grupo, cancela e reagenda
-  if (pendingMemberCountUpdates[groupId]) {
-    clearTimeout(pendingMemberCountUpdates[groupId]);
-  }
-
-  pendingMemberCountUpdates[groupId] = setTimeout(function() {
-    // Adiciona à fila apenas se não estiver já nela
-    if (memberCountQueue.indexOf(groupId) === -1) {
-      memberCountQueue.push(groupId);
-    }
-    delete pendingMemberCountUpdates[groupId];
-    processMemberCountQueue();
-  }, MEMBER_COUNT_DEBOUNCE);
+function startConnectionPoll() {
+  if (connectionPollTimer) clearInterval(connectionPollTimer);
+  connectionPollTimer = setInterval(function() {
+    checkConnectionState().catch(function(err) {
+      console.warn('[WHATSAPP] Erro no poll de conexão:', err.message);
+    });
+  }, CONNECTION_POLL_INTERVAL);
 }
 
 // ===== API PÚBLICAS =====
@@ -823,29 +893,28 @@ function getStatus() {
     retryQueueSize: eventRetryQueue.length,
     cachedGroups: Object.keys(groupNameCache).length,
     trackedGroups: Object.keys(lastKnownMembers).length,
-    pairingCodeRequested: pairingCodeRequested,
     scanInterval: SCAN_INTERVAL / 1000 + 's',
-    dedupWindowSize: Object.keys(recentEvents).length
+    dedupWindowSize: Object.keys(recentEvents).length,
+    evolutionApi: EVOLUTION_API_URL ? true : false,
+    instanceName: EVOLUTION_INSTANCE_NAME
   });
 }
 
 function getQR() {
-  return currentQR;
+  return currentQRBase64 || currentQR;
 }
 
 var groupsCache = { data: null, timestamp: 0 };
 var GROUPS_CACHE_TTL = 60000;
 
 /**
- * Retorna lista de grupos com formato CONSISTENTE independente da fonte
+ * Retorna lista de grupos com formato CONSISTENTE
  */
 async function getGroups() {
-  // Return cache if fresh
   if (groupsCache.data && (Date.now() - groupsCache.timestamp) < GROUPS_CACHE_TTL) {
     return groupsCache.data;
   }
 
-  // Formato padrão de resposta para qualquer caminho
   function formatGroup(id, name, members, maxMembers, lastScanned, inviteCode, isReadOnly) {
     return {
       id: id,
@@ -860,7 +929,7 @@ async function getGroups() {
     };
   }
 
-  if (!sock || !connectionStatus.ready) {
+  if (!connectionStatus.ready) {
     var result = await pool.query('SELECT * FROM whatsapp_groups ORDER BY group_name');
     var groups = result.rows.map(function(r) {
       return formatGroup(r.id, r.group_name, r.current_members, r.max_members, r.last_scanned, r.invite_code, false);
@@ -870,19 +939,24 @@ async function getGroups() {
   }
 
   try {
-    var allGroups = await sock.groupFetchAllParticipating();
-    var groupIds = Object.keys(allGroups);
-
+    var allGroups = await fetchAllGroups();
     var result = [];
-    for (var i = 0; i < groupIds.length; i++) {
-      var g = allGroups[groupIds[i]];
-      var memberCount = g.participants ? g.participants.length : 0;
-      var maxMembers = g.size || memberCount;
+
+    for (var i = 0; i < allGroups.length; i++) {
+      var g = allGroups[i];
+      var gid = g.id || g.jid;
+      var memberCount = 0;
+      if (g.participants && Array.isArray(g.participants)) {
+        memberCount = g.participants.length;
+      } else {
+        memberCount = g.size || 0;
+      }
+      var maxMembers = g.maxParticipants || g.size || memberCount;
       if (maxMembers < memberCount) maxMembers = memberCount;
 
       result.push(formatGroup(
-        groupIds[i],
-        g.subject || groupIds[i],
+        gid,
+        g.subject || g.groupName || gid,
         memberCount,
         maxMembers,
         new Date(),
@@ -917,24 +991,25 @@ async function getGroups() {
 }
 
 async function getGroupMembers(groupId) {
-  if (!sock || !connectionStatus.ready) {
+  if (!connectionStatus.ready) {
     throw new Error('WhatsApp não conectado');
   }
 
   try {
-    var metadata = await sock.groupMetadata(groupId);
-    if (!metadata || !metadata.participants) {
+    var data = await evoApi('GET', '/group/findGroupInfos/' + EVOLUTION_INSTANCE_NAME + '?groupJid=' + groupId);
+    if (!data || !data.participants) {
       throw new Error('Grupo não encontrado');
     }
 
     return {
-      groupName: metadata.subject,
-      totalMembers: metadata.participants.length,
-      maxMembers: metadata.size || metadata.participants.length,
-      participants: metadata.participants.map(function(p) {
-        var phone = p.id.split('@')[0];
+      groupName: data.subject,
+      totalMembers: data.participants.length,
+      maxMembers: data.size || data.participants.length,
+      participants: data.participants.map(function(p) {
+        var pid = typeof p === 'string' ? p : (p.id || p.jid || '');
+        var phone = pid.split('@')[0];
         return {
-          id: p.id,
+          id: pid,
           phone: '***' + phone.slice(-4),
           isAdmin: p.admin === 'admin' || p.admin === 'superadmin',
           isSuperAdmin: p.admin === 'superadmin'
@@ -946,68 +1021,101 @@ async function getGroupMembers(groupId) {
   }
 }
 
-// Re-scan periódico com detecção de diff (a cada 3 minutos)
-setInterval(function() {
+/**
+ * Solicita Pairing Code para conectar pelo número de telefone
+ */
+async function requestPairingCode(phoneNumber) {
+  phoneNumber = phoneNumber.replace(/[^0-9]/g, '');
+
+  if (!phoneNumber || phoneNumber.length < 10) {
+    throw new Error('Número inválido. Use formato com DDI: 5511999999999');
+  }
+
   if (connectionStatus.ready) {
-    scanGroupsWithDiff();
+    throw new Error('WhatsApp já está conectado com o número ' + connectionStatus.phone);
   }
-}, SCAN_INTERVAL);
 
-async function restart() {
-  console.log('[WHATSAPP] Reiniciando cliente...');
-  connectionStatus.connected = false;
-  connectionStatus.ready = false;
-  connectionStatus.error = null;
-  currentQR = null;
-  reconnectAttempts = 0;
-  connectionStatus.reconnectAttempts = 0;
-  pairingCodeRequested = false;
-  pendingPairingPhone = null;
-  scanInProgress = false;
+  console.log('[WHATSAPP] Solicitando pairing code via Evolution API para ' + phoneNumber + '...');
 
-  if (sock) {
-    try {
-      await sock.logout();
-    } catch (err) {
-      // Se logout falha, tenta end()
-      try { sock.end(); } catch(e) {}
+  try {
+    // Primeiro garante que a instância existe e não está conectada
+    var exists = await instanceExists();
+    if (!exists) {
+      await createInstance();
     }
-    sock = null;
+
+    // Tenta via Evolution API v2 endpoint
+    var data = await evoApi('POST', '/instance/connect/' + EVOLUTION_INSTANCE_NAME, {
+      number: phoneNumber
+    });
+
+    var code = data.code || data.pairingCode;
+    if (code) {
+      console.log('[WHATSAPP] Pairing code gerado: ' + code);
+      return code;
+    }
+
+    throw new Error('Evolution API não retornou código de pareamento. Verifique a versão da API.');
+  } catch (err) {
+    console.error('[WHATSAPP] Erro ao gerar pairing code:', err.message);
+    throw new Error('Erro ao gerar código: ' + err.message);
+  }
+}
+
+// ===== ENVIO DE MENSAGENS =====
+
+/**
+ * Envia mensagem de texto via Evolution API
+ * Substitui o antigo client.sendMessage()
+ */
+async function sendMessage(to, text, options) {
+  if (!connectionStatus.ready) {
+    throw new Error('WhatsApp não está conectado');
   }
 
-  // Limpa sessão para forçar novo login
-  var fs = require('fs');
-  try { fs.rmSync('./whatsapp-session', { recursive: true, force: true }); } catch(e) {}
+  // Normaliza o destinatário
+  var number = to;
+  if (number.includes('@')) {
+    number = number.split('@')[0];
+  }
 
-  // Re-inicializa
-  await initializeSocket();
+  // Determina se é grupo ou contato
+  var isGroup = to.includes('@g.us');
+
+  var body = {
+    number: isGroup ? to : number,
+    text: text
+  };
+
+  // Se tem opção de menção
+  if (options && options.mentions && options.mentions.length > 0) {
+    body.mentionsEveryOne = true;
+  }
+
+  return await evoApi('POST', '/message/sendText/' + EVOLUTION_INSTANCE_NAME, body);
 }
 
 /**
- * Desconecta sem limpar a sessão (mantém logado)
+ * Busca código de convite de um grupo via Evolution API
+ * Substitui o antigo client.getInviteCode()
  */
-async function disconnect() {
-  console.log('[WHATSAPP] Desconectando...');
-  connectionStatus.connected = false;
-  connectionStatus.ready = false;
-  currentQR = null;
-  pairingCodeRequested = false;
-  scanInProgress = false;
-
-  if (sock) {
-    try { sock.end(); } catch(e) {}
-    sock = null;
+async function getInviteCode(groupId) {
+  if (!connectionStatus.ready) {
+    throw new Error('WhatsApp não está conectado');
   }
+
+  var data = await evoApi('GET', '/group/inviteCode/' + EVOLUTION_INSTANCE_NAME + '?groupJid=' + groupId);
+  return data.inviteCode || data.code || data;
 }
 
 // ===== HEALTH CHECK HELPERS =====
 
 async function checkGroupExists(groupId) {
-  if (!sock || !connectionStatus.ready) return null;
+  if (!connectionStatus.ready) return null;
   try {
-    var metadata = await sock.groupMetadata(groupId);
-    if (metadata && metadata.subject) {
-      return { exists: true, name: metadata.subject, participants: metadata.participants ? metadata.participants.length : 0 };
+    var data = await evoApi('GET', '/group/findGroupInfos/' + EVOLUTION_INSTANCE_NAME + '?groupJid=' + groupId);
+    if (data && data.subject) {
+      return { exists: true, name: data.subject, participants: data.participants ? data.participants.length : 0 };
     }
     return { exists: false };
   } catch (err) {
@@ -1016,10 +1124,10 @@ async function checkGroupExists(groupId) {
 }
 
 async function checkInviteCode(inviteCode) {
-  if (!sock || !connectionStatus.ready) return null;
+  if (!connectionStatus.ready) return null;
   try {
-    var info = await sock.groupGetInviteInfo(inviteCode);
-    return { valid: true, groupName: info.subject, size: info.size };
+    var data = await evoApi('GET', '/group/inviteInfo/' + EVOLUTION_INSTANCE_NAME + '?inviteCode=' + inviteCode);
+    return { valid: true, groupName: data.subject, size: data.size };
   } catch (err) {
     var msg = (err.message || '').toLowerCase();
     if (msg.includes('invite') || msg.includes('revoked') || msg.includes('not found') || msg.includes('invalid') || msg.includes('not-authorized')) {
@@ -1030,18 +1138,73 @@ async function checkInviteCode(inviteCode) {
 }
 
 async function getLiveGroupIds() {
-  if (!sock || !connectionStatus.ready) return null;
+  if (!connectionStatus.ready) return null;
   try {
-    var allGroups = await sock.groupFetchAllParticipating();
-    return Object.keys(allGroups);
+    var groups = await fetchAllGroups();
+    return groups.map(function(g) { return g.id || g.jid; });
   } catch (err) {
     return null;
   }
 }
 
-function getClient() {
-  return sock;
+/**
+ * Reinicia a instância (desconecta e reconecta)
+ */
+async function restart() {
+  console.log('[WHATSAPP] Reiniciando instância Evolution API...');
+  connectionStatus.connected = false;
+  connectionStatus.ready = false;
+  connectionStatus.error = null;
+  currentQR = null;
+  currentQRBase64 = null;
+  reconnectAttempts = 0;
+  connectionStatus.reconnectAttempts = 0;
+  scanInProgress = false;
+
+  try {
+    // Faz logout da instância
+    await evoApi('DELETE', '/instance/logout/' + EVOLUTION_INSTANCE_NAME);
+    console.log('[WHATSAPP] Logout realizado');
+  } catch (err) {
+    console.warn('[WHATSAPP] Aviso no logout:', err.message);
+  }
+
+  // Aguarda e reconecta
+  await new Promise(function(resolve) { setTimeout(resolve, 2000); });
+
+  try {
+    await connectInstance();
+    console.log('[WHATSAPP] Instância reiniciada. Use QR Code ou Pairing Code para conectar.');
+  } catch (err) {
+    console.error('[WHATSAPP] Erro ao reiniciar:', err.message);
+    connectionStatus.error = 'Erro ao reiniciar: ' + err.message;
+  }
 }
+
+/**
+ * Desconecta sem excluir a instância
+ */
+async function disconnect() {
+  console.log('[WHATSAPP] Desconectando...');
+  connectionStatus.connected = false;
+  connectionStatus.ready = false;
+  currentQR = null;
+  currentQRBase64 = null;
+  scanInProgress = false;
+
+  try {
+    await evoApi('DELETE', '/instance/logout/' + EVOLUTION_INSTANCE_NAME);
+  } catch (err) {
+    console.warn('[WHATSAPP] Aviso no disconnect:', err.message);
+  }
+}
+
+// Re-scan periódico
+setInterval(function() {
+  if (connectionStatus.ready) {
+    scanGroupsWithDiff();
+  }
+}, SCAN_INTERVAL);
 
 module.exports = {
   initialize: initialize,
@@ -1049,11 +1212,13 @@ module.exports = {
   getQR: getQR,
   getGroups: getGroups,
   getGroupMembers: getGroupMembers,
-  getClient: getClient,
   restart: restart,
   disconnect: disconnect,
   requestPairingCode: requestPairingCode,
   checkGroupExists: checkGroupExists,
   checkInviteCode: checkInviteCode,
-  getLiveGroupIds: getLiveGroupIds
+  getLiveGroupIds: getLiveGroupIds,
+  handleWebhook: handleWebhook,
+  sendMessage: sendMessage,
+  getInviteCode: getInviteCode
 };

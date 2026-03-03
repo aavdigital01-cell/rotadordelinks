@@ -1434,6 +1434,17 @@ app.get('/api/exchange-rate', authMiddleware, async function(req, res) {
 
 // ===== WHATSAPP ROUTES =====
 
+// Webhook da Evolution API (SEM auth - a Evolution API envia eventos aqui)
+app.post('/api/whatsapp/webhook', async function(req, res) {
+  try {
+    await whatsappMonitor.handleWebhook(req.body);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[WEBHOOK] Erro:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/whatsapp/status', authMiddleware, function(req, res) {
   res.json(whatsappMonitor.getStatus());
 });
@@ -2574,8 +2585,6 @@ app.post('/api/broadcast/send', authMiddleware, async function(req, res) {
     (async function() {
       var sent = 0;
       var failed = 0;
-      var client = whatsappMonitor.getClient();
-
       for (var i = 0; i < targetIds.length; i++) {
         var targetId = targetIds[i];
 
@@ -2602,22 +2611,10 @@ app.post('/api/broadcast/send', authMiddleware, async function(req, res) {
 
           // If mentionAll, get participants and mention them
           if (mentionAll && targetType === 'groups') {
-            try {
-              var chat = await client.getChatById(targetId);
-              if (chat && chat.participants) {
-                var mentions = [];
-                for (var p = 0; p < Math.min(chat.participants.length, 5); p++) {
-                  var contact = await client.getContactById(chat.participants[p].id._serialized);
-                  if (contact) mentions.push(contact);
-                }
-                sendOptions.mentions = mentions;
-              }
-            } catch(e) {
-              console.log('[BROADCAST] Erro ao buscar participantes:', e.message);
-            }
+            sendOptions.mentions = [true]; // Evolution API suporta mentionAll nativamente
           }
 
-          await client.sendMessage(targetId, message, sendOptions);
+          await whatsappMonitor.sendMessage(targetId, message, sendOptions);
           recordBroadcastSend();
           sent++;
 
@@ -2709,10 +2706,9 @@ app.post('/api/broadcast/invite-leads', authMiddleware, async function(req, res)
     }
 
     // Get invite link for target group
-    var client = whatsappMonitor.getClient();
     var inviteCode;
     try {
-      inviteCode = await client.getInviteCode(targetGroupId);
+      inviteCode = await whatsappMonitor.getInviteCode(targetGroupId);
     } catch(e) {
       return res.status(400).json({ error: 'Erro ao obter link do grupo: ' + e.message });
     }
@@ -2731,7 +2727,7 @@ app.post('/api/broadcast/invite-leads', authMiddleware, async function(req, res)
           }
 
           var fullMessage = message ? message + '\n\n' + inviteLink : inviteLink;
-          await client.sendMessage(lead.phone + '@c.us', fullMessage);
+          await whatsappMonitor.sendMessage(lead.phone, fullMessage);
           sent++;
 
           // Mark as invited
