@@ -404,15 +404,21 @@ function initialize(pgPool) {
   reconnectAttempts = 0;
   pairingCodeRequested = false;
 
-  // Garante que a coluna member_snapshot existe
-  pool.query('ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS member_snapshot JSONB').catch(function() {});
-  // Garante que a coluna source existe em member_events
-  pool.query('ALTER TABLE member_events ADD COLUMN IF NOT EXISTS source VARCHAR(20) DEFAULT \'realtime\'').catch(function() {});
-  // Garante que a coluna invite_code existe em whatsapp_groups
-  pool.query('ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS invite_code VARCHAR(255)').catch(function() {});
-
-  console.log('[WHATSAPP] Inicializando cliente Baileys...');
-  initializeSocket();
+  // Garante que as colunas necessárias existem ANTES de iniciar o socket
+  Promise.all([
+    pool.query('ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS member_snapshot JSONB'),
+    pool.query('ALTER TABLE member_events ADD COLUMN IF NOT EXISTS source VARCHAR(20) DEFAULT \'realtime\''),
+    pool.query('ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS invite_code VARCHAR(255)')
+  ]).then(function() {
+    console.log('[WHATSAPP] Colunas do banco verificadas com sucesso');
+    console.log('[WHATSAPP] Inicializando cliente Baileys...');
+    initializeSocket();
+  }).catch(function(err) {
+    console.error('[WHATSAPP] Erro ao preparar colunas do banco:', err.message);
+    // Inicializa mesmo assim para não bloquear completamente
+    console.log('[WHATSAPP] Inicializando cliente Baileys...');
+    initializeSocket();
+  });
 }
 
 /**

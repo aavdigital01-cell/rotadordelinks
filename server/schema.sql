@@ -65,6 +65,9 @@ CREATE TABLE IF NOT EXISTS whatsapp_groups (
     id VARCHAR(255) PRIMARY KEY,
     group_name VARCHAR(255),
     current_members INTEGER DEFAULT 0,
+    max_members INTEGER DEFAULT 1024,
+    invite_code VARCHAR(255),
+    member_snapshot JSONB,
     last_scanned TIMESTAMP DEFAULT NOW()
 );
 
