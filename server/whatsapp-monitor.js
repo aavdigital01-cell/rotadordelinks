@@ -100,6 +100,10 @@ async function evoApi(method, path, body) {
 
   if (!response.ok) {
     var errMsg = data.message || data.error || data.raw || ('HTTP ' + response.status);
+    // Evolution API v2 wraps detailed errors in response.message array
+    if (data.response && data.response.message) {
+      errMsg = Array.isArray(data.response.message) ? data.response.message.join('; ') : data.response.message;
+    }
     throw new Error(errMsg);
   }
 
@@ -271,7 +275,9 @@ async function instanceExists() {
     var data = await evoApi('GET', '/instance/fetchInstances');
     if (Array.isArray(data)) {
       return data.some(function(inst) {
-        return inst.instance && inst.instance.instanceName === EVOLUTION_INSTANCE_NAME;
+        // Evolution API v2 returns inst.name; v1 returns inst.instance.instanceName
+        var name = (inst.instance && inst.instance.instanceName) || inst.name || inst.instanceName;
+        return name === EVOLUTION_INSTANCE_NAME;
       });
     }
     return false;
@@ -317,8 +323,9 @@ async function createInstance() {
     console.log('[WHATSAPP] Instância criada com sucesso');
     return data;
   } catch (err) {
-    // Se já existe, ignora
-    if (err.message && err.message.toLowerCase().includes('already')) {
+    // Se já existe, ignora (Evolution API v2 returns "already in use" or "Forbidden")
+    var msg = (err.message || '').toLowerCase();
+    if (msg.includes('already') || msg.includes('in use') || msg.includes('forbidden')) {
       console.log('[WHATSAPP] Instância já existe, usando existente');
       return null;
     }
@@ -364,7 +371,8 @@ async function configureWebhook() {
 async function checkConnectionState() {
   try {
     var data = await evoApi('GET', '/instance/connectionState/' + EVOLUTION_INSTANCE_NAME);
-    var state = data.instance && data.instance.state || data.state || 'close';
+    // Evolution API v2 returns { instance: { state } } or { state } directly
+    var state = (data.instance && data.instance.state) || data.state || 'close';
 
     if (state === 'open') {
       if (!connectionStatus.ready) {
@@ -381,10 +389,17 @@ async function checkConnectionState() {
         try {
           var info = await evoApi('GET', '/instance/fetchInstances');
           if (Array.isArray(info)) {
-            var inst = info.find(function(i) { return i.instance && i.instance.instanceName === EVOLUTION_INSTANCE_NAME; });
-            if (inst && inst.instance && inst.instance.owner) {
-              connectionStatus.phone = inst.instance.owner.split('@')[0].split(':')[0];
-              console.log('[WHATSAPP] Número conectado: ' + connectionStatus.phone);
+            var inst = info.find(function(i) {
+              var name = (i.instance && i.instance.instanceName) || i.name || i.instanceName;
+              return name === EVOLUTION_INSTANCE_NAME;
+            });
+            if (inst) {
+              // Evolution API v2: inst.ownerJid or inst.number; v1: inst.instance.owner
+              var owner = (inst.instance && inst.instance.owner) || inst.ownerJid || inst.number;
+              if (owner) {
+                connectionStatus.phone = owner.split('@')[0].split(':')[0];
+                console.log('[WHATSAPP] Número conectado: ' + connectionStatus.phone);
+              }
             }
           }
         } catch (e) {}
