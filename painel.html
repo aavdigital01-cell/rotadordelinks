@@ -1286,12 +1286,26 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
         </button>
       </div>
 
+      <!-- Filtro de Data da Dashboard -->
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;padding:8px 12px;background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius)">
+        <i class="fas fa-calendar-alt" style="color:var(--accent)"></i>
+        <span style="font-size:12px;font-weight:600;color:var(--text-secondary)">Periodo:</span>
+        <select id="dashboardDaysFilter" onchange="onDashboardFilterChange()" style="background:var(--bg-primary);color:var(--text-primary);border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:12px">
+          <option value="1" selected>Hoje</option>
+          <option value="3">Ultimos 3 dias</option>
+          <option value="7">Ultimos 7 dias</option>
+          <option value="14">Ultimos 14 dias</option>
+          <option value="30">Ultimos 30 dias</option>
+        </select>
+        <span id="dashboardPeriodLabel" style="font-size:11px;color:var(--text-muted)"></span>
+      </div>
+
       <!-- Resumo Executivo -->
       <div class="exec-summary" id="execSummary">
         <div class="exec-summary-header">
           <div class="exec-summary-title">
             <i class="fas fa-chart-bar" style="color:var(--accent)"></i>
-            Resumo Executivo (Hoje)
+            Resumo Executivo (<span id="execPeriodLabel">Hoje</span>)
           </div>
           <span style="font-size:10px;color:var(--text-muted)" id="execTimestamp"></span>
         </div>
@@ -1352,35 +1366,43 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
         <div class="stat-card">
           <div class="stat-header">
             <div class="stat-icon green"><i class="fas fa-user-plus"></i></div>
-            <span class="stat-label">Entradas Hoje</span>
+            <span class="stat-label" id="labelJoins">Entradas Hoje</span>
           </div>
           <div class="stat-value" id="statJoinsToday">0</div>
         </div>
         <div class="stat-card">
           <div class="stat-header">
             <div class="stat-icon red"><i class="fas fa-user-minus"></i></div>
-            <span class="stat-label">Saidas Hoje</span>
+            <span class="stat-label" id="labelLeaves">Saidas Hoje</span>
           </div>
           <div class="stat-value" id="statLeavesToday">0</div>
         </div>
         <div class="stat-card">
           <div class="stat-header">
             <div class="stat-icon blue"><i class="fas fa-balance-scale"></i></div>
-            <span class="stat-label">Saldo Liquido Hoje</span>
+            <span class="stat-label" id="labelNet">Saldo Liquido Hoje</span>
           </div>
           <div class="stat-value" id="statNetToday">0</div>
         </div>
       </div>
 
-      <!-- Row 2: Taxas e Custos -->
+      <!-- Row 2: Taxas -->
       <div class="stats-grid" style="grid-template-columns:repeat(4,1fr)">
         <div class="stat-card">
           <div class="stat-header">
+            <div class="stat-icon green"><i class="fas fa-check-circle"></i></div>
+            <span class="stat-label">Taxa de Conversao</span>
+          </div>
+          <div class="stat-value" id="statTaxaConversao">0%</div>
+          <div class="stat-change" style="font-size:10px;color:var(--text-muted)">Clicks que entraram no grupo</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
             <div class="stat-icon purple"><i class="fas fa-running"></i></div>
-            <span class="stat-label">Taxa de Fuga</span>
+            <span class="stat-label">Taxa de Perda</span>
           </div>
           <div class="stat-value" id="statTaxaFuga">0%</div>
-          <div class="stat-change" style="font-size:10px;color:var(--text-muted)">Clicks que nao entraram no grupo</div>
+          <div class="stat-change" style="font-size:10px;color:var(--text-muted)">Clicks que NAO entraram no grupo</div>
         </div>
         <div class="stat-card">
           <div class="stat-header">
@@ -1388,12 +1410,24 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
             <span class="stat-label">Taxa de Saida</span>
           </div>
           <div class="stat-value" id="statTaxaSaida">0%</div>
-          <div class="stat-change" style="font-size:10px;color:var(--text-muted)">Saidas / Total membros</div>
+          <div class="stat-change" style="font-size:10px;color:var(--text-muted)">Saidas / Entradas do periodo</div>
         </div>
         <div class="stat-card">
           <div class="stat-header">
+            <div class="stat-icon blue"><i class="fas fa-shield-alt"></i></div>
+            <span class="stat-label">Taxa de Retencao</span>
+          </div>
+          <div class="stat-value" id="statTaxaRetencao">0%</div>
+          <div class="stat-change" style="font-size:10px;color:var(--text-muted)">Entradas que permaneceram</div>
+        </div>
+      </div>
+
+      <!-- Row 3: Clicks e Custos -->
+      <div class="stats-grid" style="grid-template-columns:repeat(4,1fr)">
+        <div class="stat-card">
+          <div class="stat-header">
             <div class="stat-icon blue"><i class="fas fa-mouse-pointer"></i></div>
-            <span class="stat-label">Clicks Rotador Hoje</span>
+            <span class="stat-label" id="labelClicks">Clicks Rotador</span>
           </div>
           <div class="stat-value" id="statRotadorClicks">0</div>
         </div>
@@ -1404,31 +1438,6 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
           </div>
           <div class="stat-value" id="statMetaClicks">0</div>
         </div>
-      </div>
-
-      <!-- Row 3: Custos -->
-      <div class="stats-grid" style="grid-template-columns:repeat(4,1fr)">
-        <div class="stat-card">
-          <div class="stat-header">
-            <div class="stat-icon yellow"><i class="fas fa-dollar-sign"></i></div>
-            <span class="stat-label">Custo Meta Hoje</span>
-          </div>
-          <div class="stat-value" id="statMetaSpend">R$ 0.00</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-header">
-            <div class="stat-icon purple"><i class="fas fa-chart-line"></i></div>
-            <span class="stat-label">Custo por Lead Meta</span>
-          </div>
-          <div class="stat-value" id="statCostPerLeadMeta">-</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-header">
-            <div class="stat-icon blue"><i class="fas fa-bullseye"></i></div>
-            <span class="stat-label">Custo por Lead Real</span>
-          </div>
-          <div class="stat-value" id="statCostPerLeadReal">-</div>
-        </div>
         <div class="stat-card">
           <div class="stat-header">
             <div class="stat-icon yellow"><i class="fas fa-bullhorn"></i></div>
@@ -1436,12 +1445,47 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
           </div>
           <div class="stat-value" id="statActiveCampaigns">0</div>
         </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon yellow"><i class="fas fa-dollar-sign"></i></div>
+            <span class="stat-label" id="labelMetaSpend">Custo Meta</span>
+          </div>
+          <div class="stat-value" id="statMetaSpend">R$ 0.00</div>
+        </div>
+      </div>
+
+      <!-- Row 4: Custos por Lead -->
+      <div class="stats-grid" style="grid-template-columns:repeat(3,1fr)">
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon purple"><i class="fas fa-chart-line"></i></div>
+            <span class="stat-label">Custo por Lead Meta</span>
+          </div>
+          <div class="stat-value" id="statCostPerLeadMeta">-</div>
+          <div class="stat-change" style="font-size:10px;color:var(--text-muted)">Gasto / Conversoes Meta</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon blue"><i class="fas fa-bullseye"></i></div>
+            <span class="stat-label">Custo por Lead Real</span>
+          </div>
+          <div class="stat-value" id="statCostPerLeadReal">-</div>
+          <div class="stat-change" style="font-size:10px;color:var(--text-muted)">Gasto / Membros retidos</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon green"><i class="fas fa-user-check"></i></div>
+            <span class="stat-label">Custo por Entrada</span>
+          </div>
+          <div class="stat-value" id="statCostPerEntry">-</div>
+          <div class="stat-change" style="font-size:10px;color:var(--text-muted)">Gasto / Entradas no grupo</div>
+        </div>
       </div>
 
       <!-- Funil de Conversao Resumido -->
       <div class="card" style="margin-bottom:24px">
         <div class="card-header">
-          <span class="card-title"><i class="fas fa-filter" style="margin-right:6px;color:var(--accent)"></i>Funil de Conversao (Hoje)</span>
+          <span class="card-title"><i class="fas fa-filter" style="margin-right:6px;color:var(--accent)"></i>Funil de Conversao (<span id="funnelPeriodLabel">Hoje</span>)</span>
         </div>
         <div class="card-body">
           <div style="display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;padding:10px 0">
@@ -1572,7 +1616,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
                 <th class="sortable">Tx Entrada</th>
                 <th class="sortable">Tx Retenção</th>
                 <th class="sortable">Tx Saída</th>
-                <th class="sortable">Tx Fuga</th>
+                <th class="sortable">Tx Perda</th>
                 <th>Status</th>
                 <th>Ações</th>
               </tr>
@@ -1646,7 +1690,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
                 <th>Vagas</th>
                 <th>Clicks</th>
                 <th>Membros Reais</th>
-                <th>Taxa Fuga</th>
+                <th>Taxa Perda</th>
                 <th>Peso</th>
                 <th>Saúde</th>
                 <th>Status</th>
@@ -2187,10 +2231,10 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
         <div class="stat-card">
           <div class="stat-header">
             <div class="stat-icon purple"><i class="fas fa-running"></i></div>
-            <span class="stat-label">Taxa de Fuga (30d)</span>
+            <span class="stat-label">Taxa de Perda (30d)</span>
           </div>
           <div class="stat-value" id="analyticsFuga">-</div>
-          <div style="font-size:10px;color:var(--text-muted);margin-top:2px">Clicks que nao entraram</div>
+          <div style="font-size:10px;color:var(--text-muted);margin-top:2px">Clicks que NAO entraram</div>
         </div>
         <div class="stat-card">
           <div class="stat-header">
@@ -3738,7 +3782,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
       if (value >= 40) return 'var(--warning)';
       return 'var(--danger)';
     }
-    if (type === 'saida' || type === 'fuga') {
+    if (type === 'saida' || type === 'fuga' || type === 'perda') {
       if (value <= 20) return 'var(--accent)';
       if (value <= 50) return 'var(--warning)';
       return 'var(--danger)';
@@ -3975,12 +4019,16 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
 
       // Real members from whatsapp group
       var realMembers = membersForVagas != null ? membersForVagas : '-';
-      var fugaRate = '-';
+      // Taxa de perda: compara clicks com membros atuais do grupo
+      // Nota: esta é uma estimativa pois membros podem sair/entrar por outras fontes
+      var perdaRate = '-';
       if (membersForVagas != null) {
         var clicks = l.currentClicks || 0;
-        if (clicks > 0) {
-          var fuga = Math.round(((clicks - membersForVagas) / clicks) * 100);
-          fugaRate = Math.max(0, fuga) + '%';
+        if (clicks > 0 && clicks >= membersForVagas) {
+          var perda = Math.round(((clicks - membersForVagas) / clicks) * 100);
+          perdaRate = Math.max(0, perda) + '%';
+        } else if (clicks > 0) {
+          perdaRate = '0%';
         }
       }
 
@@ -3999,7 +4047,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
         '</td>' +
         '<td>' + (l.currentClicks || 0).toLocaleString() + '</td>' +
         '<td style="font-weight:600;color:' + (realMembers !== '-' ? 'var(--accent)' : 'var(--text-muted)') + '">' + realMembers + '</td>' +
-        '<td style="font-size:12px;color:var(--text-muted)">' + fugaRate + '</td>' +
+        '<td style="font-size:12px;color:var(--text-muted)">' + perdaRate + '</td>' +
         '<td>' + (l.weight || 1) + '</td>' +
         '<td>' + healthBadge + '</td>' +
         '<td>' + statusBadge + '</td>' +
@@ -4278,6 +4326,60 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
   };
 
   // ===== DASHBOARD =====
+  function getDashboardDays() {
+    var sel = document.getElementById('dashboardDaysFilter');
+    return sel ? parseInt(sel.value) || 1 : 1;
+  }
+
+  function getDashboardPeriodText(days) {
+    if (days === 1) return 'Hoje';
+    return 'Ultimos ' + days + ' dias';
+  }
+
+  function updatePeriodLabels(days) {
+    var text = getDashboardPeriodText(days);
+    var periodLabel = document.getElementById('dashboardPeriodLabel');
+    if (periodLabel) periodLabel.textContent = '';
+
+    // Update dynamic labels
+    var labelJoins = document.getElementById('labelJoins');
+    var labelLeaves = document.getElementById('labelLeaves');
+    var labelNet = document.getElementById('labelNet');
+    var labelClicks = document.getElementById('labelClicks');
+    var labelMetaSpend = document.getElementById('labelMetaSpend');
+    var funnelLabel = document.getElementById('funnelPeriodLabel');
+    var execLabel = document.getElementById('execPeriodLabel');
+
+    if (days === 1) {
+      if (labelJoins) labelJoins.textContent = 'Entradas Hoje';
+      if (labelLeaves) labelLeaves.textContent = 'Saidas Hoje';
+      if (labelNet) labelNet.textContent = 'Saldo Liquido Hoje';
+      if (labelClicks) labelClicks.textContent = 'Clicks Rotador Hoje';
+      if (labelMetaSpend) labelMetaSpend.textContent = 'Custo Meta Hoje';
+    } else {
+      if (labelJoins) labelJoins.textContent = 'Entradas (' + days + 'd)';
+      if (labelLeaves) labelLeaves.textContent = 'Saidas (' + days + 'd)';
+      if (labelNet) labelNet.textContent = 'Saldo Liquido (' + days + 'd)';
+      if (labelClicks) labelClicks.textContent = 'Clicks Rotador (' + days + 'd)';
+      if (labelMetaSpend) labelMetaSpend.textContent = 'Custo Meta (' + days + 'd)';
+    }
+    if (funnelLabel) funnelLabel.textContent = text;
+    if (execLabel) execLabel.textContent = text;
+  }
+
+  window.onDashboardFilterChange = async function() {
+    var timeEl = document.getElementById('lastUpdateTime');
+    if (timeEl) timeEl.textContent = 'Atualizando...';
+    try {
+      await updateDashboardStats();
+      await loadExecSummary();
+      if (timeEl) timeEl.textContent = 'Atualizado ' + new Date().toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit',timeZone:'America/Sao_Paulo'});
+    } catch(e) {
+      if (timeEl) timeEl.textContent = 'Erro ao atualizar';
+      console.error('Filter change error:', e);
+    }
+  };
+
   async function loadDashboard() {
     try {
       await updateDashboardStats();
@@ -4292,14 +4394,17 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
   }
 
   async function updateDashboardStats() {
+    var days = getDashboardDays();
+    updatePeriodLabels(days);
+
     // Active campaigns count
     var activeCampaigns = campaigns.filter(function(c) { return c.isActive !== false; }).length;
     document.getElementById('statActiveCampaigns').textContent = activeCampaigns;
 
     // Run ALL data fetches in PARALLEL for speed
     var totalMembers = 0;
-    var joinsToday = 0, leavesToday = 0;
-    var clicksToday = 0;
+    var totalJoins = 0, totalLeaves = 0;
+    var totalClicks = 0;
     var evData = null;
 
     var results = await Promise.allSettled([
@@ -4307,10 +4412,10 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
       fetchExchangeRate(),
       // 1) Members via server API
       serverFetch('/api/whatsapp/groups'),
-      // 2) Member events
-      serverFetch('/api/member-events/today'),
-      // 3) Clicks today
-      serverFetch('/api/clicks/today'),
+      // 2) Member events (com filtro de data)
+      serverFetch('/api/member-events/today?days=' + days),
+      // 3) Clicks (com filtro de data)
+      serverFetch('/api/clicks/today?days=' + days),
       // 4) Meta campaigns
       serverFetch('/api/meta-campaigns')
     ]);
@@ -4327,17 +4432,17 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     // Process 2) Member events
     if (results[2].status === 'fulfilled' && results[2].value) {
       evData = results[2].value;
-      joinsToday = evData.joins || 0;
-      leavesToday = evData.leaves || 0;
+      totalJoins = evData.joins || 0;
+      totalLeaves = evData.leaves || 0;
 
-      document.getElementById('statJoinsToday').textContent = joinsToday;
-      document.getElementById('statLeavesToday').textContent = leavesToday;
+      document.getElementById('statJoinsToday').textContent = totalJoins.toLocaleString();
+      document.getElementById('statLeavesToday').textContent = totalLeaves.toLocaleString();
 
-      var net = joinsToday - leavesToday;
+      var net = totalJoins - totalLeaves;
       var netEl = document.getElementById('statNetToday');
       if (netEl) { netEl.textContent = (net >= 0 ? '+' : '') + net; netEl.style.color = net >= 0 ? 'var(--accent)' : 'var(--danger)'; }
 
-      // Dashboard events table
+      // Dashboard events table (sempre mostra os mais recentes)
       var eventsHtml = '';
       var evList = (evData.events || []).slice(0, 20);
       evList.forEach(function(d) {
@@ -4346,65 +4451,92 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
         eventsHtml += '<tr><td>' + time + '</td><td style="max-width:150px;overflow:hidden;text-overflow:ellipsis">' + escHtml(groupName) + '</td><td>' + (d.action === 'join' ? '<span style="color:var(--accent)"><i class="fas fa-arrow-up"></i> Entrou</span>' : '<span style="color:var(--danger)"><i class="fas fa-arrow-down"></i> Saiu</span>') + '</td><td>***' + escHtml(d.phonePartial || '') + '</td></tr>';
       });
       var evTable = document.getElementById('dashMemberEvents');
-      if (evTable) evTable.innerHTML = eventsHtml || '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);padding:20px">Nenhum evento hoje</td></tr>';
+      if (evTable) evTable.innerHTML = eventsHtml || '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);padding:20px">Nenhum evento no periodo</td></tr>';
     }
 
     // Process 3) Clicks
     if (results[3].status === 'fulfilled' && results[3].value) {
-      clicksToday = results[3].value.total || 0;
-      document.getElementById('statRotadorClicks').textContent = clicksToday.toLocaleString();
+      totalClicks = results[3].value.total || 0;
+      document.getElementById('statRotadorClicks').textContent = totalClicks.toLocaleString();
     }
 
-    // Calculate taxas
-    var taxaFuga = clicksToday > 0 ? Math.round(((clicksToday - joinsToday) / clicksToday) * 100) : 0;
-    taxaFuga = Math.max(0, taxaFuga);
+    // ===== CALCULO DAS TAXAS (corrigido) =====
+
+    // Taxa de Conversão: % de clicks que resultaram em entradas no grupo
+    var taxaConversao = totalClicks > 0 ? parseFloat(((totalJoins / totalClicks) * 100).toFixed(1)) : 0;
+    var convEl = document.getElementById('statTaxaConversao');
+    if (convEl) {
+      convEl.textContent = taxaConversao + '%';
+      convEl.style.color = taxaConversao >= 50 ? 'var(--accent)' : taxaConversao >= 25 ? 'var(--warning)' : 'var(--danger)';
+    }
+
+    // Taxa de Perda: % de clicks que NÃO resultaram em entradas (inverso da conversão)
+    var taxaPerda = totalClicks > 0 ? parseFloat((((totalClicks - totalJoins) / totalClicks) * 100).toFixed(1)) : 0;
+    taxaPerda = Math.max(0, taxaPerda);
     var fugaEl = document.getElementById('statTaxaFuga');
-    if (fugaEl) { fugaEl.textContent = taxaFuga + '%'; fugaEl.style.color = taxaFuga > 50 ? 'var(--danger)' : taxaFuga > 30 ? 'var(--warning)' : 'var(--accent)'; }
+    if (fugaEl) {
+      fugaEl.textContent = taxaPerda + '%';
+      fugaEl.style.color = taxaPerda > 50 ? 'var(--danger)' : taxaPerda > 30 ? 'var(--warning)' : 'var(--accent)';
+    }
 
-    // Taxa de saída: proporção de saídas vs entradas do dia (não vs total de membros)
-    var taxaSaida = joinsToday > 0 ? ((leavesToday / joinsToday) * 100).toFixed(1) : '0';
+    // Taxa de Saída: % dos que entraram e depois saíram (saídas / entradas do período)
+    var taxaSaida = totalJoins > 0 ? parseFloat(((totalLeaves / totalJoins) * 100).toFixed(1)) : 0;
     var saidaEl = document.getElementById('statTaxaSaida');
-    if (saidaEl) { saidaEl.textContent = taxaSaida + '%'; saidaEl.style.color = parseFloat(taxaSaida) > 60 ? 'var(--danger)' : parseFloat(taxaSaida) > 30 ? 'var(--warning)' : 'var(--accent)'; }
+    if (saidaEl) {
+      saidaEl.textContent = taxaSaida + '%';
+      saidaEl.style.color = taxaSaida > 60 ? 'var(--danger)' : taxaSaida > 30 ? 'var(--warning)' : 'var(--accent)';
+    }
 
-    // Funil de conversão
+    // Taxa de Retenção: % dos que entraram e permaneceram
+    var retained = Math.max(0, totalJoins - totalLeaves);
+    var taxaRetencao = totalJoins > 0 ? parseFloat(((retained / totalJoins) * 100).toFixed(1)) : 100;
+    var retEl = document.getElementById('statTaxaRetencao');
+    if (retEl) {
+      retEl.textContent = taxaRetencao + '%';
+      retEl.style.color = taxaRetencao >= 70 ? 'var(--accent)' : taxaRetencao >= 40 ? 'var(--warning)' : 'var(--danger)';
+    }
+
+    // ===== FUNIL DE CONVERSÃO =====
     var funnelClicks = document.getElementById('dashFunnelClicks');
-    if (funnelClicks) funnelClicks.textContent = clicksToday.toLocaleString();
+    if (funnelClicks) funnelClicks.textContent = totalClicks.toLocaleString();
     var funnelJoins = document.getElementById('dashFunnelJoins');
-    if (funnelJoins) funnelJoins.textContent = joinsToday.toLocaleString();
-    var retained = Math.max(0, joinsToday - leavesToday);
+    if (funnelJoins) funnelJoins.textContent = totalJoins.toLocaleString();
     var funnelRetained = document.getElementById('dashFunnelRetained');
     if (funnelRetained) funnelRetained.textContent = retained.toLocaleString();
     var funnelLeaves = document.getElementById('dashFunnelLeaves');
-    if (funnelLeaves) funnelLeaves.textContent = leavesToday.toLocaleString();
+    if (funnelLeaves) funnelLeaves.textContent = totalLeaves.toLocaleString();
 
-    var convRate = clicksToday > 0 ? Math.round((joinsToday / clicksToday) * 100) : 0;
     var rate1 = document.getElementById('dashFunnelRate1');
-    if (rate1) rate1.textContent = convRate + '% conv.';
-    var retRate = joinsToday > 0 ? Math.round((retained / joinsToday) * 100) : 0;
+    if (rate1) rate1.textContent = taxaConversao + '% conv.';
     var rate2 = document.getElementById('dashFunnelRate2');
-    if (rate2) rate2.textContent = retRate + '% ret.';
-    var exitRate = joinsToday > 0 ? Math.round((leavesToday / joinsToday) * 100) : 0;
+    if (rate2) rate2.textContent = taxaRetencao + '% ret.';
     var rate3 = document.getElementById('dashFunnelRate3');
-    if (rate3) rate3.textContent = exitRate + '% saiu';
+    if (rate3) rate3.textContent = taxaSaida + '% saiu';
 
     // Process 4) Meta Ads (converte USD → BRL)
     if (results[4].status === 'fulfilled' && results[4].value) {
-      var totalSpend = 0, totalClicks = 0, totalConversions = 0;
+      var totalSpend = 0, metaClicks = 0, totalConversions = 0;
       results[4].value.forEach(function(d) {
         totalSpend += (d.spend || 0);
-        totalClicks += (d.clicks || 0);
+        metaClicks += (d.clicks || 0);
         totalConversions += (d.conversions || 0);
       });
       var totalSpendBRL = totalSpend * usdToBrl;
-      document.getElementById('statMetaClicks').textContent = totalClicks.toLocaleString();
+      document.getElementById('statMetaClicks').textContent = metaClicks.toLocaleString();
       document.getElementById('statMetaSpend').textContent = 'R$ ' + totalSpendBRL.toFixed(2);
 
+      // CPL Meta: gasto / conversões meta
       var costPerLeadMeta = totalConversions > 0 ? (totalSpendBRL / totalConversions) : 0;
       document.getElementById('statCostPerLeadMeta').textContent = costPerLeadMeta > 0 ? 'R$ ' + costPerLeadMeta.toFixed(2) : '-';
 
-      var realLeads = joinsToday - leavesToday;
-      var costPerRealLead = realLeads > 0 ? (totalSpendBRL / realLeads) : 0;
+      // CPL Real: gasto / membros retidos (que entraram e ficaram)
+      var costPerRealLead = retained > 0 ? (totalSpendBRL / retained) : 0;
       document.getElementById('statCostPerLeadReal').textContent = costPerRealLead > 0 ? 'R$ ' + costPerRealLead.toFixed(2) : '-';
+
+      // Custo por Entrada: gasto / total de entradas
+      var costPerEntry = totalJoins > 0 ? (totalSpendBRL / totalJoins) : 0;
+      var costPerEntryEl = document.getElementById('statCostPerEntry');
+      if (costPerEntryEl) costPerEntryEl.textContent = costPerEntry > 0 ? 'R$ ' + costPerEntry.toFixed(2) : '-';
     }
   }
 
@@ -4558,7 +4690,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
       evaEl.textContent = evasionRate + '%';
       evaEl.style.color = evasionRate <= 30 ? 'var(--accent)' : evasionRate <= 50 ? 'var(--warning)' : 'var(--danger)';
 
-      // Taxa de fuga (clicks - joins / clicks)
+      // Taxa de perda (clicks que nao entraram: clicks - joins / clicks)
       var totalClicksMonth = clicksMonth;
       var fugaRate = totalClicksMonth > 0 ? Math.round(((totalClicksMonth - totalJoins) / totalClicksMonth) * 100) : 0;
       var fugaEl = document.getElementById('analyticsFuga');
@@ -6214,7 +6346,8 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
   // ===== EXECUTIVE SUMMARY =====
   async function loadExecSummary() {
     try {
-      var data = await serverFetch('/api/analytics/summary?days=1');
+      var days = getDashboardDays();
+      var data = await serverFetch('/api/analytics/summary?days=' + days);
       if (!data) return;
 
       var spendBRL = data.metaSpendUSD * usdToBrl;
