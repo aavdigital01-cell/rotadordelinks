@@ -1,5 +1,5 @@
 /**
- * WhatsApp Group Monitor v2.0
+ * WhatsApp Group Monitor v2.1
  * Monitora entradas/saídas de membros nos grupos com precisão profissional
  * Usa @whiskeysockets/baileys + PostgreSQL
  *
@@ -13,6 +13,14 @@
  * - getGroups() retorna formato consistente em todos os caminhos
  * - Throttle no scan para evitar rate limit do WhatsApp
  * - Tracking de invite code por grupo
+ *
+ * Correções v2.1 (taxa de entrada):
+ * - Scan reduzido para 2 minutos (era 3 min) para capturar mais entradas
+ * - FIX: Snapshot não é mais zerado quando API retorna lista vazia (erro transitório)
+ * - FIX: Dedup só marca evento como "visto" DEPOIS do DB confirmar o save
+ * - FIX: saveSnapshotToDB agora loga erros reais (não engole tudo silenciosamente)
+ * - FIX: saveSnapshotToDB com await no scan para garantir persistência
+ * - FIX: Proteção contra diffs absurdos (>50% mudança) com verificação via groupMetadata
  */
 
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, makeCacheableSignalKeyStore } = require('@whiskeysockets/baileys');
@@ -52,8 +60,8 @@ var eventRetryQueue = [];
 var RETRY_INTERVAL = 10000; // 10 segundos
 var MAX_RETRY_ATTEMPTS = 5;
 
-// Intervalo de scan periódico (3 minutos - mais agressivo que os 10 min anteriores)
-var SCAN_INTERVAL = 3 * 60 * 1000;
+// Intervalo de scan periódico (2 minutos - mais frequente para não perder entradas)
+var SCAN_INTERVAL = 2 * 60 * 1000;
 
 // Janela de deduplicação para evitar eventos duplicados (realtime + diff)
 var recentEvents = {};
@@ -71,6 +79,7 @@ function hashPhone(phone) {
 
 /**
  * Verifica se um evento é duplicado (mesmo telefone+grupo+ação dentro da janela)
+ * Retorna true se é duplicado e deve ser ignorado
  */
 function isDuplicateEvent(groupId, phone, action) {
   var key = groupId + ':' + phone + ':' + action;
@@ -87,8 +96,16 @@ function isDuplicateEvent(groupId, phone, action) {
   if (recentEvents[key]) {
     return true;
   }
-  recentEvents[key] = now;
+  // NÃO marca como visto aqui - será marcado DEPOIS do save confirmar
   return false;
+}
+
+/**
+ * Marca um evento como registrado na janela de dedup (chamar DEPOIS do DB save)
+ */
+function markEventAsRecorded(groupId, phone, action) {
+  var key = groupId + ':' + phone + ':' + action;
+  recentEvents[key] = Date.now();
 }
 
 /**
@@ -169,6 +186,9 @@ async function recordMemberEvent(groupId, groupName, memberPhone, action, source
     [groupId, groupName, hashPhone(memberPhone), memberPhone.slice(-4), action, source],
     source + ':' + action + ':' + memberPhone.slice(-4) + '@' + groupName
   );
+
+  // Marca como registrado DEPOIS do save (se falhou, vai para retry queue mas dedup não bloqueia re-tentativa)
+  markEventAsRecorded(groupId, memberPhone, action);
 
   if (action === 'join') {
     // Alerta de novo membro
@@ -377,7 +397,11 @@ async function saveSnapshotToDB(groupId, members) {
       [JSON.stringify(members), groupId]
     );
   } catch (err) {
-    // Ignora se coluna não existe
+    if (err.message && err.message.includes('member_snapshot')) {
+      // Coluna não existe ainda - ignora silenciosamente
+    } else {
+      console.warn('[WHATSAPP] Erro ao salvar snapshot do grupo ' + groupId + ': ' + err.message);
+    }
   }
 }
 
@@ -573,32 +597,60 @@ async function scanGroupsWithDiff() {
           inviteCode = group.inviteCode;
         }
 
-        // Detecta diferenças com snapshot anterior usando Set para performance
-        var previousMembers = lastKnownMembers[groupId];
-        if (previousMembers && previousMembers.length > 0 && currentParticipants.length > 0) {
-          var prevSet = new Set(previousMembers);
-          var currSet = new Set(currentParticipants);
+        // Proteção: se API retornou lista vazia, é provável erro transitório
+        // NÃO atualizar snapshot para não perder a referência anterior
+        if (currentParticipants.length === 0 && lastKnownMembers[groupId] && lastKnownMembers[groupId].length > 0) {
+          console.warn('[WHATSAPP] [SCAN] ' + groupName + ': API retornou 0 participantes (provável erro). Mantendo snapshot anterior (' + lastKnownMembers[groupId].length + ' membros).');
+          // Mantém o snapshot anterior, não atualiza
+        } else {
+          // Detecta diferenças com snapshot anterior usando Set para performance
+          var previousMembers = lastKnownMembers[groupId];
+          if (previousMembers && previousMembers.length > 0 && currentParticipants.length > 0) {
+            var prevSet = new Set(previousMembers);
+            var currSet = new Set(currentParticipants);
 
-          var newMembers = currentParticipants.filter(function(m) { return !prevSet.has(m); });
-          var leftMembers = previousMembers.filter(function(m) { return !currSet.has(m); });
+            var newMembers = currentParticipants.filter(function(m) { return !prevSet.has(m); });
+            var leftMembers = previousMembers.filter(function(m) { return !currSet.has(m); });
 
-          if (newMembers.length > 0 || leftMembers.length > 0) {
-            console.log('[WHATSAPP] [DIFF] ' + groupName + ': +' + newMembers.length + ' -' + leftMembers.length);
-            totalNewJoins += newMembers.length;
-            totalNewLeaves += leftMembers.length;
-
-            for (var j = 0; j < newMembers.length; j++) {
-              await recordMemberEvent(groupId, groupName, newMembers[j], 'join', 'diff');
+            // Proteção contra diffs absurdos (mais de 50% de mudança = provável erro de API)
+            var totalPrev = previousMembers.length;
+            var changeRatio = totalPrev > 0 ? (newMembers.length + leftMembers.length) / totalPrev : 0;
+            if (changeRatio > 0.5 && totalPrev > 10) {
+              console.warn('[WHATSAPP] [DIFF] ' + groupName + ': Mudança suspeita detectada (' + Math.round(changeRatio * 100) + '% dos membros). Verificando com groupMetadata...');
+              // Re-busca dados frescos do grupo individual para confirmar
+              try {
+                var freshMeta = await sock.groupMetadata(groupId);
+                if (freshMeta && freshMeta.participants) {
+                  currentParticipants = freshMeta.participants.map(function(p) { return p.id.split('@')[0]; });
+                  memberCount = currentParticipants.length;
+                  // Recalcula diff com dados frescos
+                  var freshCurrSet = new Set(currentParticipants);
+                  newMembers = currentParticipants.filter(function(m) { return !prevSet.has(m); });
+                  leftMembers = previousMembers.filter(function(m) { return !freshCurrSet.has(m); });
+                }
+              } catch (verifyErr) {
+                console.warn('[WHATSAPP] [DIFF] Falha ao verificar grupo ' + groupName + ': ' + verifyErr.message + '. Usando dados do batch.');
+              }
             }
 
-            for (var l = 0; l < leftMembers.length; l++) {
-              await recordMemberEvent(groupId, groupName, leftMembers[l], 'leave', 'diff');
+            if (newMembers.length > 0 || leftMembers.length > 0) {
+              console.log('[WHATSAPP] [DIFF] ' + groupName + ': +' + newMembers.length + ' -' + leftMembers.length);
+              totalNewJoins += newMembers.length;
+              totalNewLeaves += leftMembers.length;
+
+              for (var j = 0; j < newMembers.length; j++) {
+                await recordMemberEvent(groupId, groupName, newMembers[j], 'join', 'diff');
+              }
+
+              for (var l = 0; l < leftMembers.length; l++) {
+                await recordMemberEvent(groupId, groupName, leftMembers[l], 'leave', 'diff');
+              }
             }
           }
-        }
 
-        // Atualiza snapshot em memória
-        lastKnownMembers[groupId] = currentParticipants;
+          // Atualiza snapshot em memória (apenas se temos dados válidos)
+          lastKnownMembers[groupId] = currentParticipants;
+        }
 
         // Upsert no PostgreSQL com max_members e invite_code
         await queryWithRetry(
@@ -607,8 +659,8 @@ async function scanGroupsWithDiff() {
           [groupId, groupName, memberCount, maxMembers, inviteCode]
         );
 
-        // Persiste snapshot no DB (a cada scan)
-        saveSnapshotToDB(groupId, currentParticipants);
+        // Persiste snapshot no DB (a cada scan) - COM await para garantir persistência
+        await saveSnapshotToDB(groupId, currentParticipants);
 
         // Cache do nome com TTL
         groupNameCache[groupId] = { name: groupName, timestamp: Date.now() };
