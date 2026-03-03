@@ -161,6 +161,21 @@ function validateDays(input, defaultVal) {
   return d;
 }
 
+// Build date filter SQL from query params (supports days or startDate/endDate)
+function buildDateFilter(query, defaultDays) {
+  defaultDays = defaultDays || 1;
+  if (query.startDate) {
+    var start = String(query.startDate);
+    var end = String(query.endDate || start);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(start) && /^\d{4}-\d{2}-\d{2}$/.test(end)) {
+      return "timestamp >= '" + start + "'::date AND timestamp < ('" + end + "'::date + INTERVAL '1 day')";
+    }
+  }
+  var days = validateDays(query.days, defaultDays);
+  if (days === 1) return "timestamp >= CURRENT_DATE";
+  return "timestamp >= NOW() - (" + days + " * INTERVAL '1 day')";
+}
+
 // ===== CAMPAIGNS =====
 
 app.get('/api/campaigns', authMiddleware, async function(req, res) {
@@ -472,18 +487,10 @@ app.delete('/api/links/:id', authMiddleware, async function(req, res) {
 
 app.get('/api/clicks/today', authMiddleware, async function(req, res) {
   try {
-    var days = validateDays(req.query.days, 1);
-    var result;
-    if (days === 1) {
-      result = await pool.query(
-        "SELECT * FROM clicks WHERE timestamp >= CURRENT_DATE ORDER BY timestamp DESC"
-      );
-    } else {
-      result = await pool.query(
-        "SELECT * FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') ORDER BY timestamp DESC",
-        [days]
-      );
-    }
+    var dateFilter = buildDateFilter(req.query, 1);
+    var result = await pool.query(
+      "SELECT * FROM clicks WHERE " + dateFilter + " ORDER BY timestamp DESC"
+    );
     var hourly = new Array(24).fill(0);
     var devices = { Mobile: 0, Desktop: 0, Tablet: 0 };
     result.rows.forEach(function(r) {
@@ -883,18 +890,10 @@ app.post('/api/clicks', async function(req, res) {
 
 app.get('/api/member-events/today', authMiddleware, async function(req, res) {
   try {
-    var days = validateDays(req.query.days, 1);
-    var result;
-    if (days === 1) {
-      result = await pool.query(
-        "SELECT * FROM member_events WHERE timestamp >= CURRENT_DATE ORDER BY timestamp DESC"
-      );
-    } else {
-      result = await pool.query(
-        "SELECT * FROM member_events WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') ORDER BY timestamp DESC",
-        [days]
-      );
-    }
+    var dateFilter = buildDateFilter(req.query, 1);
+    var result = await pool.query(
+      "SELECT * FROM member_events WHERE " + dateFilter + " ORDER BY timestamp DESC"
+    );
     var joins = 0, leaves = 0;
     result.rows.forEach(function(r) {
       if (r.action === 'join') joins++;
@@ -968,10 +967,7 @@ app.get('/api/member-events/range', authMiddleware, async function(req, res) {
 
 app.get('/api/stats/dashboard', authMiddleware, async function(req, res) {
   try {
-    var days = validateDays(req.query.days, 1);
-    var dateFilter = days === 1
-      ? "timestamp >= CURRENT_DATE"
-      : "timestamp >= NOW() - (" + parseInt(days) + " * INTERVAL '1 day')";
+    var dateFilter = buildDateFilter(req.query, 1);
 
     var [groupsR, eventsR, clicksR, groupCountR] = await Promise.all([
       pool.query('SELECT COALESCE(SUM(current_members),0) as total FROM whatsapp_groups'),
@@ -1648,15 +1644,11 @@ app.delete('/api/users/:uid', authMiddleware, async function(req, res) {
 // Executive summary - all key metrics in one call
 app.get('/api/analytics/summary', authMiddleware, async function(req, res) {
   try {
-    var days = validateDays(req.query.days, 1);
+    var dateFilter = buildDateFilter(req.query, 1);
 
     var [clicksR, eventsR, groupsR, metaR, metaSpendR] = await Promise.all([
-      days === 1
-        ? pool.query("SELECT COUNT(*) as total FROM clicks WHERE timestamp >= CURRENT_DATE")
-        : pool.query("SELECT COUNT(*) as total FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day')", [days]),
-      days === 1
-        ? pool.query("SELECT action, COUNT(*) as cnt FROM member_events WHERE timestamp >= CURRENT_DATE GROUP BY action")
-        : pool.query("SELECT action, COUNT(*) as cnt FROM member_events WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') GROUP BY action", [days]),
+      pool.query("SELECT COUNT(*) as total FROM clicks WHERE " + dateFilter),
+      pool.query("SELECT action, COUNT(*) as cnt FROM member_events WHERE " + dateFilter + " GROUP BY action"),
       pool.query('SELECT COALESCE(SUM(current_members),0) as total, COUNT(*) as cnt FROM whatsapp_groups'),
       pool.query('SELECT COALESCE(SUM(clicks),0) as clicks, COALESCE(SUM(impressions),0) as impressions, COALESCE(SUM(conversions),0) as conversions FROM meta_campaigns'),
       pool.query('SELECT COALESCE(SUM(spend),0) as spend FROM meta_campaigns')
