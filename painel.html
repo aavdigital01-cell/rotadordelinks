@@ -5399,14 +5399,18 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     var cplMetaBRL = totalConversions > 0 ? totalSpendBRL / totalConversions : 0;
     document.getElementById('metaCPLMeta').textContent = cplMetaBRL > 0 ? 'R$ ' + cplMetaBRL.toFixed(2) : '-';
 
-    // Membros reais do WhatsApp para CPL Real
+    // CPL Real = gasto no período / entradas reais (joins) no período
     try {
-      var groups = await serverFetch('/api/whatsapp/groups');
-      var totalRealMembers = 0;
-      if (groups) groups.forEach(function(g) { totalRealMembers += (g.participants || g.currentMembers || 0); });
-      var cplRealBRL = totalRealMembers > 0 ? totalSpendBRL / totalRealMembers : 0;
+      var dateRange = document.getElementById('metaDateRange').value;
+      var funnelData = await serverFetch('/api/meta/funnel-data?date_range=' + dateRange);
+      var periodJoins = funnelData ? (funnelData.joins || 0) : 0;
+      var cplRealBRL = periodJoins > 0 ? totalSpendBRL / periodJoins : 0;
       document.getElementById('metaCostPerLead').textContent = cplRealBRL > 0 ? 'R$ ' + cplRealBRL.toFixed(2) : '-';
-    } catch(e) {}
+      // Guarda dados do funil para uso no updateMetaFunnelComplete
+      window._funnelDataCache = funnelData;
+    } catch(e) {
+      document.getElementById('metaCostPerLead').textContent = '-';
+    }
 
     // Cotação - sempre mostra o estado correto
     updateExchangeRateDisplay();
@@ -5436,8 +5440,8 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
       document.getElementById('metaServerOffline').style.display = 'none';
       document.getElementById('metaContent').style.display = 'block';
 
-      // Busca cotação apenas se está no modo automático
-      fetchExchangeRate();
+      // Busca cotação apenas se está no modo automático (await para garantir valor correto)
+      await fetchExchangeRate();
 
       var dateRange = currentDateRange;
 
@@ -5577,12 +5581,12 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
       html += '<tr>' +
         '<td><strong>' + escHtml(c.name) + '</strong>' + qualityBadge + '<br><span style="font-size:10px;color:var(--text-muted)">' + c.id + '</span></td>' +
         '<td data-sort="' + status + '">' + statusBadge + '</td>' +
-        '<td data-sort="' + spendBRL + '"><span title="$' + spendUSD.toFixed(2) + ' USD">R$ ' + spendBRL.toFixed(2) + '</span></td>' +
+        '<td data-sort="' + spendBRL + '"><span title="$' + spendUSD.toFixed(2) + ' USD">' + (spendBRL > 0 ? 'R$ ' + spendBRL.toFixed(2) : '-') + '</span></td>' +
         '<td data-sort="' + impressions + '">' + impressions.toLocaleString() + '</td>' +
         '<td data-sort="' + clicks + '">' + clicks.toLocaleString() + '</td>' +
-        '<td data-sort="' + cpcBRL + '"><span title="$' + cpcUSD.toFixed(2) + ' USD">R$ ' + cpcBRL.toFixed(2) + '</span></td>' +
-        '<td data-sort="' + cpmBRL + '"><span title="$' + cpmUSD.toFixed(2) + ' USD">R$ ' + cpmBRL.toFixed(2) + '</span></td>' +
-        '<td data-sort="' + ctr + '">' + ctr.toFixed(2) + '%</td>' +
+        '<td data-sort="' + cpcBRL + '"><span title="$' + cpcUSD.toFixed(2) + ' USD">' + (cpcBRL > 0 ? 'R$ ' + cpcBRL.toFixed(2) : '-') + '</span></td>' +
+        '<td data-sort="' + cpmBRL + '"><span title="$' + cpmUSD.toFixed(2) + ' USD">' + (cpmBRL > 0 ? 'R$ ' + cpmBRL.toFixed(2) : '-') + '</span></td>' +
+        '<td data-sort="' + ctr + '">' + (ctr > 0 ? ctr.toFixed(2) + '%' : '-') + '</td>' +
         '<td data-sort="' + c.conversions + '">' + (c.conversions || 0) + '</td>' +
         '<td data-sort="' + costPerResultBRL + '"><span title="$' + parseFloat(c.costPerResult || 0).toFixed(2) + ' USD">' + (costPerResultBRL > 0 ? 'R$ ' + costPerResultBRL.toFixed(2) : '-') + '</span></td>' +
         '<td style="white-space:nowrap">' +
@@ -6378,13 +6382,16 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
 
       var spendBRL = totalSpendUSD * usdToBrl;
 
-      // Rotator clicks
-      var totalRotatorClicks = links.reduce(function(sum, l) { return sum + (l.currentClicks || 0); }, 0);
+      // Usa dados do funil do período correto (já buscados em updateMetaStats ou busca agora)
+      var funnelData = window._funnelDataCache;
+      if (!funnelData) {
+        var dateRange = document.getElementById('metaDateRange').value;
+        funnelData = await serverFetch('/api/meta/funnel-data?date_range=' + dateRange);
+      }
 
-      // Member events (today)
-      var evData = await serverFetch('/api/member-events/today');
-      var joins = evData ? (evData.joins || 0) : 0;
-      var leaves = evData ? (evData.leaves || 0) : 0;
+      var totalRotatorClicks = funnelData ? (funnelData.rotatorClicks || 0) : 0;
+      var joins = funnelData ? (funnelData.joins || 0) : 0;
+      var leaves = funnelData ? (funnelData.leaves || 0) : 0;
       var retained = Math.max(0, joins - leaves);
 
       // Update funnel
@@ -6420,6 +6427,9 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
 
       var costClickBRL = totalRotatorClicks > 0 ? spendBRL / totalRotatorClicks : 0;
       document.getElementById('funnelCostClick').textContent = costClickBRL > 0 ? 'R$ ' + costClickBRL.toFixed(2) : '-';
+
+      // Limpa cache após uso
+      window._funnelDataCache = null;
     } catch(e) { console.error('Funnel update error:', e); }
   }
 

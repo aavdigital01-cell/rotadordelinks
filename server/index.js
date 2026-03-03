@@ -936,9 +936,13 @@ app.get('/api/meta-campaigns', authMiddleware, async function(req, res) {
       var spend = parseFloat(r.spend || 0);
       var clicks = parseInt(r.clicks || 0);
       var impressions = parseInt(r.impressions || 0);
-      var cpc = r.cpc ? parseFloat(r.cpc) : (clicks > 0 ? spend / clicks : 0);
-      var cpm = r.cpm ? parseFloat(r.cpm) : (impressions > 0 ? (spend / impressions) * 1000 : 0);
-      var ctr = r.ctr ? parseFloat(r.ctr) : (impressions > 0 ? (clicks / impressions) * 100 : 0);
+      // Fix: parseFloat primeiro, depois verificar > 0 (PG retorna "0.0000" como string truthy)
+      var cpcVal = parseFloat(r.cpc || 0);
+      var cpc = cpcVal > 0 ? cpcVal : (clicks > 0 ? spend / clicks : 0);
+      var cpmVal = parseFloat(r.cpm || 0);
+      var cpm = cpmVal > 0 ? cpmVal : (impressions > 0 ? (spend / impressions) * 1000 : 0);
+      var ctrVal = parseFloat(r.ctr || 0);
+      var ctr = ctrVal > 0 ? ctrVal : (impressions > 0 ? (clicks / impressions) * 100 : 0);
       return {
         id: r.id, name: r.name, status: r.status, objective: r.objective,
         dailyBudget: parseFloat(r.daily_budget || 0),  // USD
@@ -1060,10 +1064,13 @@ app.get('/api/meta/insights-batch', authMiddleware, async function(req, res) {
         var spend = parseFloat(r.spend || 0);
         var clicks = parseInt(r.clicks || 0);
         var impressions = parseInt(r.impressions || 0);
-        // Recalcula CPC e CPM para garantir consistência
-        var cpc = r.cpc ? parseFloat(r.cpc) : (clicks > 0 ? spend / clicks : 0);
-        var cpm = r.cpm ? parseFloat(r.cpm) : (impressions > 0 ? (spend / impressions) * 1000 : 0);
-        var ctr = r.ctr ? parseFloat(r.ctr) : (impressions > 0 ? (clicks / impressions) * 100 : 0);
+        // Fix: parseFloat primeiro, depois verificar > 0 (PG retorna "0.0000" como string truthy)
+        var cpcVal = parseFloat(r.cpc || 0);
+        var cpc = cpcVal > 0 ? cpcVal : (clicks > 0 ? spend / clicks : 0);
+        var cpmVal = parseFloat(r.cpm || 0);
+        var cpm = cpmVal > 0 ? cpmVal : (impressions > 0 ? (spend / impressions) * 1000 : 0);
+        var ctrVal = parseFloat(r.ctr || 0);
+        var ctr = ctrVal > 0 ? ctrVal : (impressions > 0 ? (clicks / impressions) * 100 : 0);
         return {
           id: r.id, name: r.name, status: r.status, objective: r.objective,
           dailyBudget: parseFloat(r.daily_budget || 0),   // USD
@@ -1124,6 +1131,66 @@ app.get('/api/meta/insights-batch', authMiddleware, async function(req, res) {
 
     var results = await Promise.all(promises);
     res.json({ campaigns: results, source: 'api' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Funnel data: rotator clicks + member events for a specific date range
+app.get('/api/meta/funnel-data', authMiddleware, async function(req, res) {
+  try {
+    var dateRange = req.query.date_range || 'today';
+
+    // Convert Meta date range presets to SQL conditions
+    var dateCondition;
+    switch (dateRange) {
+      case 'today':
+        dateCondition = "timestamp >= CURRENT_DATE";
+        break;
+      case 'yesterday':
+        dateCondition = "timestamp >= CURRENT_DATE - INTERVAL '1 day' AND timestamp < CURRENT_DATE";
+        break;
+      case 'last_3d':
+        dateCondition = "timestamp >= NOW() - INTERVAL '3 days'";
+        break;
+      case 'last_7d':
+        dateCondition = "timestamp >= NOW() - INTERVAL '7 days'";
+        break;
+      case 'last_14d':
+        dateCondition = "timestamp >= NOW() - INTERVAL '14 days'";
+        break;
+      case 'last_30d':
+        dateCondition = "timestamp >= NOW() - INTERVAL '30 days'";
+        break;
+      case 'this_month':
+        dateCondition = "timestamp >= DATE_TRUNC('month', CURRENT_DATE)";
+        break;
+      case 'last_month':
+        dateCondition = "timestamp >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month') AND timestamp < DATE_TRUNC('month', CURRENT_DATE)";
+        break;
+      default:
+        dateCondition = "timestamp >= CURRENT_DATE";
+    }
+
+    var [clicksR, eventsR] = await Promise.all([
+      pool.query("SELECT COUNT(*) as total FROM clicks WHERE " + dateCondition),
+      pool.query("SELECT action, COUNT(*) as cnt FROM member_events WHERE " + dateCondition + " GROUP BY action")
+    ]);
+
+    var rotatorClicks = parseInt(clicksR.rows[0].total || 0);
+    var joins = 0, leaves = 0;
+    eventsR.rows.forEach(function(r) {
+      if (r.action === 'join') joins = parseInt(r.cnt);
+      else if (r.action === 'leave') leaves = parseInt(r.cnt);
+    });
+
+    res.json({
+      dateRange: dateRange,
+      rotatorClicks: rotatorClicks,
+      joins: joins,
+      leaves: leaves,
+      retained: Math.max(0, joins - leaves)
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
