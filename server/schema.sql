@@ -129,6 +129,20 @@ CREATE TABLE IF NOT EXISTS settings (
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
+-- Lead Contacts: backup of real phone numbers for re-inviting
+CREATE TABLE IF NOT EXISTS lead_contacts (
+    id SERIAL PRIMARY KEY,
+    phone VARCHAR(50) NOT NULL,
+    whatsapp_group_id VARCHAR(255),
+    group_name VARCHAR(255),
+    joined_at TIMESTAMP DEFAULT NOW(),
+    left_at TIMESTAMP,
+    is_active BOOLEAN DEFAULT true,
+    invite_sent BOOLEAN DEFAULT false,
+    invite_sent_at TIMESTAMP,
+    UNIQUE(phone, whatsapp_group_id)
+);
+
 -- Performance indexes
 CREATE INDEX IF NOT EXISTS idx_clicks_timestamp ON clicks(timestamp);
 CREATE INDEX IF NOT EXISTS idx_clicks_link_id ON clicks(link_id);
@@ -140,3 +154,6 @@ CREATE INDEX IF NOT EXISTS idx_alerts_read ON alerts(read);
 CREATE INDEX IF NOT EXISTS idx_alerts_timestamp ON alerts(timestamp);
 CREATE INDEX IF NOT EXISTS idx_links_campaign ON links(campaign_id);
 CREATE INDEX IF NOT EXISTS idx_campaigns_slug ON campaigns(slug);
+CREATE INDEX IF NOT EXISTS idx_lead_contacts_group ON lead_contacts(whatsapp_group_id);
+CREATE INDEX IF NOT EXISTS idx_lead_contacts_phone ON lead_contacts(phone);
+CREATE INDEX IF NOT EXISTS idx_lead_contacts_active ON lead_contacts(is_active);

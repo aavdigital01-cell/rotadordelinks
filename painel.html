@@ -1428,7 +1428,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
         </div>
       </div>
 
-      <!-- Row 3: Clicks e Custos -->
+      <!-- Row 3: Contagem Real de Leads -->
       <div class="stats-grid" style="grid-template-columns:repeat(4,1fr)">
         <div class="stat-card">
           <div class="stat-header">
@@ -1436,7 +1436,35 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
             <span class="stat-label" id="labelClicks">Clicks Rotador</span>
           </div>
           <div class="stat-value" id="statRotadorClicks">0</div>
+          <div class="stat-change" style="font-size:10px;color:var(--text-muted)" id="statClicksAllTime">-</div>
         </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon green"><i class="fas fa-fingerprint"></i></div>
+            <span class="stat-label" id="labelUniqueVisitors">Visitantes Unicos</span>
+          </div>
+          <div class="stat-value" id="statUniqueVisitors">0</div>
+          <div class="stat-change" style="font-size:10px;color:var(--text-muted)">IPs distintos no periodo</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon purple"><i class="fas fa-address-book"></i></div>
+            <span class="stat-label">Leads Salvos</span>
+          </div>
+          <div class="stat-value" id="statActiveLeads">0</div>
+          <div class="stat-change" style="font-size:10px;color:var(--text-muted)" id="statTotalLeadContacts">Contatos com telefone</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon yellow"><i class="fas fa-bullhorn"></i></div>
+            <span class="stat-label">Campanhas Ativas</span>
+          </div>
+          <div class="stat-value" id="statActiveCampaigns">0</div>
+        </div>
+      </div>
+
+      <!-- Row 4: Clicks Meta e Custos -->
+      <div class="stats-grid" style="grid-template-columns:repeat(3,1fr)">
         <div class="stat-card">
           <div class="stat-header">
             <div class="stat-icon blue"><i class="fas fa-ad"></i></div>
@@ -1446,17 +1474,18 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
         </div>
         <div class="stat-card">
           <div class="stat-header">
-            <div class="stat-icon yellow"><i class="fas fa-bullhorn"></i></div>
-            <span class="stat-label">Campanhas Ativas</span>
-          </div>
-          <div class="stat-value" id="statActiveCampaigns">0</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-header">
             <div class="stat-icon yellow"><i class="fas fa-dollar-sign"></i></div>
             <span class="stat-label" id="labelMetaSpend">Custo Meta</span>
           </div>
           <div class="stat-value" id="statMetaSpend">R$ 0.00</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-header">
+            <div class="stat-icon green"><i class="fas fa-database"></i></div>
+            <span class="stat-label">Total Clicks (All-Time)</span>
+          </div>
+          <div class="stat-value" id="statClicksAllTimeValue">0</div>
+          <div class="stat-change" style="font-size:10px;color:var(--text-muted)">Todos os clicks registrados</div>
         </div>
       </div>
 
@@ -4487,7 +4516,9 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
       // 3) Clicks (com filtro de data)
       serverFetch('/api/clicks/today?' + queryStr),
       // 4) Meta campaigns
-      serverFetch('/api/meta-campaigns')
+      serverFetch('/api/meta-campaigns'),
+      // 5) Leads summary (total real de leads)
+      serverFetch('/api/stats/leads-summary?days=' + days)
     ]);
 
     // Process 1) Total members
@@ -4607,6 +4638,29 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
       var costPerEntry = totalJoins > 0 ? (totalSpendBRL / totalJoins) : 0;
       var costPerEntryEl = document.getElementById('statCostPerEntry');
       if (costPerEntryEl) costPerEntryEl.textContent = costPerEntry > 0 ? 'R$ ' + costPerEntry.toFixed(2) : '-';
+    }
+
+    // Process 5) Leads Summary
+    if (results[5] && results[5].status === 'fulfilled' && results[5].value) {
+      var ls = results[5].value;
+
+      // Visitantes Unicos (IPs distintos no periodo)
+      var uniqueEl = document.getElementById('statUniqueVisitors');
+      if (uniqueEl) uniqueEl.textContent = (ls.uniqueVisitors || 0).toLocaleString();
+
+      // Leads Salvos (contatos ativos do lead_contacts)
+      var activeLeadsEl = document.getElementById('statActiveLeads');
+      if (activeLeadsEl) activeLeadsEl.textContent = (ls.activeLeadContacts || 0).toLocaleString();
+
+      var totalLeadContactsEl = document.getElementById('statTotalLeadContacts');
+      if (totalLeadContactsEl) totalLeadContactsEl.textContent = (ls.activeLeadContacts || 0) + ' ativos de ' + (ls.totalLeadContacts || 0) + ' total';
+
+      // Clicks all-time
+      var allTimeEl = document.getElementById('statClicksAllTime');
+      if (allTimeEl) allTimeEl.textContent = (ls.clicksAllTime || 0).toLocaleString() + ' total (all-time)';
+
+      var allTimeValueEl = document.getElementById('statClicksAllTimeValue');
+      if (allTimeValueEl) allTimeValueEl.textContent = (ls.clicksAllTime || 0).toLocaleString();
     }
   }
 

@@ -258,12 +258,11 @@ app.delete('/api/campaigns/:id', authMiddleware, async function(req, res) {
 
 app.get('/api/campaigns/metrics', authMiddleware, async function(req, res) {
   try {
-    var days = validateDays(req.query.days, 1);
+    var dateFilter = buildDateFilter(req.query, 1);
 
     // 1. Get clicks per campaign in the period
     var clicksR = await pool.query(
-      "SELECT campaign_id, COUNT(*) as clicks FROM clicks WHERE campaign_id IS NOT NULL AND timestamp >= NOW() - ($1 * INTERVAL '1 day') GROUP BY campaign_id",
-      [days]
+      "SELECT campaign_id, COUNT(*) as clicks FROM clicks WHERE campaign_id IS NOT NULL AND " + dateFilter + " GROUP BY campaign_id"
     );
 
     // 2. Get links → whatsapp_group mapping
@@ -273,8 +272,7 @@ app.get('/api/campaigns/metrics', authMiddleware, async function(req, res) {
 
     // 3. Get member events (joins/leaves) per group in the period
     var eventsR = await pool.query(
-      "SELECT whatsapp_group_id, action, COUNT(*) as cnt FROM member_events WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') GROUP BY whatsapp_group_id, action",
-      [days]
+      "SELECT whatsapp_group_id, action, COUNT(*) as cnt FROM member_events WHERE " + dateFilter + " GROUP BY whatsapp_group_id, action"
     );
 
     // 4. Get current members per group
@@ -488,19 +486,30 @@ app.delete('/api/links/:id', authMiddleware, async function(req, res) {
 app.get('/api/clicks/today', authMiddleware, async function(req, res) {
   try {
     var dateFilter = buildDateFilter(req.query, 1);
-    var result = await pool.query(
-      "SELECT * FROM clicks WHERE " + dateFilter + " ORDER BY timestamp DESC"
-    );
+
+    // Use SQL aggregation instead of loading all rows into memory
+    var [countR, hourlyR, devicesR] = await Promise.all([
+      pool.query("SELECT COUNT(*) as total FROM clicks WHERE " + dateFilter),
+      pool.query("SELECT EXTRACT(HOUR FROM timestamp)::int as hour, COUNT(*) as cnt FROM clicks WHERE " + dateFilter + " GROUP BY hour ORDER BY hour"),
+      pool.query("SELECT COALESCE(device, 'Desktop') as device, COUNT(*) as cnt FROM clicks WHERE " + dateFilter + " GROUP BY device")
+    ]);
+
+    var total = parseInt(countR.rows[0].total);
     var hourly = new Array(24).fill(0);
+    hourlyR.rows.forEach(function(r) { hourly[r.hour] = parseInt(r.cnt); });
     var devices = { Mobile: 0, Desktop: 0, Tablet: 0 };
-    result.rows.forEach(function(r) {
-      var h = new Date(r.timestamp).getHours();
-      hourly[h]++;
+    devicesR.rows.forEach(function(r) {
       var dev = r.device || 'Desktop';
-      if (devices[dev] !== undefined) devices[dev]++;
-      else devices['Desktop']++;
+      if (devices[dev] !== undefined) devices[dev] = parseInt(r.cnt);
+      else devices['Desktop'] += parseInt(r.cnt);
     });
-    res.json({ total: result.rows.length, hourly: hourly, devices: devices, clicks: result.rows.map(mapClick) });
+
+    // Only return last 100 clicks for the table (not all rows)
+    var recentR = await pool.query(
+      "SELECT * FROM clicks WHERE " + dateFilter + " ORDER BY timestamp DESC LIMIT 100"
+    );
+
+    res.json({ total: total, hourly: hourly, devices: devices, clicks: recentR.rows.map(mapClick) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -816,6 +825,12 @@ app.post('/api/rotate', async function(req, res) {
     var slug = req.body.slug;
     if (!slug) return res.status(400).json({ error: 'Slug obrigatório' });
 
+    // Server-side rate limiting (same as /r/:slug)
+    var ip = req.headers['x-forwarded-for'] || req.ip;
+    if (!checkRateLimit(ip)) {
+      return res.status(429).json({ error: 'Muitas tentativas. Aguarde.' });
+    }
+
     var data = await getCampaignData(slug);
     if (!data) {
       return res.status(404).json({ error: 'Campanha não encontrada ou todos os grupos estão cheios' });
@@ -1015,6 +1030,30 @@ app.get('/api/stats/dashboard', authMiddleware, async function(req, res) {
       leavesToday: leaves,
       clicksToday: totalClicks,
       taxaFuga: Math.max(0, taxaPerda)
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ===== LEADS SUMMARY (total real de leads) =====
+app.get('/api/stats/leads-summary', authMiddleware, async function(req, res) {
+  try {
+    var dateFilter = buildDateFilter(req.query, 1);
+
+    var [totalAllTimeR, totalPeriodR, activeLeadsR, uniqueIPsR] = await Promise.all([
+      pool.query("SELECT COUNT(*) as total FROM clicks"),
+      pool.query("SELECT COUNT(*) as total FROM clicks WHERE " + dateFilter),
+      pool.query("SELECT COUNT(*) FILTER (WHERE is_active = true) as active, COUNT(*) as total FROM lead_contacts"),
+      pool.query("SELECT COUNT(DISTINCT ip) as unique_ips FROM clicks WHERE " + dateFilter + " AND ip IS NOT NULL AND ip != ''")
+    ]);
+
+    res.json({
+      clicksAllTime: parseInt(totalAllTimeR.rows[0].total),
+      clicksPeriod: parseInt(totalPeriodR.rows[0].total),
+      activeLeadContacts: parseInt(activeLeadsR.rows[0].active) || 0,
+      totalLeadContacts: parseInt(activeLeadsR.rows[0].total) || 0,
+      uniqueVisitors: parseInt(uniqueIPsR.rows[0].unique_ips) || 0
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
