@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS member_events (
     phone VARCHAR(255),
     phone_partial VARCHAR(10),
     action VARCHAR(10) CHECK (action IN ('join', 'leave')),
+    source VARCHAR(20) DEFAULT 'realtime',
     timestamp TIMESTAMP DEFAULT NOW()
 );
 
@@ -150,6 +151,7 @@ CREATE INDEX IF NOT EXISTS idx_clicks_campaign_id ON clicks(campaign_id);
 CREATE INDEX IF NOT EXISTS idx_member_events_timestamp ON member_events(timestamp);
 CREATE INDEX IF NOT EXISTS idx_member_events_group ON member_events(whatsapp_group_id);
 CREATE INDEX IF NOT EXISTS idx_member_events_action ON member_events(action);
+CREATE INDEX IF NOT EXISTS idx_member_events_source ON member_events(source);
 CREATE INDEX IF NOT EXISTS idx_alerts_read ON alerts(read);
 CREATE INDEX IF NOT EXISTS idx_alerts_timestamp ON alerts(timestamp);
 CREATE INDEX IF NOT EXISTS idx_links_campaign ON links(campaign_id);

@@ -1,43 +1,96 @@
 -- Migration: Add missing columns for full frontend support
 -- Run this on the live database after the initial schema.sql
+--
+-- IMPORTANT: If tables were created by the 'postgres' user, run this first as postgres:
+--   sudo -u postgres psql -d linkrotator_db -c "
+--     ALTER TABLE campaigns OWNER TO linkrotator;
+--     ALTER TABLE links OWNER TO linkrotator;
+--     ALTER TABLE clicks OWNER TO linkrotator;
+--     ALTER TABLE users OWNER TO linkrotator;
+--     ALTER TABLE alerts OWNER TO linkrotator;
+--     ALTER TABLE whatsapp_groups OWNER TO linkrotator;
+--     ALTER TABLE member_events OWNER TO linkrotator;
+--     ALTER TABLE meta_campaigns OWNER TO linkrotator;
+--     ALTER TABLE settings OWNER TO linkrotator;
+--     GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO linkrotator;
+--     GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO linkrotator;
+--   "
 
 -- Configura fuso horário do Brasil
 SET timezone = 'America/Sao_Paulo';
-ALTER DATABASE linkrotator_db SET timezone TO 'America/Sao_Paulo';
 
 -- Campaigns: extra fields for tracking pixels, rotation, slug
-ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS slug VARCHAR(255);
-ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS rotation_mode VARCHAR(50) DEFAULT 'random';
-ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS alert_threshold INTEGER DEFAULT 90;
-ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS fb_pixel_id VARCHAR(255) DEFAULT '';
-ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS fb_event_name VARCHAR(100) DEFAULT 'Lead';
-ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS tt_pixel_id VARCHAR(255) DEFAULT '';
-ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS tt_event_name VARCHAR(100) DEFAULT 'SubmitForm';
-ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS gtm_id VARCHAR(255) DEFAULT '';
-ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS gtm_event_name VARCHAR(100) DEFAULT 'whatsapp_click';
-ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS gads_id VARCHAR(255) DEFAULT '';
-ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS gads_conversion_label VARCHAR(255) DEFAULT '';
-ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS created_by VARCHAR(255);
+DO $$ BEGIN
+  ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS slug VARCHAR(255);
+  ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS rotation_mode VARCHAR(50) DEFAULT 'random';
+  ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS alert_threshold INTEGER DEFAULT 90;
+  ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS fb_pixel_id VARCHAR(255) DEFAULT '';
+  ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS fb_event_name VARCHAR(100) DEFAULT 'Lead';
+  ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS tt_pixel_id VARCHAR(255) DEFAULT '';
+  ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS tt_event_name VARCHAR(100) DEFAULT 'SubmitForm';
+  ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS gtm_id VARCHAR(255) DEFAULT '';
+  ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS gtm_event_name VARCHAR(100) DEFAULT 'whatsapp_click';
+  ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS gads_id VARCHAR(255) DEFAULT '';
+  ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS gads_conversion_label VARCHAR(255) DEFAULT '';
+  ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS created_by VARCHAR(255);
+EXCEPTION WHEN insufficient_privilege THEN
+  RAISE NOTICE 'Skipping campaigns ALTER - not owner. Run fix-ownership.sql as postgres first.';
+END $$;
 
 -- Links: extra fields for weight, fullness, deactivation
-ALTER TABLE links ADD COLUMN IF NOT EXISTS weight INTEGER DEFAULT 1;
-ALTER TABLE links ADD COLUMN IF NOT EXISTS is_full BOOLEAN DEFAULT false;
-ALTER TABLE links ADD COLUMN IF NOT EXISTS health_check_failures INTEGER DEFAULT 0;
-ALTER TABLE links ADD COLUMN IF NOT EXISTS deactivated_reason TEXT;
-ALTER TABLE links ADD COLUMN IF NOT EXISTS deactivated_at TIMESTAMP;
-ALTER TABLE links ADD COLUMN IF NOT EXISTS created_by VARCHAR(255);
-ALTER TABLE links ADD COLUMN IF NOT EXISTS order_num INTEGER DEFAULT 0;
+DO $$ BEGIN
+  ALTER TABLE links ADD COLUMN IF NOT EXISTS weight INTEGER DEFAULT 1;
+  ALTER TABLE links ADD COLUMN IF NOT EXISTS is_full BOOLEAN DEFAULT false;
+  ALTER TABLE links ADD COLUMN IF NOT EXISTS health_check_failures INTEGER DEFAULT 0;
+  ALTER TABLE links ADD COLUMN IF NOT EXISTS deactivated_reason TEXT;
+  ALTER TABLE links ADD COLUMN IF NOT EXISTS deactivated_at TIMESTAMP;
+  ALTER TABLE links ADD COLUMN IF NOT EXISTS created_by VARCHAR(255);
+  ALTER TABLE links ADD COLUMN IF NOT EXISTS order_num INTEGER DEFAULT 0;
+  ALTER TABLE links ADD COLUMN IF NOT EXISTS auto_pause_enabled BOOLEAN DEFAULT true;
+  ALTER TABLE links ADD COLUMN IF NOT EXISTS auto_pause_threshold INTEGER DEFAULT 90;
+  ALTER TABLE links ADD COLUMN IF NOT EXISTS auto_reactivate_below INTEGER DEFAULT 500;
+EXCEPTION WHEN insufficient_privilege THEN
+  RAISE NOTICE 'Skipping links ALTER - not owner. Run fix-ownership.sql as postgres first.';
+END $$;
 
 -- Users: last login tracking
-ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login TIMESTAMP;
+DO $$ BEGIN
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login TIMESTAMP;
+EXCEPTION WHEN insufficient_privilege THEN
+  RAISE NOTICE 'Skipping users ALTER - not owner.';
+END $$;
 
 -- Alerts: extra context fields
-ALTER TABLE alerts ADD COLUMN IF NOT EXISTS link_name VARCHAR(255);
-ALTER TABLE alerts ADD COLUMN IF NOT EXISTS campaign_name VARCHAR(255);
-ALTER TABLE alerts ADD COLUMN IF NOT EXISTS percent INTEGER;
+DO $$ BEGIN
+  ALTER TABLE alerts ADD COLUMN IF NOT EXISTS link_name VARCHAR(255);
+  ALTER TABLE alerts ADD COLUMN IF NOT EXISTS campaign_name VARCHAR(255);
+  ALTER TABLE alerts ADD COLUMN IF NOT EXISTS percent INTEGER;
+EXCEPTION WHEN insufficient_privilege THEN
+  RAISE NOTICE 'Skipping alerts ALTER - not owner.';
+END $$;
 
 -- Clicks: OS field
-ALTER TABLE clicks ADD COLUMN IF NOT EXISTS os VARCHAR(100);
+DO $$ BEGIN
+  ALTER TABLE clicks ADD COLUMN IF NOT EXISTS os VARCHAR(100);
+EXCEPTION WHEN insufficient_privilege THEN
+  RAISE NOTICE 'Skipping clicks ALTER - not owner.';
+END $$;
+
+-- WhatsApp groups: extra fields
+DO $$ BEGIN
+  ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS max_members INTEGER DEFAULT 1024;
+  ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS member_snapshot JSONB;
+  ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS invite_code VARCHAR(255);
+EXCEPTION WHEN insufficient_privilege THEN
+  RAISE NOTICE 'Skipping whatsapp_groups ALTER - not owner.';
+END $$;
+
+-- Member events: source field
+DO $$ BEGIN
+  ALTER TABLE member_events ADD COLUMN IF NOT EXISTS source VARCHAR(20) DEFAULT 'realtime';
+EXCEPTION WHEN insufficient_privilege THEN
+  RAISE NOTICE 'Skipping member_events ALTER - not owner.';
+END $$;
 
 -- Index on campaign slug for redirect lookups
 CREATE INDEX IF NOT EXISTS idx_campaigns_slug ON campaigns(slug);
@@ -138,14 +191,6 @@ CREATE TABLE IF NOT EXISTS shopee_links (
     created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Auto-pause settings on links
-ALTER TABLE links ADD COLUMN IF NOT EXISTS auto_pause_enabled BOOLEAN DEFAULT true;
-ALTER TABLE links ADD COLUMN IF NOT EXISTS auto_pause_threshold INTEGER DEFAULT 90;
-ALTER TABLE links ADD COLUMN IF NOT EXISTS auto_reactivate_below INTEGER DEFAULT 500;
-
--- WhatsApp groups: max_members field
-ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS max_members INTEGER DEFAULT 1024;
-
 -- Indexes for new tables
 CREATE INDEX IF NOT EXISTS idx_lead_contacts_group ON lead_contacts(whatsapp_group_id);
 CREATE INDEX IF NOT EXISTS idx_lead_contacts_phone ON lead_contacts(phone);
@@ -153,21 +198,12 @@ CREATE INDEX IF NOT EXISTS idx_lead_contacts_active ON lead_contacts(is_active);
 CREATE INDEX IF NOT EXISTS idx_broadcast_logs_broadcast ON broadcast_logs(broadcast_id);
 CREATE INDEX IF NOT EXISTS idx_shopee_commissions_subid ON shopee_commissions(sub_id);
 CREATE INDEX IF NOT EXISTS idx_shopee_commissions_date ON shopee_commissions(order_created_at);
-
--- ===== WhatsApp Monitor v2.0 =====
-
--- Snapshot de membros para persistir entre restarts do servidor
-ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS member_snapshot JSONB;
-
--- Invite code do grupo para correlação automática link → grupo
-ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS invite_code VARCHAR(255);
-
--- Origem do evento (realtime = capturado ao vivo, diff = detectado por scan)
-ALTER TABLE member_events ADD COLUMN IF NOT EXISTS source VARCHAR(20) DEFAULT 'realtime';
-
--- Index para filtrar eventos por origem
 CREATE INDEX IF NOT EXISTS idx_member_events_source ON member_events(source);
 
--- Grant permissions
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO linkrotator;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO linkrotator;
+-- Grant permissions (will only work if run by a superuser or table owner)
+DO $$ BEGIN
+  GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO linkrotator;
+  GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO linkrotator;
+EXCEPTION WHEN insufficient_privilege THEN
+  RAISE NOTICE 'Could not grant privileges - run as postgres superuser to fix ownership.';
+END $$;
