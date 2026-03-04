@@ -852,11 +852,25 @@ app.post('/api/rotate', async function(req, res) {
 });
 
 // Report broken link (no auth - called from redirect page)
+var brokenLinkReports = {}; // track IP+linkId to prevent abuse
+setInterval(function() { brokenLinkReports = {}; }, 30 * 60 * 1000);
+
 app.post('/api/report-broken-link', async function(req, res) {
   try {
+    var ip = req.headers['x-forwarded-for'] || req.ip;
+    if (!checkRateLimit(ip)) {
+      return res.status(429).json({ error: 'Muitas tentativas. Aguarde.' });
+    }
     var b = req.body;
     var linkId = b.linkId;
     if (!linkId) return res.status(400).json({ error: 'linkId obrigatório' });
+
+    // Only count 1 report per IP per link
+    var reportKey = ip + ':' + linkId;
+    if (brokenLinkReports[reportKey]) {
+      return res.json({ success: true, alreadyReported: true });
+    }
+    brokenLinkReports[reportKey] = true;
 
     var result = await pool.query(
       'UPDATE links SET health_check_failures = health_check_failures + 1, updated_at = NOW() WHERE id=$1 RETURNING health_check_failures, name, campaign_id',
