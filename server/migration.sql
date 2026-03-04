@@ -85,6 +85,13 @@ EXCEPTION WHEN insufficient_privilege THEN
   RAISE NOTICE 'Skipping whatsapp_groups ALTER - not owner.';
 END $$;
 
+-- Campaigns: sequential counter persistence (survives server restarts)
+DO $$ BEGIN
+  ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS sequential_counter INTEGER DEFAULT 0;
+EXCEPTION WHEN insufficient_privilege THEN
+  RAISE NOTICE 'Skipping campaigns sequential_counter ALTER - not owner.';
+END $$;
+
 -- Member events: source field
 DO $$ BEGIN
   ALTER TABLE member_events ADD COLUMN IF NOT EXISTS source VARCHAR(20) DEFAULT 'realtime';

@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
     gtm_event_name VARCHAR(100) DEFAULT 'whatsapp_click',
     gads_id VARCHAR(255) DEFAULT '',
     gads_conversion_label VARCHAR(255) DEFAULT '',
+    sequential_counter INTEGER DEFAULT 0,
     created_by VARCHAR(255),
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()

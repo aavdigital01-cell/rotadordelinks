@@ -672,7 +672,34 @@ function invalidateRotateCache(slug) {
 }
 
 // Select link based on rotation mode
+// Sequential counters: in-memory for speed, persisted to PostgreSQL for durability
 var sequentialCounters = {};
+
+// Persist sequential counter to DB in background (fire-and-forget)
+function persistSequentialCounter(slug, value) {
+  pool.query(
+    'UPDATE campaigns SET sequential_counter = $1 WHERE slug = $2',
+    [value, slug]
+  ).catch(function(err) {
+    console.error('[ROTATE] Erro ao persistir contador sequencial:', err.message);
+  });
+}
+
+// Load all sequential counters from DB into memory
+async function loadSequentialCounters() {
+  try {
+    var result = await pool.query('SELECT slug, sequential_counter FROM campaigns WHERE slug IS NOT NULL');
+    result.rows.forEach(function(row) {
+      if (row.slug) {
+        sequentialCounters[row.slug] = row.sequential_counter || 0;
+      }
+    });
+    console.log('[ROTATE] Contadores sequenciais carregados do banco:', Object.keys(sequentialCounters).length, 'campanhas');
+  } catch (err) {
+    console.error('[ROTATE] Erro ao carregar contadores sequenciais:', err.message);
+  }
+}
+
 function selectLink(links, mode, slug) {
   if (links.length === 1) return links[0];
 
@@ -695,6 +722,7 @@ function selectLink(links, mode, slug) {
   if (mode === 'sequential') {
     var idx = sequentialCounters[slug] || 0;
     sequentialCounters[slug] = idx + 1;
+    persistSequentialCounter(slug, sequentialCounters[slug]);
     return links[idx % links.length];
   }
   // random
@@ -3365,6 +3393,9 @@ app.listen(PORT, async function() {
 
   // Initialize WhatsApp Monitor with pg pool
   whatsappMonitor.initialize(pool);
+
+  // Load sequential counters from database so rotation resumes after restart
+  await loadSequentialCounters();
 
   // Load Meta credentials from database (saved via frontend settings)
   try {
