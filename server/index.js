@@ -886,6 +886,10 @@ app.post('/api/report-broken-link', async function(req, res) {
 // Record a click (called from redirect page - no auth needed)
 app.post('/api/clicks', async function(req, res) {
   try {
+    var ip = req.headers['x-forwarded-for'] || req.ip;
+    if (!checkRateLimit(ip)) {
+      return res.status(429).json({ error: 'Muitas tentativas. Aguarde.' });
+    }
     var b = req.body;
     await pool.query(
       'INSERT INTO clicks (link_id, link_name, campaign_id, device, browser, os, city, country, country_code, ip, referrer) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
