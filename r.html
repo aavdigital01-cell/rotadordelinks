@@ -7,22 +7,98 @@
 <link rel="preconnect" href="https://api.promosdetododia.com.br" crossorigin>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:#0d1b2a;color:#e0e0e0;font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh}
-.loader{text-align:center}
-.spinner{width:40px;height:40px;border:3px solid rgba(37,211,102,.2);border-top-color:#25D366;border-radius:50%;animation:spin .6s linear infinite;margin:0 auto 16px}
-@keyframes spin{to{transform:rotate(360deg)}}
-.msg{font-size:14px;opacity:.7}
-.error{color:#FF3B30;font-size:14px;margin-top:12px;display:none}
-.retry-btn{display:none;margin-top:16px;padding:10px 24px;background:#25D366;color:#fff;border:none;border-radius:8px;font-size:14px;cursor:pointer;font-family:inherit}
-.retry-btn:hover{background:#1da851}
+body{background:#0a0f1a;color:#e0e0e0;font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;overflow:hidden}
+
+/* Background gradient sutil */
+body::before{content:'';position:fixed;top:0;left:0;right:0;bottom:0;background:radial-gradient(ellipse at 50% 0%,rgba(37,211,102,.08) 0%,transparent 60%);pointer-events:none}
+
+.card{text-align:center;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);border-radius:20px;padding:40px 32px 36px;max-width:380px;width:90%;position:relative;backdrop-filter:blur(10px)}
+
+/* Icone WhatsApp animado */
+.wa-icon{width:64px;height:64px;border-radius:16px;background:linear-gradient(135deg,#25D366,#128C7E);display:flex;align-items:center;justify-content:center;margin:0 auto 20px;animation:iconPulse 2s ease-in-out infinite;box-shadow:0 8px 32px rgba(37,211,102,.25)}
+.wa-icon svg{width:34px;height:34px;fill:#fff}
+@keyframes iconPulse{0%,100%{transform:scale(1);box-shadow:0 8px 32px rgba(37,211,102,.25)}50%{transform:scale(1.05);box-shadow:0 12px 40px rgba(37,211,102,.35)}}
+
+/* Textos */
+.title{font-size:18px;font-weight:600;color:#fff;margin-bottom:6px}
+.campaign-name{font-size:14px;color:#25D366;font-weight:500;margin-bottom:20px;min-height:20px}
+
+/* Barra de progresso */
+.progress-wrap{width:100%;height:4px;background:rgba(255,255,255,.08);border-radius:4px;overflow:hidden;margin-bottom:16px}
+.progress-bar{height:100%;background:linear-gradient(90deg,#25D366,#128C7E);border-radius:4px;width:0%;transition:width .3s ease}
+
+/* Status */
+.status{font-size:13px;color:rgba(255,255,255,.5);min-height:18px}
+
+/* Etapas visuais */
+.steps{display:flex;justify-content:center;gap:24px;margin-bottom:24px}
+.step{display:flex;flex-direction:column;align-items:center;gap:6px;opacity:.3;transition:opacity .4s ease}
+.step.active{opacity:1}
+.step.done{opacity:.6}
+.step-dot{width:28px;height:28px;border-radius:50%;border:2px solid rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;font-size:12px;transition:all .4s ease}
+.step.active .step-dot{border-color:#25D366;background:rgba(37,211,102,.15);color:#25D366}
+.step.done .step-dot{border-color:#25D366;background:#25D366;color:#fff}
+.step-label{font-size:10px;color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:.5px}
+.step.active .step-label{color:rgba(255,255,255,.7)}
+
+/* Segurança badge */
+.secure-badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:rgba(255,255,255,.3);margin-top:16px}
+.secure-badge svg{width:12px;height:12px;fill:rgba(255,255,255,.3)}
+
+/* Erro */
+.error-state{display:none}
+.error-msg{color:#FF6B6B;font-size:14px;margin-bottom:16px;line-height:1.5}
+.retry-btn{padding:12px 32px;background:linear-gradient(135deg,#25D366,#128C7E);color:#fff;border:none;border-radius:12px;font-size:14px;font-weight:500;cursor:pointer;font-family:inherit;transition:transform .15s,box-shadow .15s}
+.retry-btn:hover{transform:translateY(-1px);box-shadow:0 4px 20px rgba(37,211,102,.3)}
+.retry-btn:active{transform:translateY(0)}
 </style>
 </head>
 <body>
-<div class="loader">
-<div class="spinner" id="spinner"></div>
-<div class="msg" id="msg">Redirecionando...</div>
-<div class="error" id="error"></div>
-<button class="retry-btn" id="retryBtn" onclick="location.reload()">Tentar novamente</button>
+
+<div class="card">
+  <!-- Estado normal: loading -->
+  <div id="loadingState">
+    <div class="wa-icon">
+      <svg viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+    </div>
+
+    <div class="title" id="title">Entrando no grupo...</div>
+    <div class="campaign-name" id="campaignName"></div>
+
+    <div class="steps">
+      <div class="step active" id="step1">
+        <div class="step-dot">1</div>
+        <div class="step-label">Conectar</div>
+      </div>
+      <div class="step" id="step2">
+        <div class="step-dot">2</div>
+        <div class="step-label">Buscar</div>
+      </div>
+      <div class="step" id="step3">
+        <div class="step-dot">3</div>
+        <div class="step-label">Abrir</div>
+      </div>
+    </div>
+
+    <div class="progress-wrap">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
+    <div class="status" id="status">Conectando ao servidor...</div>
+
+    <div class="secure-badge">
+      <svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/></svg>
+      Redirecionamento seguro
+    </div>
+  </div>
+
+  <!-- Estado de erro -->
+  <div class="error-state" id="errorState">
+    <div class="wa-icon" style="background:linear-gradient(135deg,#FF6B6B,#ee5a24);animation:none">
+      <svg viewBox="0 0 24 24" style="width:28px;height:28px"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+    </div>
+    <div class="error-msg" id="errorMsg"></div>
+    <button class="retry-btn" onclick="location.reload()">Tentar novamente</button>
+  </div>
 </div>
 
 <script>
@@ -30,10 +106,16 @@ body{background:#0d1b2a;color:#e0e0e0;font-family:system-ui,-apple-system,sans-s
   'use strict';
 
   var SERVER_URL = 'https://api.promosdetododia.com.br';
-  var CACHE_TTL = 24 * 60 * 60 * 1000; // 24h
+  var CACHE_TTL = 24 * 60 * 60 * 1000;
 
   var params = new URLSearchParams(window.location.search);
   var campaignSlug = params.get('c');
+
+  // Elementos DOM
+  var progressBar = document.getElementById('progressBar');
+  var statusEl = document.getElementById('status');
+  var titleEl = document.getElementById('title');
+  var campaignNameEl = document.getElementById('campaignName');
 
   if (!campaignSlug) {
     showError('Link inválido. Parâmetro de campanha não encontrado.');
@@ -66,6 +148,23 @@ body{background:#0d1b2a;color:#e0e0e0;font-family:system-ui,-apple-system,sans-s
   var seqKey = 'rl_s_' + campaignSlug;
   var seqIdx = parseInt(localStorage.getItem(seqKey) || '0', 10);
 
+  // Progresso visual
+  function setProgress(pct, text) {
+    progressBar.style.width = pct + '%';
+    if (text) statusEl.textContent = text;
+  }
+
+  function setStep(n) {
+    for (var i = 1; i <= 3; i++) {
+      var el = document.getElementById('step' + i);
+      el.className = 'step' + (i < n ? ' done' : i === n ? ' active' : '');
+      if (i < n) el.querySelector('.step-dot').innerHTML = '&#10003;';
+    }
+  }
+
+  // Inicia progresso visual
+  setProgress(15, 'Conectando ao servidor...');
+
   // Fetch com timeout
   function fetchWithTimeout(url, opts, ms) {
     return new Promise(function(resolve, reject) {
@@ -95,6 +194,7 @@ body{background:#0d1b2a;color:#e0e0e0;font-family:system-ui,-apple-system,sans-s
       return resp.json();
     }).catch(function(err) {
       if (retries > 0) {
+        setProgress(30, 'Reconectando...');
         return new Promise(function(resolve) { setTimeout(resolve, 1000); }).then(function() {
           return attemptRotate(retries - 1);
         });
@@ -106,41 +206,63 @@ body{background:#0d1b2a;color:#e0e0e0;font-family:system-ui,-apple-system,sans-s
   // Cache de URL para fallback
   var cacheKey = 'rl_url_' + campaignSlug;
 
-  function cacheUrl(url) {
+  function cacheUrl(url, campName) {
     try {
-      localStorage.setItem(cacheKey, JSON.stringify({ url: url, ts: Date.now() }));
+      localStorage.setItem(cacheKey, JSON.stringify({ url: url, name: campName, ts: Date.now() }));
     } catch(e) {}
   }
 
   function getCachedUrl() {
     try {
       var data = JSON.parse(localStorage.getItem(cacheKey));
-      if (data && data.url && (Date.now() - data.ts) < CACHE_TTL) return data.url;
+      if (data && data.url && (Date.now() - data.ts) < CACHE_TTL) return data;
     } catch(e) {}
     return null;
   }
 
-  // Executa: 2 tentativas → cache fallback → erro com botão retry
+  // Executa
+  setProgress(25, 'Buscando grupo disponivel...');
+  setStep(2);
+
   attemptRotate(1).then(function(data) {
     localStorage.setItem(seqKey, String(seqIdx + 1));
-    cacheUrl(data.url);
-    window.location.replace(data.url);
+    var campName = data.campaign ? data.campaign.name : '';
+    cacheUrl(data.url, campName);
+
+    // Mostra nome da campanha
+    if (campName) campaignNameEl.textContent = campName;
+
+    // Progresso final
+    setStep(3);
+    setProgress(70, 'Grupo encontrado! Abrindo...');
+
+    setTimeout(function() {
+      setProgress(100, 'Redirecionando para o WhatsApp...');
+      titleEl.textContent = 'Abrindo WhatsApp...';
+      setTimeout(function() {
+        window.location.replace(data.url);
+      }, 400);
+    }, 500);
+
   }).catch(function(err) {
     var cached = getCachedUrl();
     if (cached) {
-      document.getElementById('msg').textContent = 'Usando link salvo...';
-      window.location.replace(cached);
+      if (cached.name) campaignNameEl.textContent = cached.name;
+      setStep(3);
+      setProgress(80, 'Usando link salvo...');
+      setTimeout(function() {
+        setProgress(100, 'Redirecionando...');
+        window.location.replace(cached.url);
+      }, 600);
     } else {
       showError(err.message || 'Erro ao processar redirecionamento.');
-      document.getElementById('retryBtn').style.display = 'inline-block';
     }
   });
 
   function showError(msg) {
-    document.getElementById('error').textContent = msg;
-    document.getElementById('error').style.display = 'block';
-    document.getElementById('spinner').style.display = 'none';
-    document.getElementById('msg').style.display = 'none';
+    document.getElementById('loadingState').style.display = 'none';
+    document.getElementById('errorState').style.display = 'block';
+    document.getElementById('errorMsg').textContent = msg;
   }
 
 })();
