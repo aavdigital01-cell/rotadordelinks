@@ -20,6 +20,28 @@
   --accent-glow: rgba(37,211,102,0.15);
   --danger: #FF3B30;
   --warning: #FFD60A;
+  --shadow-card: 0 20px 60px rgba(0,0,0,0.4);
+  --bg-glow1: rgba(37,211,102,0.08);
+  --bg-glow2: rgba(37,211,102,0.05);
+  --input-placeholder: #4a5568;
+}
+
+.light-mode {
+  --bg-primary: #f0f2f5;
+  --bg-secondary: #e4e6eb;
+  --bg-card: #ffffff;
+  --border: #d0d5dd;
+  --text-primary: #1a1a2e;
+  --text-secondary: #5f6b7a;
+  --accent: #25D366;
+  --accent-hover: #1eba57;
+  --accent-glow: rgba(37,211,102,0.12);
+  --danger: #FF3B30;
+  --warning: #FFD60A;
+  --shadow-card: 0 20px 60px rgba(0,0,0,0.08);
+  --bg-glow1: rgba(37,211,102,0.05);
+  --bg-glow2: rgba(37,211,102,0.03);
+  --input-placeholder: #9aa5b4;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -42,7 +64,7 @@ body::before {
   position: absolute;
   width: 600px;
   height: 600px;
-  background: radial-gradient(circle, rgba(37,211,102,0.08) 0%, transparent 70%);
+  background: radial-gradient(circle, var(--bg-glow1) 0%, transparent 70%);
   top: -200px;
   right: -200px;
   border-radius: 50%;
@@ -54,7 +76,7 @@ body::after {
   position: absolute;
   width: 400px;
   height: 400px;
-  background: radial-gradient(circle, rgba(37,211,102,0.05) 0%, transparent 70%);
+  background: radial-gradient(circle, var(--bg-glow2) 0%, transparent 70%);
   bottom: -100px;
   left: -100px;
   border-radius: 50%;
@@ -79,7 +101,7 @@ body::after {
   border: 1px solid var(--border);
   border-radius: 16px;
   padding: 40px 32px;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+  box-shadow: var(--shadow-card);
 }
 
 .logo {
@@ -144,7 +166,7 @@ body::after {
 .tab.active {
   background: var(--bg-card);
   color: var(--accent);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
 }
 
 .tab:hover:not(.active) {
@@ -182,7 +204,7 @@ body::after {
 }
 
 .form-group input::placeholder {
-  color: #4a5568;
+  color: var(--input-placeholder);
 }
 
 .btn {
@@ -278,7 +300,7 @@ body::after {
   padding: 12px;
   text-align: center;
   font-size: 13px;
-  color: #FF6B6B;
+  color: var(--danger);
   margin-bottom: 16px;
   display: none;
 }
@@ -289,6 +311,18 @@ body::after {
   .logo h1 { font-size: 20px; }
 }
 </style>
+<script>
+// Aplica tema ANTES do render para evitar flash
+(function() {
+  var saved = localStorage.getItem('rl_theme');
+  var isLight = saved === 'light' || (!saved && window.matchMedia('(prefers-color-scheme: light)').matches);
+  if (isLight) document.documentElement.classList.add('light-mode');
+  // Propaga para o body assim que existir
+  document.addEventListener('DOMContentLoaded', function() {
+    if (isLight) document.body.classList.add('light-mode');
+  });
+})();
+</script>
 </head>
 <body>
 
