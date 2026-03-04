@@ -1452,9 +1452,16 @@ app.get('/api/exchange-rate', authMiddleware, async function(req, res) {
 
 // ===== WHATSAPP ROUTES =====
 
-// Webhook da Evolution API (SEM auth - a Evolution API envia eventos aqui)
+// Webhook da Evolution API (valida apikey header)
 app.post('/api/whatsapp/webhook', async function(req, res) {
   try {
+    var evoKey = process.env.EVOLUTION_API_KEY;
+    if (evoKey) {
+      var headerKey = req.headers['apikey'] || req.headers['x-api-key'] || '';
+      if (headerKey !== evoKey) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+    }
     await whatsappMonitor.handleWebhook(req.body);
     res.json({ ok: true });
   } catch (err) {
