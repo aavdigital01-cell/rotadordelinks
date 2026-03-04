@@ -4,6 +4,8 @@
 SET timezone = 'America/Sao_Paulo';
 ALTER DATABASE linkrotator_db SET timezone TO 'America/Sao_Paulo';
 
+-- ===== TABELAS INDEPENDENTES (sem foreign keys) =====
+
 CREATE TABLE IF NOT EXISTS campaigns (
     id VARCHAR(255) PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
@@ -25,43 +27,6 @@ CREATE TABLE IF NOT EXISTS campaigns (
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS links (
-    id VARCHAR(255) PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    url TEXT DEFAULT '',
-    campaign_id VARCHAR(255),
-    whatsapp_group_id VARCHAR(255),
-    current_clicks INTEGER DEFAULT 0,
-    max_vacancies INTEGER DEFAULT 1000,
-    weight INTEGER DEFAULT 1,
-    is_active BOOLEAN DEFAULT true,
-    is_full BOOLEAN DEFAULT false,
-    redirect_type VARCHAR(50) DEFAULT 'whatsapp',
-    health_check_failures INTEGER DEFAULT 0,
-    deactivated_reason TEXT,
-    deactivated_at TIMESTAMP,
-    created_by VARCHAR(255),
-    order_num INTEGER DEFAULT 0,
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS clicks (
-    id SERIAL PRIMARY KEY,
-    link_id VARCHAR(255),
-    link_name VARCHAR(255),
-    campaign_id VARCHAR(255),
-    device VARCHAR(100),
-    browser VARCHAR(100),
-    os VARCHAR(100),
-    city VARCHAR(100),
-    country VARCHAR(100),
-    country_code VARCHAR(10),
-    ip VARCHAR(45),
-    referrer TEXT,
-    timestamp TIMESTAMP DEFAULT NOW()
-);
-
 CREATE TABLE IF NOT EXISTS whatsapp_groups (
     id VARCHAR(255) PRIMARY KEY,
     group_name VARCHAR(255),
@@ -70,17 +35,6 @@ CREATE TABLE IF NOT EXISTS whatsapp_groups (
     invite_code VARCHAR(255),
     member_snapshot JSONB,
     last_scanned TIMESTAMP DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS member_events (
-    id SERIAL PRIMARY KEY,
-    whatsapp_group_id VARCHAR(255),
-    group_name VARCHAR(255),
-    phone VARCHAR(255),
-    phone_partial VARCHAR(10),
-    action VARCHAR(10) CHECK (action IN ('join', 'leave')),
-    source VARCHAR(20) DEFAULT 'realtime',
-    timestamp TIMESTAMP DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS meta_campaigns (
@@ -101,20 +55,6 @@ CREATE TABLE IF NOT EXISTS meta_campaigns (
     last_synced TIMESTAMP DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS alerts (
-    id SERIAL PRIMARY KEY,
-    type VARCHAR(100),
-    whatsapp_group_id VARCHAR(255),
-    group_name VARCHAR(255),
-    member_phone VARCHAR(255),
-    link_name VARCHAR(255),
-    campaign_name VARCHAR(255),
-    percent INTEGER,
-    message TEXT DEFAULT '',
-    read BOOLEAN DEFAULT false,
-    timestamp TIMESTAMP DEFAULT NOW()
-);
-
 CREATE TABLE IF NOT EXISTS users (
     uid VARCHAR(255) PRIMARY KEY,
     email VARCHAR(255) UNIQUE NOT NULL,
@@ -131,20 +71,6 @@ CREATE TABLE IF NOT EXISTS settings (
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
--- Lead Contacts: backup of real phone numbers for re-inviting
-CREATE TABLE IF NOT EXISTS lead_contacts (
-    id SERIAL PRIMARY KEY,
-    phone VARCHAR(50) NOT NULL,
-    whatsapp_group_id VARCHAR(255),
-    group_name VARCHAR(255),
-    joined_at TIMESTAMP DEFAULT NOW(),
-    left_at TIMESTAMP,
-    is_active BOOLEAN DEFAULT true,
-    invite_sent BOOLEAN DEFAULT false,
-    invite_sent_at TIMESTAMP,
-    UNIQUE(phone, whatsapp_group_id)
-);
-
 -- WhatsApp Numbers: support for multiple connected numbers
 CREATE TABLE IF NOT EXISTS whatsapp_numbers (
     id VARCHAR(255) PRIMARY KEY,
@@ -159,6 +85,84 @@ CREATE TABLE IF NOT EXISTS whatsapp_numbers (
     messages_sent_total INTEGER DEFAULT 0,
     last_message_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- ===== TABELAS COM FOREIGN KEYS =====
+
+CREATE TABLE IF NOT EXISTS links (
+    id VARCHAR(255) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    url TEXT DEFAULT '',
+    campaign_id VARCHAR(255) REFERENCES campaigns(id) ON DELETE CASCADE,
+    whatsapp_group_id VARCHAR(255) REFERENCES whatsapp_groups(id) ON DELETE SET NULL,
+    current_clicks INTEGER DEFAULT 0,
+    max_vacancies INTEGER DEFAULT 1000,
+    weight INTEGER DEFAULT 1,
+    is_active BOOLEAN DEFAULT true,
+    is_full BOOLEAN DEFAULT false,
+    redirect_type VARCHAR(50) DEFAULT 'whatsapp',
+    health_check_failures INTEGER DEFAULT 0,
+    deactivated_reason TEXT,
+    deactivated_at TIMESTAMP,
+    created_by VARCHAR(255),
+    order_num INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS clicks (
+    id SERIAL PRIMARY KEY,
+    link_id VARCHAR(255) REFERENCES links(id) ON DELETE CASCADE,
+    link_name VARCHAR(255),
+    campaign_id VARCHAR(255) REFERENCES campaigns(id) ON DELETE CASCADE,
+    device VARCHAR(100),
+    browser VARCHAR(100),
+    os VARCHAR(100),
+    city VARCHAR(100),
+    country VARCHAR(100),
+    country_code VARCHAR(10),
+    ip VARCHAR(45),
+    referrer TEXT,
+    timestamp TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS member_events (
+    id SERIAL PRIMARY KEY,
+    whatsapp_group_id VARCHAR(255) REFERENCES whatsapp_groups(id) ON DELETE CASCADE,
+    group_name VARCHAR(255),
+    phone VARCHAR(255),
+    phone_partial VARCHAR(10),
+    action VARCHAR(10) CHECK (action IN ('join', 'leave')),
+    source VARCHAR(20) DEFAULT 'realtime',
+    timestamp TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS alerts (
+    id SERIAL PRIMARY KEY,
+    type VARCHAR(100),
+    whatsapp_group_id VARCHAR(255) REFERENCES whatsapp_groups(id) ON DELETE SET NULL,
+    group_name VARCHAR(255),
+    member_phone VARCHAR(255),
+    link_name VARCHAR(255),
+    campaign_name VARCHAR(255),
+    percent INTEGER,
+    message TEXT DEFAULT '',
+    read BOOLEAN DEFAULT false,
+    timestamp TIMESTAMP DEFAULT NOW()
+);
+
+-- Lead Contacts: backup of real phone numbers for re-inviting
+CREATE TABLE IF NOT EXISTS lead_contacts (
+    id SERIAL PRIMARY KEY,
+    phone VARCHAR(50) NOT NULL,
+    whatsapp_group_id VARCHAR(255) REFERENCES whatsapp_groups(id) ON DELETE SET NULL,
+    group_name VARCHAR(255),
+    joined_at TIMESTAMP DEFAULT NOW(),
+    left_at TIMESTAMP,
+    is_active BOOLEAN DEFAULT true,
+    invite_sent BOOLEAN DEFAULT false,
+    invite_sent_at TIMESTAMP,
+    UNIQUE(phone, whatsapp_group_id)
 );
 
 -- Broadcast Messages: message templates and sends
