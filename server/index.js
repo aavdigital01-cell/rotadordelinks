@@ -372,7 +372,7 @@ app.get('/api/campaigns/metrics', authMiddleware, async function(req, res) {
       };
     });
 
-    res.json({ days: days, metrics: metrics });
+    res.json({ metrics: metrics });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
