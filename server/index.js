@@ -551,35 +551,31 @@ app.get('/api/clicks/recent', authMiddleware, async function(req, res) {
 app.get('/api/clicks/range', authMiddleware, async function(req, res) {
   try {
     var days = validateDays(req.query.days, 30);
-    var result = await pool.query(
-      "SELECT * FROM clicks WHERE timestamp >= NOW() - ($1 * INTERVAL '1 day') ORDER BY timestamp DESC",
-      [days]
-    );
-    var todayStart = new Date(); todayStart.setHours(0,0,0,0);
-    var weekStart = new Date(); weekStart.setDate(weekStart.getDate() - 7);
-    var monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0,0,0,0);
+    var rangeFilter = "timestamp >= NOW() - (" + days + " * INTERVAL '1 day')";
 
-    var clicksToday = 0, clicksWeek = 0, clicksMonth = 0;
+    var [todayR, weekR, monthR, dailyR, countryR, browserR, hourlyR] = await Promise.all([
+      pool.query("SELECT COUNT(*) as total FROM clicks WHERE timestamp >= CURRENT_DATE"),
+      pool.query("SELECT COUNT(*) as total FROM clicks WHERE timestamp >= NOW() - INTERVAL '7 days'"),
+      pool.query("SELECT COUNT(*) as total FROM clicks WHERE timestamp >= date_trunc('month', CURRENT_DATE)"),
+      pool.query("SELECT timestamp::date as day, COUNT(*) as cnt FROM clicks WHERE " + rangeFilter + " GROUP BY day ORDER BY day"),
+      pool.query("SELECT COALESCE(NULLIF(country, ''), COALESCE(NULLIF(country_code, ''), 'Desconhecido')) as country, COUNT(*) as cnt FROM clicks WHERE " + rangeFilter + " GROUP BY country"),
+      pool.query("SELECT COALESCE(NULLIF(browser, ''), 'Outro') as browser, COUNT(*) as cnt FROM clicks WHERE " + rangeFilter + " GROUP BY browser"),
+      pool.query("SELECT EXTRACT(HOUR FROM timestamp)::int as hour, COUNT(*) as cnt FROM clicks WHERE timestamp >= NOW() - INTERVAL '7 days' GROUP BY hour ORDER BY hour")
+    ]);
+
     var dailyData = {};
+    dailyR.rows.forEach(function(r) { dailyData[r.day.toISOString().split('T')[0]] = parseInt(r.cnt); });
     var countryData = {};
+    countryR.rows.forEach(function(r) { countryData[r.country] = parseInt(r.cnt); });
     var browserData = {};
+    browserR.rows.forEach(function(r) { browserData[r.browser] = parseInt(r.cnt); });
     var hourlyData = new Array(24).fill(0);
-
-    result.rows.forEach(function(r) {
-      var date = new Date(r.timestamp);
-      if (date >= todayStart) clicksToday++;
-      if (date >= weekStart) { clicksWeek++; hourlyData[date.getHours()]++; }
-      if (date >= monthStart) clicksMonth++;
-      var dayKey = date.toISOString().split('T')[0];
-      dailyData[dayKey] = (dailyData[dayKey] || 0) + 1;
-      var country = r.country || r.country_code || 'Desconhecido';
-      countryData[country] = (countryData[country] || 0) + 1;
-      var browser = r.browser || 'Outro';
-      browserData[browser] = (browserData[browser] || 0) + 1;
-    });
+    hourlyR.rows.forEach(function(r) { hourlyData[r.hour] = parseInt(r.cnt); });
 
     res.json({
-      clicksToday: clicksToday, clicksWeek: clicksWeek, clicksMonth: clicksMonth,
+      clicksToday: parseInt(todayR.rows[0].total),
+      clicksWeek: parseInt(weekR.rows[0].total),
+      clicksMonth: parseInt(monthR.rows[0].total),
       dailyData: dailyData, countryData: countryData, browserData: browserData, hourlyData: hourlyData
     });
   } catch (err) {
