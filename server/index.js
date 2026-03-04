@@ -667,10 +667,10 @@ function selectLink(links, mode, slug) {
     return links[links.length - 1];
   }
   if (mode === 'least-filled') {
-    links.sort(function(a, b) {
+    var sorted = links.slice().sort(function(a, b) {
       return (a.currentClicks / (a.maxVacancies || 1)) - (b.currentClicks / (b.maxVacancies || 1));
     });
-    return links[0];
+    return sorted[0];
   }
   if (mode === 'sequential') {
     var idx = sequentialCounters[slug] || 0;
