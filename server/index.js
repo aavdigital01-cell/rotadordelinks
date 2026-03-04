@@ -268,9 +268,33 @@ app.put('/api/campaigns/:id', authMiddleware, async function(req, res) {
 
 app.delete('/api/campaigns/:id', authMiddleware, async function(req, res) {
   try {
-    // Also delete associated links
-    await pool.query('DELETE FROM links WHERE campaign_id=$1', [req.params.id]);
-    await pool.query('DELETE FROM campaigns WHERE id=$1', [req.params.id]);
+    var campId = req.params.id;
+
+    // Get campaign name for alert cleanup
+    var campResult = await pool.query('SELECT name FROM campaigns WHERE id=$1', [campId]);
+    var campName = campResult.rows.length > 0 ? campResult.rows[0].name : null;
+
+    // Delete clicks associated with this campaign
+    await pool.query('DELETE FROM clicks WHERE campaign_id=$1', [campId]);
+
+    // Delete alerts associated with this campaign
+    if (campName) {
+      await pool.query('DELETE FROM alerts WHERE campaign_name=$1', [campName]);
+    }
+
+    // Delete member_events for whatsapp groups exclusively used by this campaign
+    await pool.query(
+      "DELETE FROM member_events WHERE whatsapp_group_id IN (" +
+        "SELECT DISTINCT l.whatsapp_group_id FROM links l " +
+        "WHERE l.campaign_id = $1 AND l.whatsapp_group_id IS NOT NULL " +
+        "AND NOT EXISTS (SELECT 1 FROM links l2 WHERE l2.whatsapp_group_id = l.whatsapp_group_id AND l2.campaign_id != $1)" +
+      ")",
+      [campId]
+    );
+
+    // Delete associated links and campaign
+    await pool.query('DELETE FROM links WHERE campaign_id=$1', [campId]);
+    await pool.query('DELETE FROM campaigns WHERE id=$1', [campId]);
     invalidateRotateCache();
     res.json({ success: true });
   } catch (err) {
