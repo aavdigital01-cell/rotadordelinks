@@ -981,9 +981,30 @@ app.post('/api/clicks', async function(req, res) {
       'INSERT INTO clicks (link_id, link_name, campaign_id, device, browser, os, city, country, country_code, ip, referrer) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
       [b.linkId, b.linkName, b.campaignId, b.device, b.browser, b.os || '', b.city, b.country, b.countryCode, b.ip || req.ip, b.referrer]
     );
-    // Increment link clicks
+    // Increment link clicks with is_full check and alerts (same logic as recordClickBackground)
     if (b.linkId) {
-      await pool.query('UPDATE links SET current_clicks = current_clicks + 1 WHERE id=$1', [b.linkId]);
+      var updResult = await pool.query(
+        'UPDATE links SET current_clicks = current_clicks + 1, is_full = CASE WHEN current_clicks + 1 >= max_vacancies THEN true ELSE false END, updated_at = NOW() WHERE id=$1 RETURNING current_clicks, max_vacancies, is_full',
+        [b.linkId]
+      );
+      if (updResult.rows.length) {
+        var upd = updResult.rows[0];
+        // Look up campaign name and alert threshold
+        var campResult = await pool.query('SELECT name, alert_threshold FROM campaigns WHERE id=$1', [b.campaignId]);
+        var campName = campResult.rows.length ? campResult.rows[0].name : '';
+        var threshold = campResult.rows.length ? (campResult.rows[0].alert_threshold || 80) : 80;
+        if (upd.is_full) {
+          rotateCache = {}; // force refresh
+          pool.query('INSERT INTO alerts (type, campaign_name, link_name, message, read) VALUES ($1,$2,$3,$4,false)',
+            ['link_full', campName, b.linkName, 'Grupo cheio: ' + b.linkName]).catch(function(){});
+        } else {
+          var fillPct = (upd.current_clicks / (upd.max_vacancies || 1)) * 100;
+          if (fillPct >= threshold) {
+            pool.query('INSERT INTO alerts (type, campaign_name, link_name, percent, message, read) VALUES ($1,$2,$3,$4,$5,false)',
+              ['link_near_full', campName, b.linkName, Math.round(fillPct), 'Grupo quase cheio: ' + b.linkName + ' (' + Math.round(fillPct) + '%)']).catch(function(){});
+          }
+        }
+      }
     }
     res.json({ success: true });
   } catch (err) {
