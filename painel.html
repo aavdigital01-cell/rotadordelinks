@@ -3592,6 +3592,26 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
   </div>
 </div>
 
+<div class="modal-overlay" id="strongConfirmModal">
+  <div class="modal" style="max-width:440px">
+    <div class="modal-header">
+      <span class="modal-title" style="color:var(--danger)"><i class="fas fa-exclamation-triangle"></i> Exclusão permanente</span>
+      <button class="modal-close" onclick="closeStrongConfirm()"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <p id="strongConfirmMessage" style="margin-bottom:12px"></p>
+      <p style="margin-bottom:8px;font-size:13px;color:var(--text-muted)">Para confirmar, digite o nome da campanha abaixo:</p>
+      <div style="background:var(--bg-tertiary);border:1px solid var(--border);border-radius:6px;padding:8px 12px;margin-bottom:12px;font-weight:700;font-size:14px;user-select:all" id="strongConfirmExpected"></div>
+      <input type="text" id="strongConfirmInput" class="form-control" placeholder="Digite o nome da campanha" autocomplete="off" style="width:100%">
+      <p id="strongConfirmError" style="color:var(--danger);font-size:12px;margin-top:6px;display:none">O nome digitado não corresponde.</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeStrongConfirm()">Cancelar</button>
+      <button class="btn btn-danger" id="strongConfirmBtn" onclick="executeStrongConfirm()" disabled>Excluir campanha</button>
+    </div>
+  </div>
+</div>
+
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
 <!-- Firestore removido - usando PostgreSQL via server API -->
@@ -4003,12 +4023,18 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
 
   window.deleteCampaign = function(id) {
     var c = campaigns.find(function(x) { return x.id === id; });
-    showConfirm('Excluir campanha "' + (c ? c.name : '') + '" e todos os links associados?', async function() {
-      await serverDelete('/api/campaigns/' + id);
-      showToast('Campanha excluída', 'success');
-      await loadCampaigns();
-      await loadAllLinks();
-    });
+    if (!c) return;
+    var linkCount = links.filter(function(l) { return l.campaign_id === id; }).length;
+    showStrongConfirm(
+      c.name,
+      'Esta ação excluirá a campanha "' + c.name + '"' + (linkCount > 0 ? ' e todos os ' + linkCount + ' links associados' : '') + '. Esta ação não pode ser desfeita.',
+      async function() {
+        await serverDelete('/api/campaigns/' + id);
+        showToast('Campanha excluída', 'success');
+        await loadCampaigns();
+        await loadAllLinks();
+      }
+    );
   };
 
   // ===== LINKS =====
@@ -6362,10 +6388,68 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     closeModal('confirmModal');
   };
 
+  // ===== STRONG CONFIRM (digitar nome) =====
+  var pendingStrongConfirmAction = null;
+  var strongConfirmExpectedName = '';
+
+  window.showStrongConfirm = function(name, message, onConfirm) {
+    strongConfirmExpectedName = name;
+    pendingStrongConfirmAction = onConfirm;
+    document.getElementById('strongConfirmMessage').textContent = message;
+    document.getElementById('strongConfirmExpected').textContent = name;
+    var input = document.getElementById('strongConfirmInput');
+    input.value = '';
+    document.getElementById('strongConfirmError').style.display = 'none';
+    document.getElementById('strongConfirmBtn').disabled = true;
+    openModal('strongConfirmModal');
+    setTimeout(function() { input.focus(); }, 100);
+  };
+
+  document.addEventListener('input', function(e) {
+    if (e.target.id === 'strongConfirmInput') {
+      var match = e.target.value.trim() === strongConfirmExpectedName;
+      document.getElementById('strongConfirmBtn').disabled = !match;
+      document.getElementById('strongConfirmError').style.display = 'none';
+    }
+  });
+
+  document.addEventListener('keydown', function(e) {
+    if (e.target.id === 'strongConfirmInput' && e.key === 'Enter') {
+      e.preventDefault();
+      executeStrongConfirm();
+    }
+  });
+
+  window.executeStrongConfirm = async function() {
+    var input = document.getElementById('strongConfirmInput');
+    if (input.value.trim() !== strongConfirmExpectedName) {
+      document.getElementById('strongConfirmError').style.display = 'block';
+      input.focus();
+      return;
+    }
+    if (pendingStrongConfirmAction) {
+      document.getElementById('strongConfirmBtn').disabled = true;
+      document.getElementById('strongConfirmBtn').textContent = 'Excluindo...';
+      await pendingStrongConfirmAction();
+      pendingStrongConfirmAction = null;
+      document.getElementById('strongConfirmBtn').textContent = 'Excluir campanha';
+    }
+    closeModal('strongConfirmModal');
+  };
+
+  window.closeStrongConfirm = function() {
+    pendingStrongConfirmAction = null;
+    strongConfirmExpectedName = '';
+    closeModal('strongConfirmModal');
+  };
+
   // Click fora do modal fecha
   document.querySelectorAll('.modal-overlay').forEach(function(overlay) {
     overlay.addEventListener('click', function(e) {
-      if (e.target === overlay) overlay.classList.remove('active');
+      if (e.target === overlay) {
+        if (overlay.id === 'strongConfirmModal') { closeStrongConfirm(); return; }
+        overlay.classList.remove('active');
+      }
     });
   });
 
