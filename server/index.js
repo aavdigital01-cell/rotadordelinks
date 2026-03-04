@@ -1102,8 +1102,16 @@ app.get('/api/stats/leads-summary', authMiddleware, async function(req, res) {
 
 app.get('/api/alerts', authMiddleware, async function(req, res) {
   try {
-    var result = await pool.query('SELECT * FROM alerts ORDER BY timestamp DESC LIMIT 50');
-    res.json(result.rows.map(mapAlert));
+    var page = Math.max(1, parseInt(req.query.page) || 1);
+    var limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 50));
+    var offset = (page - 1) * limit;
+    var countResult = await pool.query('SELECT COUNT(*) as total FROM alerts');
+    var total = parseInt(countResult.rows[0].total);
+    var result = await pool.query('SELECT * FROM alerts ORDER BY timestamp DESC LIMIT $1 OFFSET $2', [limit, offset]);
+    res.json({
+      data: result.rows.map(mapAlert),
+      pagination: { page: page, limit: limit, total: total, totalPages: Math.ceil(total / limit) }
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

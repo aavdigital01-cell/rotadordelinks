@@ -3611,6 +3611,8 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
   let links = [];
   let allClicks = [];
   let alerts = [];
+  let alertsPage = 1;
+  let alertsTotalPages = 1;
   let unsubscribers = [];
   let pendingConfirmAction = null;
   let lastLeadDoc = null;
@@ -3684,7 +3686,12 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     // Poll alerts every 30 seconds
     async function pollAlerts() {
       try {
-        alerts = await serverFetch('/api/alerts');
+        var res = await serverFetch('/api/alerts?page=' + alertsPage + '&limit=50');
+        alerts = res.data || res;
+        if (res.pagination) {
+          alertsTotalPages = res.pagination.totalPages;
+          alertsPage = res.pagination.page;
+        }
         updateAlertsBadge();
         renderAlerts();
         renderNotifications();
@@ -5058,7 +5065,12 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
   // ===== ALERTS =====
   async function loadAlerts() {
     try {
-      alerts = await serverFetch('/api/alerts');
+      var res = await serverFetch('/api/alerts?page=' + alertsPage + '&limit=50');
+      alerts = res.data || res;
+      if (res.pagination) {
+        alertsTotalPages = res.pagination.totalPages;
+        alertsPage = res.pagination.page;
+      }
       updateAlertsBadge();
       renderAlerts();
     } catch (err) {
@@ -5150,8 +5162,25 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
         '<button class="btn btn-secondary btn-sm btn-icon" onclick="deleteAlert(' + a.id + ')" title="Excluir alerta" style="flex-shrink:0;margin-left:8px"><i class="fas fa-trash"></i></button>' +
         '</div>';
     });
+
+    if (alertsTotalPages > 1) {
+      html += '<div style="display:flex;align-items:center;justify-content:center;gap:12px;padding:16px 0">';
+      html += '<button class="btn btn-secondary btn-sm" onclick="changeAlertsPage(-1)"' + (alertsPage <= 1 ? ' disabled' : '') + '><i class="fas fa-chevron-left"></i> Anterior</button>';
+      html += '<span style="font-size:14px;color:var(--text-secondary)">Página ' + alertsPage + ' de ' + alertsTotalPages + '</span>';
+      html += '<button class="btn btn-secondary btn-sm" onclick="changeAlertsPage(1)"' + (alertsPage >= alertsTotalPages ? ' disabled' : '') + '>Próxima <i class="fas fa-chevron-right"></i></button>';
+      html += '</div>';
+    }
+
     container.innerHTML = html;
   }
+
+  window.changeAlertsPage = function(delta) {
+    var newPage = alertsPage + delta;
+    if (newPage >= 1 && newPage <= alertsTotalPages) {
+      alertsPage = newPage;
+      loadAlerts();
+    }
+  };
 
   function renderNotifications() {
     var container = document.getElementById('notifPanelBody');
