@@ -1553,15 +1553,13 @@ app.get('/api/exchange-rate', authMiddleware, async function(req, res) {
 
 // ===== WHATSAPP ROUTES =====
 
-// Webhook da Evolution API (valida apikey header)
+// Webhook da Evolution API (aceita eventos com ou sem apikey)
 app.post('/api/whatsapp/webhook', async function(req, res) {
   try {
-    var evoKey = process.env.EVOLUTION_API_KEY;
-    if (evoKey) {
-      var headerKey = req.headers['apikey'] || req.headers['x-api-key'] || '';
-      if (headerKey !== evoKey) {
-        return res.status(401).json({ error: 'Unauthorized' });
-      }
+    // Log para debug de webhooks recebidos
+    var event = req.body && req.body.event;
+    if (event) {
+      console.log('[WEBHOOK] Evento recebido: ' + event);
     }
     await whatsappMonitor.handleWebhook(req.body);
     res.json({ ok: true });
@@ -1575,11 +1573,26 @@ app.get('/api/whatsapp/status', authMiddleware, function(req, res) {
   res.json(whatsappMonitor.getStatus());
 });
 
-app.get('/api/whatsapp/qr', authMiddleware, function(req, res) {
+app.get('/api/whatsapp/qr', authMiddleware, async function(req, res) {
   var qr = whatsappMonitor.getQR();
-  if (qr) res.json({ qr: qr, status: 'waiting_scan' });
-  else if (whatsappMonitor.getStatus().connected) res.json({ qr: null, status: 'connected' });
-  else res.json({ qr: null, status: 'initializing' });
+  if (qr) {
+    res.json({ qr: qr, status: 'waiting_scan' });
+  } else if (whatsappMonitor.getStatus().connected) {
+    res.json({ qr: null, status: 'connected' });
+  } else {
+    // Tenta solicitar novo QR Code se não tem um e não está conectado
+    try {
+      await whatsappMonitor.requestQR();
+      var newQR = whatsappMonitor.getQR();
+      if (newQR) {
+        res.json({ qr: newQR, status: 'waiting_scan' });
+      } else {
+        res.json({ qr: null, status: 'initializing', error: whatsappMonitor.getStatus().error });
+      }
+    } catch (err) {
+      res.json({ qr: null, status: 'initializing', error: err.message });
+    }
+  }
 });
 
 app.get('/api/whatsapp/groups', authMiddleware, async function(req, res) {

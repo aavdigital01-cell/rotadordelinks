@@ -290,23 +290,39 @@ async function instanceExists() {
 /**
  * Cria a instância na Evolution API se não existir
  */
-async function createInstance() {
-  try {
-    var webhookUrl = (process.env.EVOLUTION_WEBHOOK_URL || process.env.FRONTEND_URL || ('http://localhost:' + (process.env.PORT || 3000)));
-    // Garante que a URL do webhook aponte para nosso servidor
-    if (webhookUrl === '*') {
+async function getWebhookUrl() {
+  var webhookUrl = (process.env.EVOLUTION_WEBHOOK_URL || '').trim();
+  if (!webhookUrl) {
+    var frontUrl = (process.env.FRONTEND_URL || '').trim();
+    if (frontUrl && frontUrl !== '*') {
+      webhookUrl = frontUrl;
+    } else {
       webhookUrl = 'http://localhost:' + (process.env.PORT || 3000);
     }
-    webhookUrl = webhookUrl.replace(/\/$/, '') + '/api/whatsapp/webhook';
+  }
+  return webhookUrl.replace(/\/$/, '') + '/api/whatsapp/webhook';
+}
+
+async function createInstance() {
+  try {
+    var webhookUrl = await getWebhookUrl();
 
     var body = {
       instanceName: EVOLUTION_INSTANCE_NAME,
       integration: 'WHATSAPP-BAILEYS',
       qrcode: true,
+      rejectCall: false,
+      groupsIgnore: false,
+      alwaysOnline: false,
+      readMessages: false,
+      readStatus: false,
+      syncFullHistory: false,
       webhook: {
         url: webhookUrl,
         byEvents: false,
         base64: true,
+        webhookByEvents: false,
+        webhookBase64: true,
         events: [
           'QRCODE_UPDATED',
           'CONNECTION_UPDATE',
@@ -321,11 +337,24 @@ async function createInstance() {
     console.log('[WHATSAPP] Webhook URL: ' + webhookUrl);
     var data = await evoApi('POST', '/instance/create', body);
     console.log('[WHATSAPP] Instância criada com sucesso');
+
+    // Se a resposta já contém QR Code, salva
+    if (data) {
+      if (data.qrcode && data.qrcode.base64) {
+        currentQRBase64 = data.qrcode.base64;
+        currentQR = data.qrcode.code || data.qrcode.base64;
+        console.log('[WHATSAPP] QR Code recebido na criação da instância');
+      } else if (data.base64) {
+        currentQRBase64 = data.base64;
+        currentQR = data.code || data.base64;
+      }
+    }
+
     return data;
   } catch (err) {
     // Se já existe, ignora (Evolution API v2 returns "already in use" or "Forbidden")
     var msg = (err.message || '').toLowerCase();
-    if (msg.includes('already') || msg.includes('in use') || msg.includes('forbidden')) {
+    if (msg.includes('already') || msg.includes('in use') || msg.includes('forbidden') || msg.includes('instance name is not available')) {
       console.log('[WHATSAPP] Instância já existe, usando existente');
       return null;
     }
@@ -337,31 +366,42 @@ async function createInstance() {
  * Configura o webhook da instância existente
  */
 async function configureWebhook() {
-  try {
-    var webhookUrl = (process.env.EVOLUTION_WEBHOOK_URL || process.env.FRONTEND_URL || ('http://localhost:' + (process.env.PORT || 3000)));
-    if (webhookUrl === '*') {
-      webhookUrl = 'http://localhost:' + (process.env.PORT || 3000);
-    }
-    webhookUrl = webhookUrl.replace(/\/$/, '') + '/api/whatsapp/webhook';
+  var webhookUrl = await getWebhookUrl();
 
-    await evoApi('POST', '/webhook/set/' + EVOLUTION_INSTANCE_NAME, {
-      webhook: {
-        enabled: true,
-        url: webhookUrl,
-        byEvents: false,
-        base64: true,
-        events: [
-          'QRCODE_UPDATED',
-          'CONNECTION_UPDATE',
-          'GROUPS_UPSERT',
-          'GROUP_UPDATE',
-          'GROUP_PARTICIPANTS_UPDATE'
-        ]
+  // Tenta v2 primeiro, depois v1
+  var endpoints = [
+    { method: 'PUT', path: '/webhook/set/' + EVOLUTION_INSTANCE_NAME },
+    { method: 'POST', path: '/webhook/set/' + EVOLUTION_INSTANCE_NAME }
+  ];
+
+  var webhookBody = {
+    webhook: {
+      enabled: true,
+      url: webhookUrl,
+      byEvents: false,
+      base64: true,
+      webhookByEvents: false,
+      webhookBase64: true,
+      events: [
+        'QRCODE_UPDATED',
+        'CONNECTION_UPDATE',
+        'GROUPS_UPSERT',
+        'GROUP_UPDATE',
+        'GROUP_PARTICIPANTS_UPDATE'
+      ]
+    }
+  };
+
+  for (var i = 0; i < endpoints.length; i++) {
+    try {
+      await evoApi(endpoints[i].method, endpoints[i].path, webhookBody);
+      console.log('[WHATSAPP] Webhook configurado: ' + webhookUrl);
+      return;
+    } catch (err) {
+      if (i === endpoints.length - 1) {
+        console.warn('[WHATSAPP] Aviso ao configurar webhook:', err.message);
       }
-    });
-    console.log('[WHATSAPP] Webhook configurado: ' + webhookUrl);
-  } catch (err) {
-    console.warn('[WHATSAPP] Aviso ao configurar webhook:', err.message);
+    }
   }
 }
 
@@ -433,17 +473,32 @@ async function checkConnectionState() {
 async function connectInstance() {
   try {
     var data = await evoApi('GET', '/instance/connect/' + EVOLUTION_INSTANCE_NAME);
+
+    // Evolution API pode retornar QR em diferentes formatos
     if (data.base64) {
       currentQRBase64 = data.base64;
       currentQR = data.code || data.base64;
-      console.log('[WHATSAPP] QR Code gerado pela Evolution API');
+      console.log('[WHATSAPP] QR Code gerado pela Evolution API (base64)');
+    } else if (data.qrcode) {
+      // v2 format: { qrcode: { base64, code } }
+      var qr = typeof data.qrcode === 'object' ? data.qrcode : { base64: data.qrcode };
+      currentQRBase64 = qr.base64 || null;
+      currentQR = qr.code || qr.base64 || null;
+      console.log('[WHATSAPP] QR Code gerado pela Evolution API (qrcode object)');
     } else if (data.code) {
       currentQR = data.code;
+      console.log('[WHATSAPP] QR Code gerado pela Evolution API (code text)');
+    } else if (data.pairingCode) {
+      console.log('[WHATSAPP] Pairing code retornado ao invés de QR');
+    } else {
+      console.log('[WHATSAPP] Resposta do connect:', JSON.stringify(data).substring(0, 200));
     }
+
     return data;
   } catch (err) {
     // Se já está conectado
-    if (err.message && (err.message.includes('already') || err.message.includes('connected') || err.message.includes('open'))) {
+    var errMsg = (err.message || '').toLowerCase();
+    if (errMsg.includes('already') || errMsg.includes('connected') || errMsg.includes('open') || errMsg.includes('the instance')) {
       console.log('[WHATSAPP] Já está conectado');
       await checkConnectionState();
       return null;
@@ -459,9 +514,11 @@ async function connectInstance() {
  * Chamado pela rota POST /api/whatsapp/webhook no index.js
  */
 async function handleWebhook(body) {
+  if (!body || !body.event) return;
+
   var event = body.event;
-  var data = body.data;
-  var instance = body.instance;
+  var data = body.data || body;
+  var instance = body.instance || body.instanceName;
 
   // Ignora eventos de outras instâncias
   if (instance && instance !== EVOLUTION_INSTANCE_NAME) return;
@@ -470,9 +527,16 @@ async function handleWebhook(body) {
     switch (event) {
       case 'qrcode.updated':
       case 'QRCODE_UPDATED':
-        if (data && data.qrcode) {
-          currentQRBase64 = data.qrcode.base64 || null;
-          currentQR = data.qrcode.code || data.qrcode.base64 || null;
+        // Evolution API v2 pode enviar em diferentes formatos
+        if (data) {
+          var qrData = data.qrcode || data;
+          if (typeof qrData === 'object') {
+            currentQRBase64 = qrData.base64 || null;
+            currentQR = qrData.code || qrData.base64 || null;
+          } else if (typeof qrData === 'string') {
+            currentQR = qrData;
+            if (qrData.length > 500) currentQRBase64 = qrData;
+          }
           console.log('[WHATSAPP] [WEBHOOK] QR Code atualizado');
         }
         break;
@@ -919,6 +983,26 @@ function getQR() {
   return currentQRBase64 || currentQR;
 }
 
+/**
+ * Solicita novo QR Code se não tem um disponível
+ */
+async function requestQR() {
+  if (connectionStatus.ready) return null;
+  if (currentQRBase64 || currentQR) return currentQRBase64 || currentQR;
+
+  try {
+    var exists = await instanceExists();
+    if (!exists) {
+      await createInstance();
+    }
+    await connectInstance();
+    return currentQRBase64 || currentQR;
+  } catch (err) {
+    console.warn('[WHATSAPP] Erro ao solicitar QR:', err.message);
+    return null;
+  }
+}
+
 var groupsCache = { data: null, timestamp: 0 };
 var GROUPS_CACHE_TTL = 60000;
 
@@ -1053,27 +1137,66 @@ async function requestPairingCode(phoneNumber) {
   console.log('[WHATSAPP] Solicitando pairing code via Evolution API para ' + phoneNumber + '...');
 
   try {
-    // Primeiro garante que a instância existe e não está conectada
+    // Primeiro garante que a instância existe
     var exists = await instanceExists();
     if (!exists) {
       await createInstance();
+      // Aguarda a instância ser criada
+      await new Promise(function(resolve) { setTimeout(resolve, 2000); });
     }
 
-    // Tenta via Evolution API v2 endpoint
-    var data = await evoApi('POST', '/instance/connect/' + EVOLUTION_INSTANCE_NAME, {
-      number: phoneNumber
-    });
+    // Verifica se já está conectada - se sim, precisa desconectar primeiro
+    var state = await checkConnectionState();
+    if (state === 'open') {
+      throw new Error('WhatsApp já está conectado. Desconecte primeiro para conectar outro número.');
+    }
 
-    var code = data.code || data.pairingCode;
+    // Tenta via Evolution API v2 endpoint (POST com number no body)
+    var code = null;
+    var attempts = [
+      // Tentativa 1: POST /instance/connect com number
+      { method: 'POST', path: '/instance/connect/' + EVOLUTION_INSTANCE_NAME, body: { number: phoneNumber } },
+      // Tentativa 2: GET /instance/connect com query param (alternativa)
+      { method: 'GET', path: '/instance/connect/' + EVOLUTION_INSTANCE_NAME + '?number=' + phoneNumber, body: null }
+    ];
+
+    for (var i = 0; i < attempts.length; i++) {
+      try {
+        var attempt = attempts[i];
+        var data = await evoApi(attempt.method, attempt.path, attempt.body);
+
+        code = data.code || data.pairingCode;
+        if (!code && data.instance) {
+          code = data.instance.pairingCode || data.instance.code;
+        }
+        if (code) break;
+
+        // Se veio QR em vez de pairing code, guarda o QR e tenta de novo
+        if (data.base64 || data.qrcode) {
+          var qrData = data.qrcode || data;
+          currentQRBase64 = (typeof qrData === 'object' ? qrData.base64 : qrData) || data.base64;
+          currentQR = data.code || currentQRBase64;
+          console.log('[WHATSAPP] QR Code recebido ao invés de pairing code, tentando próximo método...');
+          continue;
+        }
+      } catch (attemptErr) {
+        console.warn('[WHATSAPP] Tentativa ' + (i + 1) + ' de pairing code falhou:', attemptErr.message);
+        if (i === attempts.length - 1) throw attemptErr;
+      }
+    }
+
     if (code) {
       console.log('[WHATSAPP] Pairing code gerado: ' + code);
+      // Limpa QR pois agora estamos esperando pairing
+      currentQR = null;
+      currentQRBase64 = null;
       return code;
     }
 
-    throw new Error('Evolution API não retornou código de pareamento. Verifique a versão da API.');
+    throw new Error('Evolution API não retornou código de pareamento. Tente conectar via QR Code.');
   } catch (err) {
     console.error('[WHATSAPP] Erro ao gerar pairing code:', err.message);
-    throw new Error('Erro ao gerar código: ' + err.message);
+    throw new Error(err.message || 'Erro ao gerar código de pareamento');
   }
 }
 
@@ -1225,6 +1348,7 @@ module.exports = {
   initialize: initialize,
   getStatus: getStatus,
   getQR: getQR,
+  requestQR: requestQR,
   getGroups: getGroups,
   getGroupMembers: getGroupMembers,
   restart: restart,
