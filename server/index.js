@@ -44,7 +44,7 @@ const pool = new Pool({
   port: process.env.PG_PORT || 5432,
   database: process.env.PG_DATABASE || 'linkrotator_db',
   user: process.env.PG_USER || 'linkrotator',
-  password: process.env.PG_PASSWORD || 'LinkRotator2026'
+  password: process.env.PG_PASSWORD
 });
 
 // Configura timezone do Brasil no PostgreSQL e testa conexão
