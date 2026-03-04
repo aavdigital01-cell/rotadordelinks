@@ -1635,18 +1635,63 @@ app.get('/api/users/:uid', authMiddleware, async function(req, res) {
   }
 });
 
-// Upsert user on login (creates if not exists, updates lastLogin)
+// Login user (auto-create only if no users exist yet, otherwise must be pre-registered)
 app.post('/api/users/login', authMiddleware, async function(req, res) {
   try {
     var b = req.body;
     var uid = req.user.uid;
+    var email = b.email || req.user.email || '';
+
+    // Check if user already exists
+    var existing = await pool.query('SELECT * FROM users WHERE uid=$1', [uid]);
+    if (existing.rows.length > 0) {
+      // Existing user - update last login
+      var result = await pool.query(
+        'UPDATE users SET email=$2, display_name=$3, last_login=NOW() WHERE uid=$1 RETURNING *',
+        [uid, email, b.displayName || '']
+      );
+      return res.json(mapUser(result.rows[0]));
+    }
+
+    // New user - only allow if no users exist yet (first user bootstrap)
+    var userCount = await pool.query('SELECT COUNT(*) as cnt FROM users');
+    if (parseInt(userCount.rows[0].cnt) > 0) {
+      return res.status(403).json({ error: 'Registro não autorizado. Peça ao administrador para cadastrar seu acesso.' });
+    }
+
+    // First user ever - auto-create as superadmin
     var result = await pool.query(
-      `INSERT INTO users (uid, email, display_name, last_login)
-       VALUES ($1, $2, $3, NOW())
-       ON CONFLICT (uid) DO UPDATE SET email=$2, display_name=$3, last_login=NOW()
-       RETURNING *`,
-      [uid, b.email || req.user.email || '', b.displayName || '']
+      `INSERT INTO users (uid, email, display_name, role, last_login)
+       VALUES ($1, $2, $3, 'superadmin', NOW()) RETURNING *`,
+      [uid, email, b.displayName || '']
     );
+    res.json(mapUser(result.rows[0]));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Pre-register a new user (superadmin only)
+app.post('/api/users', authMiddleware, async function(req, res) {
+  try {
+    var callerR = await pool.query('SELECT role FROM users WHERE uid=$1', [req.user.uid]);
+    if (callerR.rows.length === 0 || callerR.rows[0].role !== 'superadmin') {
+      return res.status(403).json({ error: 'Apenas Super Admin pode cadastrar usuários' });
+    }
+    var b = req.body;
+    if (!b.uid || !b.email) {
+      return res.status(400).json({ error: 'uid e email são obrigatórios' });
+    }
+    var result = await pool.query(
+      `INSERT INTO users (uid, email, display_name, role)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (uid) DO NOTHING
+       RETURNING *`,
+      [b.uid, b.email, b.displayName || '', b.role || 'admin']
+    );
+    if (result.rows.length === 0) {
+      return res.status(409).json({ error: 'Usuário já existe' });
+    }
     res.json(mapUser(result.rows[0]));
   } catch (err) {
     res.status(500).json({ error: err.message });
