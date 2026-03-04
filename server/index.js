@@ -1694,6 +1694,7 @@ app.delete('/api/users/:uid', authMiddleware, async function(req, res) {
 // Executive summary - all key metrics in one call
 app.get('/api/analytics/summary', authMiddleware, async function(req, res) {
   try {
+    var days = validateDays(req.query.days, 1);
     var dateFilter = buildDateFilter(req.query, 1);
 
     var [clicksR, eventsR, groupsR, metaR, metaSpendR] = await Promise.all([
