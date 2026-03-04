@@ -68,12 +68,32 @@ app.use(cors({
 app.use(express.json());
 
 // Auth middleware - verifica Firebase token
+// Rate limit for failed auth attempts (per IP)
+var authFailures = {};
+setInterval(function() {
+  var now = Date.now();
+  Object.keys(authFailures).forEach(function(ip) {
+    if (now - authFailures[ip].last > 15 * 60 * 1000) delete authFailures[ip];
+  });
+}, 5 * 60 * 1000);
+
 async function authMiddleware(req, res, next) {
   if (!firebaseReady) {
     // Firebase not configured - allow requests without auth for development
     req.user = { uid: 'dev-user', email: 'dev@localhost' };
     return next();
   }
+
+  var ip = req.headers['x-forwarded-for'] || req.ip;
+  var af = authFailures[ip];
+  if (af && af.count >= 20) {
+    var elapsed = Date.now() - af.last;
+    if (elapsed < 15 * 60 * 1000) {
+      return res.status(429).json({ error: 'Muitas tentativas. Aguarde 15 minutos.' });
+    }
+    delete authFailures[ip];
+  }
+
   var token = req.headers.authorization;
   if (!token || !token.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Token não fornecido' });
@@ -81,8 +101,12 @@ async function authMiddleware(req, res, next) {
   try {
     var decoded = await admin.auth().verifyIdToken(token.split('Bearer ')[1]);
     req.user = decoded;
+    if (authFailures[ip]) delete authFailures[ip];
     next();
   } catch (err) {
+    if (!authFailures[ip]) authFailures[ip] = { count: 0, last: 0 };
+    authFailures[ip].count++;
+    authFailures[ip].last = Date.now();
     return res.status(401).json({ error: 'Token inválido' });
   }
 }
