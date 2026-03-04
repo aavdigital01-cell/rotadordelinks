@@ -4554,7 +4554,8 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
       var eventsHtml = '';
       var evList = (evData.events || []).slice(0, 20);
       evList.forEach(function(d) {
-        var time = d.timestamp && d.timestamp._seconds ? new Date(d.timestamp._seconds * 1000).toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit',timeZone:'America/Sao_Paulo'}) : '-';
+        var ts = d.timestamp && (d.timestamp.seconds || d.timestamp._seconds);
+        var time = ts ? new Date(ts * 1000).toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit',timeZone:'America/Sao_Paulo'}) : '-';
         var groupName = d.groupName || (d.whatsappGroupId ? d.whatsappGroupId.substring(0,25) : '-');
         eventsHtml += '<tr><td>' + time + '</td><td style="max-width:150px;overflow:hidden;text-overflow:ellipsis">' + escHtml(groupName) + '</td><td>' + (d.action === 'join' ? '<span style="color:var(--accent)"><i class="fas fa-arrow-up"></i> Entrou</span>' : '<span style="color:var(--danger)"><i class="fas fa-arrow-down"></i> Saiu</span>') + '</td><td>***' + escHtml(d.phonePartial || '') + '</td></tr>';
       });
@@ -6273,7 +6274,8 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
         joinsToday = evData.joins || 0;
         leavesToday = evData.leaves || 0;
         evData.events.forEach(function(e) {
-          var time = e.timestamp && e.timestamp._seconds ? new Date(e.timestamp._seconds * 1000) : new Date();
+          var ts = e.timestamp && (e.timestamp.seconds || e.timestamp._seconds);
+          var time = ts ? new Date(ts * 1000) : new Date();
           var timeStr = time.toLocaleString('pt-BR', {timeZone: 'America/Sao_Paulo'});
           var groupName = e.groupName || e.whatsappGroupId || 'N/A';
           var actionBadge = e.action === 'join' ?

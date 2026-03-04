@@ -1033,7 +1033,7 @@ app.get('/api/member-events/today', authMiddleware, async function(req, res) {
         phone: r.phone,
         phonePartial: r.phone_partial,
         action: r.action,
-        timestamp: { _seconds: Math.floor(new Date(r.timestamp).getTime() / 1000) }
+        timestamp: r.timestamp ? { seconds: Math.floor(new Date(r.timestamp).getTime() / 1000) } : null
       };
     });
     res.json({ joins: joins, leaves: leaves, net: joins - leaves, total: events.length, events: events });
