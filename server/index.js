@@ -1554,14 +1554,33 @@ app.get('/api/exchange-rate', authMiddleware, async function(req, res) {
 // ===== WHATSAPP ROUTES =====
 
 // Webhook da Evolution API (aceita eventos com ou sem apikey)
+// Suporta formatos v1 e v2
 app.post('/api/whatsapp/webhook', async function(req, res) {
   try {
-    // Log para debug de webhooks recebidos
-    var event = req.body && req.body.event;
+    var body = req.body;
+    var event = body && (body.event || body.action);
     if (event) {
-      console.log('[WEBHOOK] Evento recebido: ' + event);
+      console.log('[WEBHOOK] Evento recebido: ' + event + ' | instance: ' + (body.instance || body.instanceName || 'N/A'));
+    } else {
+      console.log('[WEBHOOK] Payload recebido (sem event):', JSON.stringify(body).substring(0, 200));
     }
-    await whatsappMonitor.handleWebhook(req.body);
+    await whatsappMonitor.handleWebhook(body);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[WEBHOOK] Erro:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Rota alternativa para webhooks (Evolution API v2 pode enviar para paths diferentes)
+app.post('/api/whatsapp/webhook/:event', async function(req, res) {
+  try {
+    var body = req.body;
+    if (!body.event && req.params.event) {
+      body.event = req.params.event.replace(/-/g, '.').toUpperCase().replace(/\./g, '_');
+    }
+    console.log('[WEBHOOK] Evento via path: ' + (body.event || req.params.event));
+    await whatsappMonitor.handleWebhook(body);
     res.json({ ok: true });
   } catch (err) {
     console.error('[WEBHOOK] Erro:', err.message);
@@ -1570,7 +1589,35 @@ app.post('/api/whatsapp/webhook', async function(req, res) {
 });
 
 app.get('/api/whatsapp/status', authMiddleware, function(req, res) {
-  res.json(whatsappMonitor.getStatus());
+  var status = whatsappMonitor.getStatus();
+  // Adiciona info extra para debug no frontend
+  status.serverTime = new Date().toISOString();
+  res.json(status);
+});
+
+// Rota de debug para testar conexão com Evolution API (apenas em dev)
+app.get('/api/whatsapp/debug', authMiddleware, async function(req, res) {
+  try {
+    var status = whatsappMonitor.getStatus();
+    var evoUrl = process.env.EVOLUTION_API_URL || 'não configurado';
+    var evoKey = process.env.EVOLUTION_API_KEY || process.env.AUTHENTICATION_API_KEY || '';
+    var evoInstance = process.env.EVOLUTION_INSTANCE_NAME || 'linkrotator';
+
+    var result = {
+      config: {
+        evolutionApiUrl: evoUrl,
+        evolutionApiKey: evoKey ? evoKey.substring(0, 4) + '***' : 'NÃO CONFIGURADA',
+        instanceName: evoInstance,
+        webhookUrl: (process.env.EVOLUTION_WEBHOOK_URL || process.env.FRONTEND_URL || 'http://localhost:' + (process.env.PORT || 3000)) + '/api/whatsapp/webhook'
+      },
+      status: status,
+      timestamp: new Date().toISOString()
+    };
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get('/api/whatsapp/qr', authMiddleware, async function(req, res) {

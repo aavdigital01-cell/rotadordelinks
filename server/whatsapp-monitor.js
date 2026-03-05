@@ -73,7 +73,7 @@ function hashPhone(phone) {
 }
 
 /**
- * Faz chamada à Evolution API
+ * Faz chamada à Evolution API com suporte a múltiplos formatos de resposta
  */
 async function evoApi(method, path, body) {
   var url = EVOLUTION_API_URL + path;
@@ -82,13 +82,23 @@ async function evoApi(method, path, body) {
     headers: {
       'Content-Type': 'application/json',
       'apikey': EVOLUTION_API_KEY
-    }
+    },
+    timeout: 15000
   };
-  if (body && (method === 'POST' || method === 'PUT')) {
+  if (body && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
     options.body = JSON.stringify(body);
   }
 
-  var response = await fetch(url, options);
+  console.log('[EVOLUTION] ' + method + ' ' + path);
+
+  var response;
+  try {
+    response = await fetch(url, options);
+  } catch (fetchErr) {
+    console.error('[EVOLUTION] Falha na conexão: ' + fetchErr.message);
+    throw new Error('Falha na conexão com Evolution API (' + EVOLUTION_API_URL + '): ' + fetchErr.message);
+  }
+
   var text = await response.text();
 
   var data;
@@ -104,10 +114,29 @@ async function evoApi(method, path, body) {
     if (data.response && data.response.message) {
       errMsg = Array.isArray(data.response.message) ? data.response.message.join('; ') : data.response.message;
     }
+    console.error('[EVOLUTION] Erro ' + response.status + ' em ' + path + ': ' + errMsg);
     throw new Error(errMsg);
   }
 
   return data;
+}
+
+/**
+ * Tenta múltiplos endpoints em sequência (para compat v1/v2)
+ */
+async function evoApiWithFallback(attempts) {
+  var lastErr = null;
+  for (var i = 0; i < attempts.length; i++) {
+    try {
+      return await evoApi(attempts[i].method, attempts[i].path, attempts[i].body);
+    } catch (err) {
+      lastErr = err;
+      var msg = (err.message || '').toLowerCase();
+      // Se for erro de autenticação ou instância não existe, não adianta tentar próximo
+      if (msg.includes('unauthorized') || msg.includes('401')) throw err;
+    }
+  }
+  throw lastErr;
 }
 
 /**
@@ -269,22 +298,41 @@ async function recordMemberEvent(groupId, groupName, memberPhone, action, source
 
 /**
  * Verifica se a instância existe na Evolution API
+ * Tenta múltiplos endpoints para compatibilidade v1/v2
  */
 async function instanceExists() {
-  try {
-    var data = await evoApi('GET', '/instance/fetchInstances');
-    if (Array.isArray(data)) {
-      return data.some(function(inst) {
-        // Evolution API v2 returns inst.name; v1 returns inst.instance.instanceName
-        var name = (inst.instance && inst.instance.instanceName) || inst.name || inst.instanceName;
-        return name === EVOLUTION_INSTANCE_NAME;
-      });
+  var endpoints = [
+    { method: 'GET', path: '/instance/fetchInstances' },
+    { method: 'GET', path: '/instance/fetchInstances?instanceName=' + EVOLUTION_INSTANCE_NAME },
+    { method: 'GET', path: '/instance/fetch/' + EVOLUTION_INSTANCE_NAME }
+  ];
+
+  for (var i = 0; i < endpoints.length; i++) {
+    try {
+      var data = await evoApi(endpoints[i].method, endpoints[i].path);
+      if (Array.isArray(data)) {
+        return data.some(function(inst) {
+          var name = (inst.instance && inst.instance.instanceName) || inst.name || inst.instanceName;
+          return name === EVOLUTION_INSTANCE_NAME;
+        });
+      }
+      // Resposta única (quando busca por nome)
+      if (data && !Array.isArray(data)) {
+        var name = (data.instance && data.instance.instanceName) || data.name || data.instanceName;
+        if (name === EVOLUTION_INSTANCE_NAME) return true;
+      }
+    } catch (err) {
+      var msg = (err.message || '').toLowerCase();
+      if (msg.includes('not found') || msg.includes('404')) continue;
+      if (msg.includes('unauthorized') || msg.includes('401')) {
+        console.error('[WHATSAPP] API Key inválida. Verifique EVOLUTION_API_KEY no .env');
+        connectionStatus.error = 'API Key inválida. Verifique EVOLUTION_API_KEY no .env';
+        return false;
+      }
+      console.warn('[WHATSAPP] Tentativa ' + (i + 1) + ' falhou:', err.message);
     }
-    return false;
-  } catch (err) {
-    console.error('[WHATSAPP] Erro ao verificar instâncias:', err.message);
-    return false;
   }
+  return false;
 }
 
 /**
@@ -307,6 +355,7 @@ async function createInstance() {
   try {
     var webhookUrl = await getWebhookUrl();
 
+    // Formato compatível com Evolution API v1 e v2
     var body = {
       instanceName: EVOLUTION_INSTANCE_NAME,
       integration: 'WHATSAPP-BAILEYS',
@@ -318,6 +367,7 @@ async function createInstance() {
       readStatus: false,
       syncFullHistory: false,
       webhook: {
+        enabled: true,
         url: webhookUrl,
         byEvents: false,
         base64: true,
@@ -336,23 +386,13 @@ async function createInstance() {
     console.log('[WHATSAPP] Criando instância "' + EVOLUTION_INSTANCE_NAME + '" na Evolution API...');
     console.log('[WHATSAPP] Webhook URL: ' + webhookUrl);
     var data = await evoApi('POST', '/instance/create', body);
-    console.log('[WHATSAPP] Instância criada com sucesso');
+    console.log('[WHATSAPP] Instância criada com sucesso:', JSON.stringify(data).substring(0, 300));
 
-    // Se a resposta já contém QR Code, salva
-    if (data) {
-      if (data.qrcode && data.qrcode.base64) {
-        currentQRBase64 = data.qrcode.base64;
-        currentQR = data.qrcode.code || data.qrcode.base64;
-        console.log('[WHATSAPP] QR Code recebido na criação da instância');
-      } else if (data.base64) {
-        currentQRBase64 = data.base64;
-        currentQR = data.code || data.base64;
-      }
-    }
+    // Extrai QR Code da resposta (múltiplos formatos possíveis)
+    extractQRFromResponse(data);
 
     return data;
   } catch (err) {
-    // Se já existe, ignora (Evolution API v2 returns "already in use" or "Forbidden")
     var msg = (err.message || '').toLowerCase();
     if (msg.includes('already') || msg.includes('in use') || msg.includes('forbidden') || msg.includes('instance name is not available')) {
       console.log('[WHATSAPP] Instância já existe, usando existente');
@@ -363,18 +403,68 @@ async function createInstance() {
 }
 
 /**
+ * Extrai QR Code de qualquer formato de resposta da Evolution API
+ */
+function extractQRFromResponse(data) {
+  if (!data) return;
+
+  // Formato v2: { qrcode: { base64: "...", code: "..." } }
+  if (data.qrcode && typeof data.qrcode === 'object') {
+    currentQRBase64 = data.qrcode.base64 || null;
+    currentQR = data.qrcode.code || data.qrcode.base64 || null;
+    if (currentQRBase64) console.log('[WHATSAPP] QR Code extraído (qrcode.base64)');
+    return;
+  }
+
+  // Formato v2 alt: { qrcode: "base64string" }
+  if (data.qrcode && typeof data.qrcode === 'string') {
+    currentQR = data.qrcode;
+    if (data.qrcode.length > 500) currentQRBase64 = data.qrcode;
+    console.log('[WHATSAPP] QR Code extraído (qrcode string)');
+    return;
+  }
+
+  // Formato v1: { base64: "..." }
+  if (data.base64) {
+    currentQRBase64 = data.base64;
+    currentQR = data.code || data.base64;
+    console.log('[WHATSAPP] QR Code extraído (base64)');
+    return;
+  }
+
+  // Formato alternativo: { code: "..." }
+  if (data.code && !data.pairingCode) {
+    currentQR = data.code;
+    console.log('[WHATSAPP] QR Code extraído (code)');
+  }
+}
+
+/**
  * Configura o webhook da instância existente
+ * Tenta múltiplos formatos para compatibilidade v1/v2
  */
 async function configureWebhook() {
   var webhookUrl = await getWebhookUrl();
 
-  // Tenta v2 primeiro, depois v1
-  var endpoints = [
-    { method: 'PUT', path: '/webhook/set/' + EVOLUTION_INSTANCE_NAME },
-    { method: 'POST', path: '/webhook/set/' + EVOLUTION_INSTANCE_NAME }
+  var webhookEvents = [
+    'QRCODE_UPDATED',
+    'CONNECTION_UPDATE',
+    'GROUPS_UPSERT',
+    'GROUP_UPDATE',
+    'GROUP_PARTICIPANTS_UPDATE'
   ];
 
-  var webhookBody = {
+  // Formato 1: v2 - campos no nível raiz (POST /webhook/set/{name})
+  var bodyV2Root = {
+    enabled: true,
+    url: webhookUrl,
+    webhookByEvents: false,
+    webhookBase64: true,
+    events: webhookEvents
+  };
+
+  // Formato 2: v2 aninhado (webhook: { ... })
+  var bodyV2Nested = {
     webhook: {
       enabled: true,
       url: webhookUrl,
@@ -382,24 +472,27 @@ async function configureWebhook() {
       base64: true,
       webhookByEvents: false,
       webhookBase64: true,
-      events: [
-        'QRCODE_UPDATED',
-        'CONNECTION_UPDATE',
-        'GROUPS_UPSERT',
-        'GROUP_UPDATE',
-        'GROUP_PARTICIPANTS_UPDATE'
-      ]
+      events: webhookEvents
     }
   };
 
-  for (var i = 0; i < endpoints.length; i++) {
+  // Tenta múltiplos endpoints e formatos
+  var attempts = [
+    { method: 'POST', path: '/webhook/set/' + EVOLUTION_INSTANCE_NAME, body: bodyV2Root },
+    { method: 'PUT', path: '/webhook/set/' + EVOLUTION_INSTANCE_NAME, body: bodyV2Root },
+    { method: 'POST', path: '/webhook/set/' + EVOLUTION_INSTANCE_NAME, body: bodyV2Nested },
+    { method: 'PUT', path: '/webhook/set/' + EVOLUTION_INSTANCE_NAME, body: bodyV2Nested }
+  ];
+
+  for (var i = 0; i < attempts.length; i++) {
     try {
-      await evoApi(endpoints[i].method, endpoints[i].path, webhookBody);
-      console.log('[WHATSAPP] Webhook configurado: ' + webhookUrl);
+      await evoApi(attempts[i].method, attempts[i].path, attempts[i].body);
+      console.log('[WHATSAPP] Webhook configurado com sucesso (formato ' + (i + 1) + '): ' + webhookUrl);
       return;
     } catch (err) {
-      if (i === endpoints.length - 1) {
+      if (i === attempts.length - 1) {
         console.warn('[WHATSAPP] Aviso ao configurar webhook:', err.message);
+        console.warn('[WHATSAPP] O webhook pode ter sido configurado na criação da instância. Verifique se eventos estão chegando.');
       }
     }
   }
@@ -407,14 +500,31 @@ async function configureWebhook() {
 
 /**
  * Verifica estado da conexão via Evolution API
+ * Suporta múltiplos formatos de resposta (v1/v2)
  */
 async function checkConnectionState() {
   try {
-    var data = await evoApi('GET', '/instance/connectionState/' + EVOLUTION_INSTANCE_NAME);
-    // Evolution API v2 returns { instance: { state } } or { state } directly
-    var state = (data.instance && data.instance.state) || data.state || 'close';
+    var data;
+    try {
+      data = await evoApi('GET', '/instance/connectionState/' + EVOLUTION_INSTANCE_NAME);
+    } catch (err1) {
+      // Fallback: tenta formato alternativo
+      try {
+        data = await evoApi('GET', '/instance/connectionState?instanceName=' + EVOLUTION_INSTANCE_NAME);
+      } catch (err2) {
+        throw err1;
+      }
+    }
 
-    if (state === 'open') {
+    // Evolution API v2 retorna { instance: { state } } ou { state } diretamente
+    var state = 'close';
+    if (data) {
+      state = (data.instance && data.instance.state) || data.state || data.status || 'close';
+      // Normaliza o estado
+      state = state.toLowerCase();
+    }
+
+    if (state === 'open' || state === 'connected') {
       if (!connectionStatus.ready) {
         connectionStatus.connected = true;
         connectionStatus.ready = true;
@@ -428,21 +538,23 @@ async function checkConnectionState() {
         // Busca info do número conectado
         try {
           var info = await evoApi('GET', '/instance/fetchInstances');
-          if (Array.isArray(info)) {
-            var inst = info.find(function(i) {
+          var instances = Array.isArray(info) ? info : (info && info.data ? info.data : []);
+          if (instances.length > 0) {
+            var inst = instances.find(function(i) {
               var name = (i.instance && i.instance.instanceName) || i.name || i.instanceName;
               return name === EVOLUTION_INSTANCE_NAME;
             });
             if (inst) {
-              // Evolution API v2: inst.ownerJid or inst.number; v1: inst.instance.owner
-              var owner = (inst.instance && inst.instance.owner) || inst.ownerJid || inst.number;
+              var owner = (inst.instance && inst.instance.owner) || inst.ownerJid || inst.number || inst.wuid;
               if (owner) {
                 connectionStatus.phone = owner.split('@')[0].split(':')[0];
                 console.log('[WHATSAPP] Número conectado: ' + connectionStatus.phone);
               }
             }
           }
-        } catch (e) {}
+        } catch (e) {
+          console.warn('[WHATSAPP] Erro ao buscar número conectado:', e.message);
+        }
 
         // Carrega snapshots e faz scan inicial
         await loadSnapshotsFromDB();
@@ -462,6 +574,10 @@ async function checkConnectionState() {
 
     return state;
   } catch (err) {
+    var errMsg = (err.message || '').toLowerCase();
+    if (errMsg.includes('connect') || errMsg.includes('econnrefused') || errMsg.includes('falha na conexão')) {
+      connectionStatus.error = 'Evolution API não está acessível em ' + EVOLUTION_API_URL + '. Verifique se está rodando.';
+    }
     console.error('[WHATSAPP] Erro ao verificar conexão:', err.message);
     return 'close';
   }
@@ -472,31 +588,27 @@ async function checkConnectionState() {
  */
 async function connectInstance() {
   try {
-    var data = await evoApi('GET', '/instance/connect/' + EVOLUTION_INSTANCE_NAME);
+    var data;
+    try {
+      data = await evoApi('GET', '/instance/connect/' + EVOLUTION_INSTANCE_NAME);
+    } catch (err1) {
+      // Fallback: tenta POST (algumas versões usam POST)
+      try {
+        data = await evoApi('POST', '/instance/connect/' + EVOLUTION_INSTANCE_NAME);
+      } catch (err2) {
+        throw err1;
+      }
+    }
 
-    // Evolution API pode retornar QR em diferentes formatos
-    if (data.base64) {
-      currentQRBase64 = data.base64;
-      currentQR = data.code || data.base64;
-      console.log('[WHATSAPP] QR Code gerado pela Evolution API (base64)');
-    } else if (data.qrcode) {
-      // v2 format: { qrcode: { base64, code } }
-      var qr = typeof data.qrcode === 'object' ? data.qrcode : { base64: data.qrcode };
-      currentQRBase64 = qr.base64 || null;
-      currentQR = qr.code || qr.base64 || null;
-      console.log('[WHATSAPP] QR Code gerado pela Evolution API (qrcode object)');
-    } else if (data.code) {
-      currentQR = data.code;
-      console.log('[WHATSAPP] QR Code gerado pela Evolution API (code text)');
-    } else if (data.pairingCode) {
-      console.log('[WHATSAPP] Pairing code retornado ao invés de QR');
-    } else {
-      console.log('[WHATSAPP] Resposta do connect:', JSON.stringify(data).substring(0, 200));
+    // Extrai QR Code da resposta
+    extractQRFromResponse(data);
+
+    if (!currentQR && !currentQRBase64 && data && !data.pairingCode) {
+      console.log('[WHATSAPP] Resposta do connect (sem QR):', JSON.stringify(data).substring(0, 300));
     }
 
     return data;
   } catch (err) {
-    // Se já está conectado
     var errMsg = (err.message || '').toLowerCase();
     if (errMsg.includes('already') || errMsg.includes('connected') || errMsg.includes('open') || errMsg.includes('the instance')) {
       console.log('[WHATSAPP] Já está conectado');
@@ -512,15 +624,28 @@ async function connectInstance() {
 /**
  * Processa eventos recebidos via webhook da Evolution API
  * Chamado pela rota POST /api/whatsapp/webhook no index.js
+ * Suporta formatos de payload v1 e v2
  */
 async function handleWebhook(body) {
-  if (!body || !body.event) return;
+  if (!body) return;
 
-  var event = body.event;
+  // Evolution API v2 pode enviar o evento como body.event ou body.action
+  var event = body.event || body.action;
+  if (!event) {
+    // Tenta detectar o tipo de evento pelo conteúdo
+    if (body.data && body.data.qrcode) event = 'QRCODE_UPDATED';
+    else if (body.data && body.data.state) event = 'CONNECTION_UPDATE';
+    else return;
+  }
+
   var data = body.data || body;
-  var instance = body.instance || body.instanceName;
+  // Evolution API v2 pode enviar instância como string ou objeto
+  var instance = body.instance || body.instanceName || body.sender;
+  if (typeof instance === 'object') {
+    instance = instance.instanceName || instance.name;
+  }
 
-  // Ignora eventos de outras instâncias
+  // Ignora eventos de outras instâncias (mas aceita se não vier nome)
   if (instance && instance !== EVOLUTION_INSTANCE_NAME) return;
 
   try {
@@ -684,10 +809,21 @@ async function getGroupName(groupId, forceRefresh) {
 
   try {
     if (connectionStatus.ready) {
-      var data = await evoApi('GET', '/group/findGroupInfos/' + EVOLUTION_INSTANCE_NAME + '?groupJid=' + groupId);
-      if (data && data.subject) {
-        groupNameCache[groupId] = { name: data.subject, timestamp: Date.now() };
-        return data.subject;
+      var endpoints = [
+        '/group/findGroupInfos/' + EVOLUTION_INSTANCE_NAME + '?groupJid=' + groupId,
+        '/group/findParticipants/' + EVOLUTION_INSTANCE_NAME + '?groupJid=' + groupId
+      ];
+      for (var i = 0; i < endpoints.length; i++) {
+        try {
+          var data = await evoApi('GET', endpoints[i]);
+          var name = data && (data.subject || data.groupName || data.name);
+          if (name) {
+            groupNameCache[groupId] = { name: name, timestamp: Date.now() };
+            return name;
+          }
+        } catch (e) {
+          if (i === endpoints.length - 1 && cached) return cached.name;
+        }
       }
     }
   } catch (err) {
@@ -698,13 +834,26 @@ async function getGroupName(groupId, forceRefresh) {
 
 /**
  * Busca todos os grupos via Evolution API
+ * Tenta múltiplos endpoints para compat v1/v2
  */
 async function fetchAllGroups() {
-  var data = await evoApi('GET', '/group/fetchAllGroups/' + EVOLUTION_INSTANCE_NAME + '?getParticipants=true');
-  // A Evolution API pode retornar array diretamente ou objeto
-  if (Array.isArray(data)) return data;
-  if (data && data.data && Array.isArray(data.data)) return data.data;
-  if (data && Array.isArray(data.groups)) return data.groups;
+  var endpoints = [
+    '/group/fetchAllGroups/' + EVOLUTION_INSTANCE_NAME + '?getParticipants=true',
+    '/group/fetchAllGroups/' + EVOLUTION_INSTANCE_NAME,
+    '/group/fetchAll/' + EVOLUTION_INSTANCE_NAME + '?getParticipants=true'
+  ];
+
+  for (var i = 0; i < endpoints.length; i++) {
+    try {
+      var data = await evoApi('GET', endpoints[i]);
+      if (Array.isArray(data)) return data;
+      if (data && data.data && Array.isArray(data.data)) return data.data;
+      if (data && Array.isArray(data.groups)) return data.groups;
+      return [];
+    } catch (err) {
+      if (i === endpoints.length - 1) throw err;
+    }
+  }
   return [];
 }
 
@@ -903,14 +1052,26 @@ function initialize(pgPool) {
   reconnectAttempts = 0;
 
   EVOLUTION_API_URL = (process.env.EVOLUTION_API_URL || 'http://localhost:8080').replace(/\/$/, '');
-  EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY || '';
+  EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY || process.env.AUTHENTICATION_API_KEY || '';
   EVOLUTION_INSTANCE_NAME = process.env.EVOLUTION_INSTANCE_NAME || 'linkrotator';
 
   if (!EVOLUTION_API_URL || !EVOLUTION_API_KEY) {
+    console.error('[WHATSAPP] ===================================================');
     console.error('[WHATSAPP] EVOLUTION_API_URL e EVOLUTION_API_KEY são obrigatórios no .env');
+    console.error('[WHATSAPP] Configure as variáveis de ambiente:');
+    console.error('[WHATSAPP]   EVOLUTION_API_URL=http://localhost:8080');
+    console.error('[WHATSAPP]   EVOLUTION_API_KEY=SuaChaveSecretaAqui');
+    console.error('[WHATSAPP] ===================================================');
     connectionStatus.error = 'Evolution API não configurada. Verifique o .env';
     return;
   }
+
+  console.log('[WHATSAPP] ===================================================');
+  console.log('[WHATSAPP] Inicializando Evolution API...');
+  console.log('[WHATSAPP] URL: ' + EVOLUTION_API_URL);
+  console.log('[WHATSAPP] Instância: ' + EVOLUTION_INSTANCE_NAME);
+  console.log('[WHATSAPP] API Key: ' + EVOLUTION_API_KEY.substring(0, 4) + '***');
+  console.log('[WHATSAPP] ===================================================');
 
   // Garante que as colunas necessárias existem
   Promise.all([
@@ -919,25 +1080,49 @@ function initialize(pgPool) {
     pool.query('ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS invite_code VARCHAR(255)')
   ]).then(async function() {
     console.log('[WHATSAPP] Colunas do banco verificadas');
-    console.log('[WHATSAPP] Inicializando Evolution API...');
-    console.log('[WHATSAPP] URL: ' + EVOLUTION_API_URL);
-    console.log('[WHATSAPP] Instância: ' + EVOLUTION_INSTANCE_NAME);
 
     try {
+      // Testa conectividade com a Evolution API
+      console.log('[WHATSAPP] Testando conectividade com Evolution API...');
+      try {
+        await evoApi('GET', '/');
+        console.log('[WHATSAPP] Evolution API acessível');
+      } catch (connErr) {
+        var msg = (connErr.message || '').toLowerCase();
+        // 404 na raiz é ok - significa que o servidor respondeu
+        if (!msg.includes('404') && !msg.includes('not found')) {
+          if (msg.includes('econnrefused') || msg.includes('falha na conexão') || msg.includes('fetch')) {
+            console.error('[WHATSAPP] Evolution API NÃO está acessível em ' + EVOLUTION_API_URL);
+            console.error('[WHATSAPP] Verifique se a Evolution API está rodando e a URL está correta');
+            connectionStatus.error = 'Evolution API não acessível em ' + EVOLUTION_API_URL;
+            // Inicia poll mesmo assim, pode estar iniciando
+            startConnectionPoll();
+            return;
+          }
+          if (msg.includes('unauthorized') || msg.includes('401')) {
+            console.error('[WHATSAPP] API Key inválida! Verifique EVOLUTION_API_KEY no .env');
+            connectionStatus.error = 'API Key inválida. Verifique EVOLUTION_API_KEY';
+            return;
+          }
+        }
+        // 404 ou outros erros na raiz são OK
+        console.log('[WHATSAPP] Evolution API respondeu (HTTP OK ou esperado)');
+      }
+
       // Verifica se instância já existe
       var exists = await instanceExists();
       if (!exists) {
+        console.log('[WHATSAPP] Instância não encontrada, criando...');
         await createInstance();
       } else {
         console.log('[WHATSAPP] Instância "' + EVOLUTION_INSTANCE_NAME + '" encontrada');
-        // Reconfigura webhook para garantir que aponta para nosso servidor
         await configureWebhook();
       }
 
       // Verifica estado da conexão
       var state = await checkConnectionState();
-      if (state !== 'open') {
-        console.log('[WHATSAPP] Instância não conectada. Solicitando QR Code...');
+      if (state !== 'open' && state !== 'connected') {
+        console.log('[WHATSAPP] Instância não conectada (estado: ' + state + '). Solicitando QR Code...');
         await connectInstance();
       }
 
@@ -947,6 +1132,8 @@ function initialize(pgPool) {
     } catch (err) {
       console.error('[WHATSAPP] Erro ao inicializar Evolution API:', err.message);
       connectionStatus.error = 'Erro ao conectar com Evolution API: ' + err.message;
+      // Inicia poll mesmo com erro, para tentar reconectar depois
+      startConnectionPoll();
     }
   }).catch(function(err) {
     console.error('[WHATSAPP] Erro ao preparar colunas:', err.message);
@@ -1299,12 +1486,22 @@ async function restart() {
   connectionStatus.reconnectAttempts = 0;
   scanInProgress = false;
 
-  try {
-    // Faz logout da instância
-    await evoApi('DELETE', '/instance/logout/' + EVOLUTION_INSTANCE_NAME);
-    console.log('[WHATSAPP] Logout realizado');
-  } catch (err) {
-    console.warn('[WHATSAPP] Aviso no logout:', err.message);
+  // Tenta logout com múltiplos endpoints
+  var logoutPaths = [
+    { method: 'DELETE', path: '/instance/logout/' + EVOLUTION_INSTANCE_NAME },
+    { method: 'POST', path: '/instance/logout/' + EVOLUTION_INSTANCE_NAME }
+  ];
+
+  for (var i = 0; i < logoutPaths.length; i++) {
+    try {
+      await evoApi(logoutPaths[i].method, logoutPaths[i].path);
+      console.log('[WHATSAPP] Logout realizado');
+      break;
+    } catch (err) {
+      if (i === logoutPaths.length - 1) {
+        console.warn('[WHATSAPP] Aviso no logout:', err.message);
+      }
+    }
   }
 
   // Aguarda e reconecta
@@ -1330,10 +1527,21 @@ async function disconnect() {
   currentQRBase64 = null;
   scanInProgress = false;
 
-  try {
-    await evoApi('DELETE', '/instance/logout/' + EVOLUTION_INSTANCE_NAME);
-  } catch (err) {
-    console.warn('[WHATSAPP] Aviso no disconnect:', err.message);
+  var logoutPaths = [
+    { method: 'DELETE', path: '/instance/logout/' + EVOLUTION_INSTANCE_NAME },
+    { method: 'POST', path: '/instance/logout/' + EVOLUTION_INSTANCE_NAME }
+  ];
+
+  for (var i = 0; i < logoutPaths.length; i++) {
+    try {
+      await evoApi(logoutPaths[i].method, logoutPaths[i].path);
+      console.log('[WHATSAPP] Desconectado com sucesso');
+      break;
+    } catch (err) {
+      if (i === logoutPaths.length - 1) {
+        console.warn('[WHATSAPP] Aviso no disconnect:', err.message);
+      }
+    }
   }
 }
 

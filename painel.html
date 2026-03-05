@@ -2109,6 +2109,10 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
               <span id="whatsappStatusText" style="font-size:14px;font-weight:600">Conectado</span>
             </div>
             <div style="font-size:12px;color:var(--text-muted);margin-top:4px" id="whatsappPhone"></div>
+            <div style="margin-top:8px;display:flex;gap:6px">
+              <button class="btn btn-secondary btn-sm" onclick="restartWhatsapp()" style="font-size:11px"><i class="fas fa-sync-alt"></i> Reiniciar</button>
+              <button class="btn btn-secondary btn-sm" onclick="disconnectWhatsapp()" style="font-size:11px;border-color:var(--danger);color:var(--danger)"><i class="fas fa-power-off"></i> Desconectar</button>
+            </div>
           </div>
           <div class="stat-card">
             <div class="stat-header">
@@ -5568,6 +5572,18 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     btn.textContent = 'Reconectar WhatsApp';
   };
 
+  // ===== DISCONNECT WHATSAPP =====
+  window.disconnectWhatsapp = async function() {
+    if (!confirm('Tem certeza que deseja desconectar o WhatsApp?')) return;
+    try {
+      await serverPost('/api/whatsapp/disconnect', {});
+      showToast('WhatsApp desconectado!', 'success');
+      setTimeout(loadWhatsAppData, 1000);
+    } catch(e) {
+      showToast('Erro: ' + e.message, 'error');
+    }
+  };
+
   // ===== SAVE ALERT CONFIG =====
   window.saveAlertConfig = async function() {
     try {
@@ -6060,6 +6076,12 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
       if (!online) {
         document.getElementById('whatsappNotConnected').style.display = 'block';
         document.getElementById('whatsappConnected').style.display = 'none';
+        // Mostra erro de servidor offline
+        var errorDiv = document.getElementById('pairingError');
+        if (errorDiv) {
+          errorDiv.style.display = 'block';
+          errorDiv.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Servidor offline. Verifique se o servidor Node.js e a Evolution API estão rodando.';
+        }
         loadWhatsAppFromCache();
         return;
       }
@@ -6078,11 +6100,23 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
 
         // Mostra erro da Evolution API se houver
         var errorDiv = document.getElementById('pairingError');
-        if (status.error && status.error !== 'Desconectado. Conecte pelo painel.') {
+        if (status.error && status.error !== 'Desconectado. Conecte pelo painel.' && status.error !== 'Conectando...') {
           if (errorDiv) {
             errorDiv.style.display = 'block';
-            errorDiv.textContent = status.error;
+            errorDiv.innerHTML = '<i class="fas fa-exclamation-triangle"></i> ' + escHtml(status.error);
           }
+        } else if (errorDiv) {
+          errorDiv.style.display = 'none';
+        }
+
+        // Se está conectando, mostra status
+        if (status.error === 'Conectando...') {
+          var container = document.getElementById('qrCodeContainer');
+          if (container) {
+            container.innerHTML = '<div style="text-align:center"><i class="fas fa-spinner fa-spin" style="font-size:24px;color:var(--accent);margin-bottom:12px"></i><p style="font-size:13px;color:var(--text-secondary)">Conectando à Evolution API...<br>Aguarde alguns segundos</p></div>';
+          }
+          setTimeout(loadWhatsAppData, 5000);
+          return;
         }
 
         loadQRCode();
@@ -6092,6 +6126,12 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
       document.getElementById('whatsappNotConnected').style.display = 'none';
       document.getElementById('whatsappConnected').style.display = 'block';
       document.getElementById('whatsappPhone').textContent = 'Número: +' + (status.phone || 'N/A');
+
+      // Limpa timers de QR polling se existirem
+      if (window._qrPollTimer) {
+        clearInterval(window._qrPollTimer);
+        window._qrPollTimer = null;
+      }
 
       await Promise.all([loadWhatsAppGroups(), loadMemberEvents(), loadWhatsAppNumbers()]);
     } catch(err) {
@@ -6292,16 +6332,27 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
       var data = await serverFetch('/api/whatsapp/qr');
       var container = document.getElementById('qrCodeContainer');
       if (data.qr) {
-        // Evolution API retorna base64 da imagem diretamente
-        if (data.qr.startsWith('data:image')) {
-          container.innerHTML = '<img src="' + data.qr + '" style="width:256px;height:256px;border-radius:8px">';
-        } else if (data.qr.length > 500) {
-          // Base64 sem prefixo - adiciona
-          container.innerHTML = '<img src="data:image/png;base64,' + data.qr + '" style="width:256px;height:256px;border-radius:8px">';
-        } else {
-          // QR code como texto - usa API externa para gerar imagem
-          container.innerHTML = '<img src="https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=' + encodeURIComponent(data.qr) + '" style="width:256px;height:256px;border-radius:8px">';
+        var qrValue = data.qr;
+        var imgHtml = '';
+
+        // Evolution API pode retornar QR em diferentes formatos:
+        // 1. data:image/... (base64 com prefixo)
+        // 2. base64 puro (sem prefixo, longo)
+        // 3. Texto do QR code (curto, para gerar imagem)
+        if (typeof qrValue === 'string') {
+          if (qrValue.startsWith('data:image')) {
+            imgHtml = '<img src="' + qrValue + '" style="width:256px;height:256px;border-radius:8px">';
+          } else if (qrValue.length > 500) {
+            // Base64 sem prefixo
+            imgHtml = '<img src="data:image/png;base64,' + qrValue + '" style="width:256px;height:256px;border-radius:8px">';
+          } else {
+            // QR code como texto - usa API externa para gerar imagem
+            imgHtml = '<img src="https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=' + encodeURIComponent(qrValue) + '" style="width:256px;height:256px;border-radius:8px">';
+          }
         }
+
+        container.innerHTML = imgHtml + '<p style="font-size:12px;color:var(--text-muted);margin-top:8px">Escaneie com o WhatsApp do celular</p>';
+
         // Auto-refresh QR a cada 20s enquanto não conectou
         if (window._qrPollTimer) clearInterval(window._qrPollTimer);
         window._qrPollTimer = setInterval(async function() {
@@ -6309,6 +6360,7 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
             var s = await serverFetch('/api/whatsapp/status');
             if (s.connected) {
               clearInterval(window._qrPollTimer);
+              window._qrPollTimer = null;
               showToast('WhatsApp conectado com sucesso!', 'success');
               setTimeout(loadWhatsAppData, 500);
             } else {
@@ -6316,7 +6368,8 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
             }
           } catch(e) {}
         }, 20000);
-        setTimeout(function() { if (window._qrPollTimer) clearInterval(window._qrPollTimer); }, 180000);
+        // Para de verificar após 3 minutos
+        setTimeout(function() { if (window._qrPollTimer) { clearInterval(window._qrPollTimer); window._qrPollTimer = null; } }, 180000);
       } else if (data.status === 'connected') {
         container.innerHTML = '<p style="color:var(--accent)"><i class="fas fa-check-circle"></i> Conectado!</p>';
         setTimeout(loadWhatsAppData, 1000);
@@ -6324,10 +6377,11 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
         container.innerHTML = '<div style="text-align:center"><i class="fas fa-spinner fa-spin" style="font-size:24px;color:var(--accent);margin-bottom:12px"></i><p style="font-size:13px;color:var(--text-secondary)">Inicializando Evolution API...<br>Aguarde alguns segundos</p></div>';
         setTimeout(loadQRCode, 5000);
       } else {
-        container.innerHTML = '<p>Aguardando QR Code... <button class="btn btn-secondary btn-sm" onclick="refreshQR()">Tentar novamente</button></p>';
+        var errorMsg = data.error ? '<br><span style="font-size:11px;color:var(--danger)">' + escHtml(data.error) + '</span>' : '';
+        container.innerHTML = '<div style="text-align:center"><p style="color:var(--text-muted)">Aguardando QR Code...' + errorMsg + '</p><button class="btn btn-secondary btn-sm" onclick="refreshQR()" style="margin-top:8px"><i class="fas fa-sync"></i> Tentar novamente</button></div>';
       }
     } catch(e) {
-      document.getElementById('qrCodeContainer').innerHTML = '<p style="color:var(--text-muted)">Servidor offline. Verifique se o servidor e a Evolution API est\u00e3o rodando.</p>';
+      document.getElementById('qrCodeContainer').innerHTML = '<div style="text-align:center"><p style="color:var(--danger)"><i class="fas fa-exclamation-triangle"></i> Servidor offline</p><p style="font-size:12px;color:var(--text-muted)">Verifique se o servidor e a Evolution API estão rodando</p><button class="btn btn-secondary btn-sm" onclick="refreshQR()" style="margin-top:8px"><i class="fas fa-sync"></i> Tentar novamente</button></div>';
     }
   }
 
