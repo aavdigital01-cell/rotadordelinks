@@ -476,12 +476,12 @@ async function configureWebhook() {
     }
   };
 
-  // Tenta múltiplos endpoints e formatos
+  // Tenta múltiplos endpoints e formatos (nested POST primeiro - mais compatível)
   var attempts = [
-    { method: 'POST', path: '/webhook/set/' + EVOLUTION_INSTANCE_NAME, body: bodyV2Root },
-    { method: 'PUT', path: '/webhook/set/' + EVOLUTION_INSTANCE_NAME, body: bodyV2Root },
     { method: 'POST', path: '/webhook/set/' + EVOLUTION_INSTANCE_NAME, body: bodyV2Nested },
-    { method: 'PUT', path: '/webhook/set/' + EVOLUTION_INSTANCE_NAME, body: bodyV2Nested }
+    { method: 'PUT', path: '/webhook/set/' + EVOLUTION_INSTANCE_NAME, body: bodyV2Nested },
+    { method: 'POST', path: '/webhook/set/' + EVOLUTION_INSTANCE_NAME, body: bodyV2Root },
+    { method: 'PUT', path: '/webhook/set/' + EVOLUTION_INSTANCE_NAME, body: bodyV2Root }
   ];
 
   for (var i = 0; i < attempts.length; i++) {
@@ -603,7 +603,37 @@ async function connectInstance() {
     // Extrai QR Code da resposta
     extractQRFromResponse(data);
 
-    if (!currentQR && !currentQRBase64 && data && !data.pairingCode) {
+    // Se count === 0, QR attempts exhausted - precisa reiniciar a instância
+    if (!currentQR && !currentQRBase64 && data && typeof data.count !== 'undefined' && data.count === 0) {
+      console.log('[WHATSAPP] QR code expirado (count=0). Reiniciando instância para gerar novo QR...');
+      try {
+        // Tenta restart da instância
+        try {
+          await evoApi('PUT', '/instance/restart/' + EVOLUTION_INSTANCE_NAME);
+        } catch (restartErr) {
+          // Fallback: logout e reconectar
+          try {
+            await evoApi('DELETE', '/instance/logout/' + EVOLUTION_INSTANCE_NAME);
+          } catch (logoutErr) {
+            // Ignora erro de logout
+          }
+        }
+        // Aguarda instância reiniciar
+        await new Promise(function(resolve) { setTimeout(resolve, 3000); });
+        // Tenta conectar novamente para obter novo QR
+        try {
+          var retryData = await evoApi('GET', '/instance/connect/' + EVOLUTION_INSTANCE_NAME);
+          extractQRFromResponse(retryData);
+          if (currentQR || currentQRBase64) {
+            console.log('[WHATSAPP] Novo QR Code gerado após restart');
+          }
+        } catch (retryErr) {
+          console.warn('[WHATSAPP] Falha ao reconectar após restart:', retryErr.message);
+        }
+      } catch (err) {
+        console.warn('[WHATSAPP] Falha ao reiniciar instância:', err.message);
+      }
+    } else if (!currentQR && !currentQRBase64 && data && !data.pairingCode) {
       console.log('[WHATSAPP] Resposta do connect (sem QR):', JSON.stringify(data).substring(0, 300));
     }
 
@@ -1077,7 +1107,8 @@ function initialize(pgPool) {
   Promise.all([
     pool.query('ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS member_snapshot JSONB'),
     pool.query('ALTER TABLE member_events ADD COLUMN IF NOT EXISTS source VARCHAR(20) DEFAULT \'realtime\''),
-    pool.query('ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS invite_code VARCHAR(255)')
+    pool.query('ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS invite_code VARCHAR(255)'),
+    pool.query('ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS sequential_counter INTEGER DEFAULT 0')
   ]).then(async function() {
     console.log('[WHATSAPP] Colunas do banco verificadas');
 
