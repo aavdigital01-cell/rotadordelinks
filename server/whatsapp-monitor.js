@@ -1128,20 +1128,23 @@ function initialize(pgPool) {
     { sql: 'ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS sequential_counter INTEGER DEFAULT 0', desc: 'campaigns.sequential_counter' }
   ];
 
-  var columnResults = [];
-  for (var qi = 0; qi < columnQueries.length; qi++) {
-    try {
-      await pool.query(columnQueries[qi].sql);
-      columnResults.push(columnQueries[qi].desc + ': OK');
-    } catch (colErr) {
-      console.warn('[WHATSAPP] Aviso ao adicionar coluna ' + columnQueries[qi].desc + ': ' + colErr.message);
-      columnResults.push(columnQueries[qi].desc + ': ' + colErr.message);
+  // Executa cada ALTER TABLE separadamente (sem Promise.all para não bloquear em caso de erro)
+  var runColumnMigrations = function(index) {
+    if (index >= columnQueries.length) {
+      console.log('[WHATSAPP] Colunas do banco verificadas');
+      continueInit();
+      return;
     }
-  }
-  console.log('[WHATSAPP] Colunas verificadas: ' + columnResults.join(', '));
+    pool.query(columnQueries[index].sql).then(function() {
+      runColumnMigrations(index + 1);
+    }).catch(function(colErr) {
+      console.warn('[WHATSAPP] Aviso ao adicionar coluna ' + columnQueries[index].desc + ': ' + colErr.message);
+      runColumnMigrations(index + 1);
+    });
+  };
 
-  // Continua inicialização mesmo se alguma coluna falhou
-  (async function() {
+  var continueInit = function() {
+    (async function() {
 
     try {
       // Testa conectividade com a Evolution API
@@ -1197,7 +1200,10 @@ function initialize(pgPool) {
       // Inicia poll mesmo com erro, para tentar reconectar depois
       startConnectionPoll();
     }
-  })();
+    })();
+  };
+
+  runColumnMigrations(0);
 }
 
 /**
