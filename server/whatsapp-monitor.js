@@ -399,16 +399,33 @@ async function createInstance() {
     // Extrai QR Code da resposta de criação (múltiplos formatos possíveis)
     extractQRFromResponse(data);
 
-    // Se QR não veio na resposta de criação, tenta buscar via connect após aguardar
+    // Se QR não veio na resposta de criação, tenta buscar via connect com retries
     if (!currentQR && !currentQRBase64) {
-      console.log('[WHATSAPP] QR não retornado na criação. Aguardando geração...');
-      await new Promise(function(resolve) { setTimeout(resolve, 5000); });
-      try {
-        var connectData = await evoApi('GET', '/instance/connect/' + EVOLUTION_INSTANCE_NAME);
-        console.log('[WHATSAPP] Resposta do connect pós-criação:', JSON.stringify(connectData).substring(0, 500));
-        extractQRFromResponse(connectData);
-      } catch (connectErr) {
-        console.warn('[WHATSAPP] Erro ao buscar QR pós-criação:', connectErr.message);
+      console.log('[WHATSAPP] QR não retornado na criação. Tentando via connect com retries...');
+      for (var retry = 0; retry < 4; retry++) {
+        var waitTime = (retry + 1) * 5000; // 5s, 10s, 15s, 20s
+        console.log('[WHATSAPP] Aguardando ' + (waitTime / 1000) + 's antes de tentar connect (tentativa ' + (retry + 1) + '/4)...');
+        await new Promise(function(resolve) { setTimeout(resolve, waitTime); });
+        // Verifica se QR chegou via webhook enquanto esperava
+        if (currentQR || currentQRBase64) {
+          console.log('[WHATSAPP] QR Code recebido via webhook durante espera!');
+          break;
+        }
+        try {
+          var connectData = await evoApi('GET', '/instance/connect/' + EVOLUTION_INSTANCE_NAME);
+          console.log('[WHATSAPP] Resposta connect tentativa ' + (retry + 1) + ':', JSON.stringify(connectData).substring(0, 500));
+          extractQRFromResponse(connectData);
+          if (currentQR || currentQRBase64) {
+            console.log('[WHATSAPP] QR Code obtido na tentativa ' + (retry + 1));
+            break;
+          }
+        } catch (connectErr) {
+          console.warn('[WHATSAPP] Erro no connect tentativa ' + (retry + 1) + ':', connectErr.message);
+        }
+      }
+      if (!currentQR && !currentQRBase64) {
+        console.log('[WHATSAPP] QR Code não disponível após 4 tentativas. A Evolution API pode precisar ser reiniciada.');
+        connectionStatus.error = 'QR Code não gerado. Tente reiniciar a Evolution API ou clique em "Recriar Instância".';
       }
     }
 

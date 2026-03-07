@@ -1,5 +1,12 @@
 var path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '.env') });
+var envPath = path.join(__dirname, '.env');
+var dotenvResult = require('dotenv').config({ path: envPath });
+if (dotenvResult.error) {
+  console.error('[ENV] Erro ao carregar .env de ' + envPath + ':', dotenvResult.error.message);
+} else {
+  console.log('[ENV] .env carregado de: ' + envPath);
+  console.log('[ENV] EVOLUTION_WEBHOOK_URL=' + (process.env.EVOLUTION_WEBHOOK_URL || '(não definido)'));
+}
 
 // ===== FUSO HORÁRIO DO BRASIL =====
 // Garante que new Date(), getHours(), setHours(), CURRENT_DATE, etc.
