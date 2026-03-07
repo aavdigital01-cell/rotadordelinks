@@ -386,12 +386,7 @@ async function createInstance() {
           'CONNECTION_UPDATE',
           'GROUPS_UPSERT',
           'GROUP_UPDATE',
-          'GROUP_PARTICIPANTS_UPDATE',
-          'qrcode.updated',
-          'connection.update',
-          'groups.upsert',
-          'groups.update',
-          'group-participants.update'
+          'GROUP_PARTICIPANTS_UPDATE'
         ]
       }
     };
@@ -436,17 +431,24 @@ function extractQRFromResponse(data) {
 
   // Log das chaves para debug
   console.log('[WHATSAPP] Chaves da resposta: ' + Object.keys(data).join(', '));
+  if (data.qrcode) {
+    console.log('[WHATSAPP] qrcode type: ' + typeof data.qrcode + ', value: ' + JSON.stringify(data.qrcode).substring(0, 200));
+  }
 
   // Formato v2: { qrcode: { base64: "...", code: "..." } }
   if (data.qrcode && typeof data.qrcode === 'object') {
     currentQRBase64 = data.qrcode.base64 || null;
     currentQR = data.qrcode.code || data.qrcode.base64 || null;
-    if (currentQR || currentQRBase64) console.log('[WHATSAPP] QR Code extraído (qrcode.base64)');
-    return;
+    if (currentQR || currentQRBase64) {
+      console.log('[WHATSAPP] QR Code extraído (qrcode object)');
+      return;
+    }
+    // qrcode é objeto mas sem valores úteis — continua tentando outros formatos
+    console.log('[WHATSAPP] qrcode é objeto mas sem base64/code útil');
   }
 
   // Formato v2 alt: { qrcode: "base64string" }
-  if (data.qrcode && typeof data.qrcode === 'string') {
+  if (data.qrcode && typeof data.qrcode === 'string' && data.qrcode.length > 0) {
     currentQR = data.qrcode;
     if (data.qrcode.length > 500) currentQRBase64 = data.qrcode;
     console.log('[WHATSAPP] QR Code extraído (qrcode string)');
@@ -475,18 +477,13 @@ function extractQRFromResponse(data) {
 async function configureWebhook() {
   var webhookUrl = await getWebhookUrl();
 
-  // Registra eventos em ambos formatos (v1 uppercase e v2 lowercase)
+  // Apenas eventos UPPERCASE (Evolution API v2 não aceita lowercase)
   var webhookEvents = [
     'QRCODE_UPDATED',
     'CONNECTION_UPDATE',
     'GROUPS_UPSERT',
     'GROUP_UPDATE',
-    'GROUP_PARTICIPANTS_UPDATE',
-    'qrcode.updated',
-    'connection.update',
-    'groups.upsert',
-    'groups.update',
-    'group-participants.update'
+    'GROUP_PARTICIPANTS_UPDATE'
   ];
 
   // Formato 1: v2 - campos no nível raiz (POST /webhook/set/{name})
