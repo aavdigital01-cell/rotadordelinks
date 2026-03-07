@@ -1727,8 +1727,9 @@ app.post('/api/whatsapp/groups/:groupId/link', authMiddleware, async function(re
 
 app.post('/api/whatsapp/restart', authMiddleware, async function(req, res) {
   try {
-    await whatsappMonitor.restart();
-    res.json({ success: true, message: 'WhatsApp reiniciado. Use QR Code ou Pairing Code para conectar.' });
+    var forceRecreate = req.body && req.body.forceRecreate;
+    await whatsappMonitor.restart(forceRecreate);
+    res.json({ success: true, message: forceRecreate ? 'Instância recriada do zero. Escaneie o QR Code.' : 'WhatsApp reiniciado. Use QR Code ou Pairing Code para conectar.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

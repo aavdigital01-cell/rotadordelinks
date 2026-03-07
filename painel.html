@@ -2091,7 +2091,10 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
               <div id="qrCodeContainer" style="margin:20px auto;max-width:256px">
                 <div class="empty-state"><p>Carregando QR Code...</p></div>
               </div>
-              <button class="btn btn-secondary" onclick="refreshQR()"><i class="fas fa-sync"></i> Atualizar QR Code</button>
+              <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+                <button class="btn btn-secondary" onclick="refreshQR()"><i class="fas fa-sync"></i> Atualizar QR Code</button>
+                <button class="btn btn-secondary" onclick="forceRecreateInstance()" style="border-color:var(--warning);color:var(--warning)"><i class="fas fa-redo"></i> Recriar Instância</button>
+              </div>
             </div>
           </div>
         </div>
@@ -5570,6 +5573,22 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
     }
     btn.disabled = false;
     btn.textContent = 'Reconectar WhatsApp';
+  };
+
+  // ===== FORCE RECREATE INSTANCE =====
+  window.forceRecreateInstance = async function() {
+    if (!confirm('Isso vai deletar a instância atual e criar uma nova do zero. O QR Code será regenerado. Continuar?')) return;
+    var btn = document.querySelector('[onclick="forceRecreateInstance()"]');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Recriando...'; }
+    try {
+      await serverPost('/api/whatsapp/restart', { forceRecreate: true });
+      showToast('Instância recriada! Aguarde o novo QR Code...', 'success');
+      window._connectingAttempts = 0;
+      setTimeout(loadWhatsAppData, 3000);
+    } catch(e) {
+      showToast('Erro: ' + e.message, 'error');
+    }
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-redo"></i> Recriar Instância'; }
   };
 
   // ===== DISCONNECT WHATSAPP =====

@@ -345,10 +345,18 @@ async function getWebhookUrl() {
     if (frontUrl && frontUrl !== '*') {
       webhookUrl = frontUrl;
     } else {
-      webhookUrl = 'http://localhost:' + (process.env.PORT || 3000);
+      // Se API_BASE_URL estiver configurado (domínio do backend), usa ele
+      var apiBase = (process.env.API_BASE_URL || '').trim();
+      if (apiBase) {
+        webhookUrl = apiBase;
+      } else {
+        webhookUrl = 'http://localhost:' + (process.env.PORT || 3000);
+      }
     }
   }
-  return webhookUrl.replace(/\/$/, '') + '/api/whatsapp/webhook';
+  var finalUrl = webhookUrl.replace(/\/$/, '') + '/api/whatsapp/webhook';
+  console.log('[WHATSAPP] Webhook URL resolvida: ' + finalUrl);
+  return finalUrl;
 }
 
 async function createInstance() {
@@ -1590,44 +1598,71 @@ async function getLiveGroupIds() {
 /**
  * Reinicia a instância (desconecta e reconecta)
  */
-async function restart() {
-  console.log('[WHATSAPP] Reiniciando instância Evolution API...');
+async function restart(forceRecreate) {
+  console.log('[WHATSAPP] Reiniciando instância Evolution API...' + (forceRecreate ? ' (forçando recriação)' : ''));
   connectionStatus.connected = false;
   connectionStatus.ready = false;
-  connectionStatus.error = null;
+  connectionStatus.error = 'Reiniciando...';
+  connectionStatus._connectingRetries = 0;
   currentQR = null;
   currentQRBase64 = null;
   reconnectAttempts = 0;
   connectionStatus.reconnectAttempts = 0;
   scanInProgress = false;
 
-  // Tenta logout com múltiplos endpoints
-  var logoutPaths = [
-    { method: 'DELETE', path: '/instance/logout/' + EVOLUTION_INSTANCE_NAME },
-    { method: 'POST', path: '/instance/logout/' + EVOLUTION_INSTANCE_NAME }
-  ];
-
-  for (var i = 0; i < logoutPaths.length; i++) {
+  if (forceRecreate) {
+    // Deleta a instância completamente e recria do zero
     try {
-      await evoApi(logoutPaths[i].method, logoutPaths[i].path);
-      console.log('[WHATSAPP] Logout realizado');
-      break;
-    } catch (err) {
-      if (i === logoutPaths.length - 1) {
-        console.warn('[WHATSAPP] Aviso no logout:', err.message);
+      await evoApi('DELETE', '/instance/delete/' + EVOLUTION_INSTANCE_NAME);
+      console.log('[WHATSAPP] Instância deletada com sucesso');
+    } catch (e1) {
+      try {
+        await evoApi('DELETE', '/instance/logout/' + EVOLUTION_INSTANCE_NAME);
+        console.log('[WHATSAPP] Logout realizado (delete não disponível)');
+      } catch (e2) {
+        console.warn('[WHATSAPP] Aviso no delete/logout:', e1.message);
       }
     }
-  }
 
-  // Aguarda e reconecta
-  await new Promise(function(resolve) { setTimeout(resolve, 2000); });
+    await new Promise(function(resolve) { setTimeout(resolve, 3000); });
 
-  try {
-    await connectInstance();
-    console.log('[WHATSAPP] Instância reiniciada. Use QR Code ou Pairing Code para conectar.');
-  } catch (err) {
-    console.error('[WHATSAPP] Erro ao reiniciar:', err.message);
-    connectionStatus.error = 'Erro ao reiniciar: ' + err.message;
+    try {
+      await createInstance();
+      console.log('[WHATSAPP] Instância recriada. Aguardando QR Code...');
+      await new Promise(function(resolve) { setTimeout(resolve, 2000); });
+      await connectInstance();
+    } catch (err) {
+      console.error('[WHATSAPP] Erro ao recriar instância:', err.message);
+      connectionStatus.error = 'Erro ao recriar: ' + err.message;
+    }
+  } else {
+    // Apenas logout e reconecta
+    var logoutPaths = [
+      { method: 'DELETE', path: '/instance/logout/' + EVOLUTION_INSTANCE_NAME },
+      { method: 'POST', path: '/instance/logout/' + EVOLUTION_INSTANCE_NAME }
+    ];
+
+    for (var i = 0; i < logoutPaths.length; i++) {
+      try {
+        await evoApi(logoutPaths[i].method, logoutPaths[i].path);
+        console.log('[WHATSAPP] Logout realizado');
+        break;
+      } catch (err) {
+        if (i === logoutPaths.length - 1) {
+          console.warn('[WHATSAPP] Aviso no logout:', err.message);
+        }
+      }
+    }
+
+    await new Promise(function(resolve) { setTimeout(resolve, 2000); });
+
+    try {
+      await connectInstance();
+      console.log('[WHATSAPP] Instância reiniciada. Use QR Code ou Pairing Code para conectar.');
+    } catch (err) {
+      console.error('[WHATSAPP] Erro ao reiniciar:', err.message);
+      connectionStatus.error = 'Erro ao reiniciar: ' + err.message;
+    }
   }
 }
 
