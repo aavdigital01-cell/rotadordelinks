@@ -607,28 +607,45 @@ async function connectInstance() {
     if (!currentQR && !currentQRBase64 && data && typeof data.count !== 'undefined' && data.count === 0) {
       console.log('[WHATSAPP] QR code expirado (count=0). Reiniciando instância para gerar novo QR...');
       try {
-        // Tenta restart da instância
+        // Estratégia 1: restart
+        var restarted = false;
         try {
           await evoApi('PUT', '/instance/restart/' + EVOLUTION_INSTANCE_NAME);
-        } catch (restartErr) {
-          // Fallback: logout e reconectar
+          restarted = true;
+          console.log('[WHATSAPP] Instância reiniciada via PUT /restart');
+        } catch (e1) {
+          // Estratégia 2: logout
           try {
             await evoApi('DELETE', '/instance/logout/' + EVOLUTION_INSTANCE_NAME);
-          } catch (logoutErr) {
-            // Ignora erro de logout
+            restarted = true;
+            console.log('[WHATSAPP] Logout realizado via DELETE /logout');
+          } catch (e2) {
+            // Estratégia 3: deletar e recriar
+            try {
+              await evoApi('DELETE', '/instance/delete/' + EVOLUTION_INSTANCE_NAME);
+              console.log('[WHATSAPP] Instância deletada. Recriando...');
+              await new Promise(function(resolve) { setTimeout(resolve, 2000); });
+              await createInstance();
+              restarted = true;
+            } catch (e3) {
+              console.warn('[WHATSAPP] Não foi possível reiniciar instância. Tente manualmente pelo painel da Evolution API.');
+            }
           }
         }
-        // Aguarda instância reiniciar
-        await new Promise(function(resolve) { setTimeout(resolve, 3000); });
-        // Tenta conectar novamente para obter novo QR
-        try {
-          var retryData = await evoApi('GET', '/instance/connect/' + EVOLUTION_INSTANCE_NAME);
-          extractQRFromResponse(retryData);
-          if (currentQR || currentQRBase64) {
-            console.log('[WHATSAPP] Novo QR Code gerado após restart');
+        if (restarted) {
+          // Aguarda e tenta conectar novamente
+          await new Promise(function(resolve) { setTimeout(resolve, 3000); });
+          try {
+            var retryData = await evoApi('GET', '/instance/connect/' + EVOLUTION_INSTANCE_NAME);
+            extractQRFromResponse(retryData);
+            if (currentQR || currentQRBase64) {
+              console.log('[WHATSAPP] Novo QR Code gerado após restart');
+            } else {
+              console.log('[WHATSAPP] Instância reiniciada mas QR ainda não disponível. Aguardando webhook...');
+            }
+          } catch (retryErr) {
+            console.warn('[WHATSAPP] Falha ao reconectar após restart:', retryErr.message);
           }
-        } catch (retryErr) {
-          console.warn('[WHATSAPP] Falha ao reconectar após restart:', retryErr.message);
         }
       } catch (err) {
         console.warn('[WHATSAPP] Falha ao reiniciar instância:', err.message);
@@ -1103,14 +1120,28 @@ function initialize(pgPool) {
   console.log('[WHATSAPP] API Key: ' + EVOLUTION_API_KEY.substring(0, 4) + '***');
   console.log('[WHATSAPP] ===================================================');
 
-  // Garante que as colunas necessárias existem
-  Promise.all([
-    pool.query('ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS member_snapshot JSONB'),
-    pool.query('ALTER TABLE member_events ADD COLUMN IF NOT EXISTS source VARCHAR(20) DEFAULT \'realtime\''),
-    pool.query('ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS invite_code VARCHAR(255)'),
-    pool.query('ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS sequential_counter INTEGER DEFAULT 0')
-  ]).then(async function() {
-    console.log('[WHATSAPP] Colunas do banco verificadas');
+  // Garante que as colunas necessárias existem (cada uma independente para não bloquear)
+  var columnQueries = [
+    { sql: 'ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS member_snapshot JSONB', desc: 'whatsapp_groups.member_snapshot' },
+    { sql: 'ALTER TABLE member_events ADD COLUMN IF NOT EXISTS source VARCHAR(20) DEFAULT \'realtime\'', desc: 'member_events.source' },
+    { sql: 'ALTER TABLE whatsapp_groups ADD COLUMN IF NOT EXISTS invite_code VARCHAR(255)', desc: 'whatsapp_groups.invite_code' },
+    { sql: 'ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS sequential_counter INTEGER DEFAULT 0', desc: 'campaigns.sequential_counter' }
+  ];
+
+  var columnResults = [];
+  for (var qi = 0; qi < columnQueries.length; qi++) {
+    try {
+      await pool.query(columnQueries[qi].sql);
+      columnResults.push(columnQueries[qi].desc + ': OK');
+    } catch (colErr) {
+      console.warn('[WHATSAPP] Aviso ao adicionar coluna ' + columnQueries[qi].desc + ': ' + colErr.message);
+      columnResults.push(columnQueries[qi].desc + ': ' + colErr.message);
+    }
+  }
+  console.log('[WHATSAPP] Colunas verificadas: ' + columnResults.join(', '));
+
+  // Continua inicialização mesmo se alguma coluna falhou
+  (async function() {
 
     try {
       // Testa conectividade com a Evolution API
@@ -1166,9 +1197,7 @@ function initialize(pgPool) {
       // Inicia poll mesmo com erro, para tentar reconectar depois
       startConnectionPoll();
     }
-  }).catch(function(err) {
-    console.error('[WHATSAPP] Erro ao preparar colunas:', err.message);
-  });
+  })();
 }
 
 /**

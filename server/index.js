@@ -720,7 +720,30 @@ async function loadSequentialCounters() {
     });
     console.log('[ROTATE] Contadores sequenciais carregados do banco:', Object.keys(sequentialCounters).length, 'campanhas');
   } catch (err) {
-    console.error('[ROTATE] Erro ao carregar contadores sequenciais:', err.message);
+    if (err.message && err.message.includes('sequential_counter')) {
+      // Coluna não existe ainda - tenta criar e carrega sem ela
+      console.warn('[ROTATE] Coluna sequential_counter não existe. Tentando criar...');
+      try {
+        await pool.query('ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS sequential_counter INTEGER DEFAULT 0');
+        console.log('[ROTATE] Coluna sequential_counter criada com sucesso');
+        var result = await pool.query('SELECT slug, sequential_counter FROM campaigns WHERE slug IS NOT NULL');
+        result.rows.forEach(function(row) {
+          if (row.slug) sequentialCounters[row.slug] = row.sequential_counter || 0;
+        });
+      } catch (alterErr) {
+        console.warn('[ROTATE] Não foi possível criar coluna sequential_counter:', alterErr.message);
+        // Carrega slugs sem o contador
+        try {
+          var slugResult = await pool.query('SELECT slug FROM campaigns WHERE slug IS NOT NULL');
+          slugResult.rows.forEach(function(row) {
+            if (row.slug) sequentialCounters[row.slug] = 0;
+          });
+          console.log('[ROTATE] Contadores inicializados em memória (sem persistência):', Object.keys(sequentialCounters).length);
+        } catch (e) { /* ignora */ }
+      }
+    } else {
+      console.error('[ROTATE] Erro ao carregar contadores sequenciais:', err.message);
+    }
   }
 }
 
