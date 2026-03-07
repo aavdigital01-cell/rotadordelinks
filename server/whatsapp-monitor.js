@@ -378,7 +378,12 @@ async function createInstance() {
           'CONNECTION_UPDATE',
           'GROUPS_UPSERT',
           'GROUP_UPDATE',
-          'GROUP_PARTICIPANTS_UPDATE'
+          'GROUP_PARTICIPANTS_UPDATE',
+          'qrcode.updated',
+          'connection.update',
+          'groups.upsert',
+          'groups.update',
+          'group-participants.update'
         ]
       }
     };
@@ -386,10 +391,23 @@ async function createInstance() {
     console.log('[WHATSAPP] Criando instância "' + EVOLUTION_INSTANCE_NAME + '" na Evolution API...');
     console.log('[WHATSAPP] Webhook URL: ' + webhookUrl);
     var data = await evoApi('POST', '/instance/create', body);
-    console.log('[WHATSAPP] Instância criada com sucesso:', JSON.stringify(data).substring(0, 300));
+    console.log('[WHATSAPP] Instância criada com sucesso:', JSON.stringify(data).substring(0, 500));
 
-    // Extrai QR Code da resposta (múltiplos formatos possíveis)
+    // Extrai QR Code da resposta de criação (múltiplos formatos possíveis)
     extractQRFromResponse(data);
+
+    // Se QR não veio na resposta de criação, tenta buscar via connect após aguardar
+    if (!currentQR && !currentQRBase64) {
+      console.log('[WHATSAPP] QR não retornado na criação. Aguardando geração...');
+      await new Promise(function(resolve) { setTimeout(resolve, 5000); });
+      try {
+        var connectData = await evoApi('GET', '/instance/connect/' + EVOLUTION_INSTANCE_NAME);
+        console.log('[WHATSAPP] Resposta do connect pós-criação:', JSON.stringify(connectData).substring(0, 500));
+        extractQRFromResponse(connectData);
+      } catch (connectErr) {
+        console.warn('[WHATSAPP] Erro ao buscar QR pós-criação:', connectErr.message);
+      }
+    }
 
     return data;
   } catch (err) {
@@ -408,11 +426,14 @@ async function createInstance() {
 function extractQRFromResponse(data) {
   if (!data) return;
 
+  // Log das chaves para debug
+  console.log('[WHATSAPP] Chaves da resposta: ' + Object.keys(data).join(', '));
+
   // Formato v2: { qrcode: { base64: "...", code: "..." } }
   if (data.qrcode && typeof data.qrcode === 'object') {
     currentQRBase64 = data.qrcode.base64 || null;
     currentQR = data.qrcode.code || data.qrcode.base64 || null;
-    if (currentQRBase64) console.log('[WHATSAPP] QR Code extraído (qrcode.base64)');
+    if (currentQR || currentQRBase64) console.log('[WHATSAPP] QR Code extraído (qrcode.base64)');
     return;
   }
 
@@ -446,12 +467,18 @@ function extractQRFromResponse(data) {
 async function configureWebhook() {
   var webhookUrl = await getWebhookUrl();
 
+  // Registra eventos em ambos formatos (v1 uppercase e v2 lowercase)
   var webhookEvents = [
     'QRCODE_UPDATED',
     'CONNECTION_UPDATE',
     'GROUPS_UPSERT',
     'GROUP_UPDATE',
-    'GROUP_PARTICIPANTS_UPDATE'
+    'GROUP_PARTICIPANTS_UPDATE',
+    'qrcode.updated',
+    'connection.update',
+    'groups.upsert',
+    'groups.update',
+    'group-participants.update'
   ];
 
   // Formato 1: v2 - campos no nível raiz (POST /webhook/set/{name})
@@ -686,9 +713,12 @@ async function handleWebhook(body) {
   var event = body.event || body.action;
   if (!event) {
     // Tenta detectar o tipo de evento pelo conteúdo
-    if (body.data && body.data.qrcode) event = 'QRCODE_UPDATED';
-    else if (body.data && body.data.state) event = 'CONNECTION_UPDATE';
-    else return;
+    if ((body.data && body.data.qrcode) || body.qrcode) event = 'QRCODE_UPDATED';
+    else if ((body.data && body.data.state) || body.state) event = 'CONNECTION_UPDATE';
+    else {
+      console.log('[WHATSAPP] [WEBHOOK] Payload sem event/action:', JSON.stringify(body).substring(0, 300));
+      return;
+    }
   }
 
   var data = body.data || body;
@@ -773,7 +803,7 @@ async function handleWebhook(body) {
         break;
 
       default:
-        // Evento desconhecido, ignora
+        console.log('[WHATSAPP] [WEBHOOK] Evento não tratado: ' + event);
         break;
     }
   } catch (err) {
