@@ -603,52 +603,58 @@ async function connectInstance() {
     // Extrai QR Code da resposta
     extractQRFromResponse(data);
 
-    // Se count === 0, QR attempts exhausted - precisa reiniciar a instância
+    // Se count === 0, QR attempts exhausted - precisa deletar e recriar a instância
     if (!currentQR && !currentQRBase64 && data && typeof data.count !== 'undefined' && data.count === 0) {
-      console.log('[WHATSAPP] QR code expirado (count=0). Reiniciando instância para gerar novo QR...');
+      console.log('[WHATSAPP] QR code expirado (count=0). Deletando e recriando instância...');
       try {
-        // Estratégia 1: restart
-        var restarted = false;
+        // Deleta instância (tenta DELETE primeiro, depois logout como fallback)
+        var deleted = false;
         try {
-          await evoApi('PUT', '/instance/restart/' + EVOLUTION_INSTANCE_NAME);
-          restarted = true;
-          console.log('[WHATSAPP] Instância reiniciada via PUT /restart');
+          await evoApi('DELETE', '/instance/delete/' + EVOLUTION_INSTANCE_NAME);
+          deleted = true;
+          console.log('[WHATSAPP] Instância deletada com sucesso');
         } catch (e1) {
-          // Estratégia 2: logout
           try {
             await evoApi('DELETE', '/instance/logout/' + EVOLUTION_INSTANCE_NAME);
-            restarted = true;
-            console.log('[WHATSAPP] Logout realizado via DELETE /logout');
+            deleted = true;
+            console.log('[WHATSAPP] Logout realizado (delete não disponível)');
           } catch (e2) {
-            // Estratégia 3: deletar e recriar
-            try {
-              await evoApi('DELETE', '/instance/delete/' + EVOLUTION_INSTANCE_NAME);
-              console.log('[WHATSAPP] Instância deletada. Recriando...');
-              await new Promise(function(resolve) { setTimeout(resolve, 2000); });
-              await createInstance();
-              restarted = true;
-            } catch (e3) {
-              console.warn('[WHATSAPP] Não foi possível reiniciar instância. Tente manualmente pelo painel da Evolution API.');
-            }
+            console.warn('[WHATSAPP] Não foi possível deletar/logout instância:', e1.message);
           }
         }
-        if (restarted) {
-          // Aguarda e tenta conectar novamente
+
+        if (deleted) {
+          // Aguarda Evolution API processar a exclusão
           await new Promise(function(resolve) { setTimeout(resolve, 3000); });
+
+          // Recria instância do zero
+          console.log('[WHATSAPP] Recriando instância...');
+          await createInstance();
+
+          // Aguarda e tenta conectar para obter novo QR
+          await new Promise(function(resolve) { setTimeout(resolve, 2000); });
           try {
             var retryData = await evoApi('GET', '/instance/connect/' + EVOLUTION_INSTANCE_NAME);
             extractQRFromResponse(retryData);
             if (currentQR || currentQRBase64) {
-              console.log('[WHATSAPP] Novo QR Code gerado após restart');
+              console.log('[WHATSAPP] Novo QR Code gerado após recriar instância');
             } else {
-              console.log('[WHATSAPP] Instância reiniciada mas QR ainda não disponível. Aguardando webhook...');
+              // Tenta mais uma vez após mais tempo
+              await new Promise(function(resolve) { setTimeout(resolve, 3000); });
+              var retryData2 = await evoApi('GET', '/instance/connect/' + EVOLUTION_INSTANCE_NAME);
+              extractQRFromResponse(retryData2);
+              if (currentQR || currentQRBase64) {
+                console.log('[WHATSAPP] Novo QR Code gerado na segunda tentativa');
+              } else {
+                console.log('[WHATSAPP] QR ainda não disponível após recriar. Aguardando webhook...');
+              }
             }
           } catch (retryErr) {
-            console.warn('[WHATSAPP] Falha ao reconectar após restart:', retryErr.message);
+            console.warn('[WHATSAPP] Falha ao conectar após recriar:', retryErr.message);
           }
         }
       } catch (err) {
-        console.warn('[WHATSAPP] Falha ao reiniciar instância:', err.message);
+        console.warn('[WHATSAPP] Falha ao recriar instância:', err.message);
       }
     } else if (!currentQR && !currentQRBase64 && data && !data.pairingCode) {
       console.log('[WHATSAPP] Resposta do connect (sem QR):', JSON.stringify(data).substring(0, 300));
