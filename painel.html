@@ -6109,20 +6109,27 @@ th.sortable.desc::after { border-bottom:none; border-top:4px solid var(--accent)
           errorDiv.style.display = 'none';
         }
 
-        // Se está conectando, mostra status
+        // Se está conectando, tenta carregar QR code mesmo assim
         if (status.error === 'Conectando...') {
-          var container = document.getElementById('qrCodeContainer');
-          if (container) {
-            container.innerHTML = '<div style="text-align:center"><i class="fas fa-spinner fa-spin" style="font-size:24px;color:var(--accent);margin-bottom:12px"></i><p style="font-size:13px;color:var(--text-secondary)">Conectando à Evolution API...<br>Aguarde alguns segundos</p></div>';
+          if (!window._connectingAttempts) window._connectingAttempts = 0;
+          window._connectingAttempts++;
+          // Nas primeiras 2 tentativas mostra spinner, depois tenta QR
+          if (window._connectingAttempts <= 2) {
+            var container = document.getElementById('qrCodeContainer');
+            if (container) {
+              container.innerHTML = '<div style="text-align:center"><i class="fas fa-spinner fa-spin" style="font-size:24px;color:var(--accent);margin-bottom:12px"></i><p style="font-size:13px;color:var(--text-secondary)">Conectando à Evolution API...<br>Aguarde alguns segundos</p></div>';
+            }
+            setTimeout(loadWhatsAppData, 5000);
+            return;
           }
-          setTimeout(loadWhatsAppData, 5000);
-          return;
+          // Após 10s tentando, carrega QR code normalmente
         }
 
         loadQRCode();
         return;
       }
 
+      window._connectingAttempts = 0; // Reset ao conectar
       document.getElementById('whatsappNotConnected').style.display = 'none';
       document.getElementById('whatsappConnected').style.display = 'block';
       document.getElementById('whatsappPhone').textContent = 'Número: +' + (status.phone || 'N/A');

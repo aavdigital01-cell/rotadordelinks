@@ -1631,7 +1631,14 @@ app.get('/api/whatsapp/debug', authMiddleware, async function(req, res) {
         evolutionApiUrl: evoUrl,
         evolutionApiKey: evoKey ? evoKey.substring(0, 4) + '***' : 'NÃO CONFIGURADA',
         instanceName: evoInstance,
-        webhookUrl: (process.env.EVOLUTION_WEBHOOK_URL || process.env.FRONTEND_URL || 'http://localhost:' + (process.env.PORT || 3000)) + '/api/whatsapp/webhook'
+        webhookUrl: (function() {
+          var wh = (process.env.EVOLUTION_WEBHOOK_URL || '').trim();
+          if (!wh) {
+            var fu = (process.env.FRONTEND_URL || '').trim();
+            wh = (fu && fu !== '*') ? fu : 'http://localhost:' + (process.env.PORT || 3000);
+          }
+          return wh.replace(/\/$/, '') + '/api/whatsapp/webhook';
+        })()
       },
       status: status,
       timestamp: new Date().toISOString()

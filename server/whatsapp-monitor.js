@@ -556,6 +556,7 @@ async function checkConnectionState() {
         connectionStatus.connected = true;
         connectionStatus.ready = true;
         connectionStatus.error = null;
+        connectionStatus._connectingRetries = 0;
         reconnectAttempts = 0;
         connectionStatus.reconnectAttempts = 0;
         currentQR = null;
@@ -590,6 +591,18 @@ async function checkConnectionState() {
     } else if (state === 'connecting') {
       connectionStatus.connected = false;
       connectionStatus.ready = false;
+      // Se já está em "Conectando..." há muito tempo sem QR, tenta gerar novo QR
+      if (connectionStatus.error === 'Conectando...' && !currentQR && !currentQRBase64) {
+        if (!connectionStatus._connectingRetries) connectionStatus._connectingRetries = 0;
+        connectionStatus._connectingRetries++;
+        // A cada 3 polls (~90s), tenta reconectar para gerar QR
+        if (connectionStatus._connectingRetries % 3 === 0) {
+          console.log('[WHATSAPP] Preso em "Conectando..." sem QR. Tentando reconectar (tentativa ' + connectionStatus._connectingRetries + ')...');
+          connectInstance().catch(function(err) {
+            console.warn('[WHATSAPP] Erro ao tentar reconectar:', err.message);
+          });
+        }
+      }
       connectionStatus.error = 'Conectando...';
     } else {
       connectionStatus.connected = false;
