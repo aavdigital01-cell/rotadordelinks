@@ -1622,7 +1622,7 @@ app.get('/api/whatsapp/status', authMiddleware, function(req, res) {
 app.get('/api/whatsapp/debug', authMiddleware, async function(req, res) {
   try {
     var status = whatsappMonitor.getStatus();
-    var evoUrl = process.env.EVOLUTION_API_URL || 'não configurado';
+    var evoUrl = (process.env.EVOLUTION_API_URL || 'http://localhost:8080').replace(/\/$/, '');
     var evoKey = process.env.EVOLUTION_API_KEY || process.env.AUTHENTICATION_API_KEY || '';
     var evoInstance = process.env.EVOLUTION_INSTANCE_NAME || 'linkrotator';
 
@@ -1637,6 +1637,32 @@ app.get('/api/whatsapp/debug', authMiddleware, async function(req, res) {
       timestamp: new Date().toISOString()
     };
 
+    // Testa endpoints diretamente para debug
+    var headers = { 'Content-Type': 'application/json', 'apikey': evoKey };
+    var tests = {};
+
+    // 1. Busca instâncias
+    try {
+      var r1 = await fetch(evoUrl + '/instance/fetchInstances', { headers: headers });
+      tests.fetchInstances = { status: r1.status, body: JSON.parse(await r1.text()) };
+    } catch (e) { tests.fetchInstances = { error: e.message }; }
+
+    // 2. Estado da conexão
+    try {
+      var r2 = await fetch(evoUrl + '/instance/connectionState/' + evoInstance, { headers: headers });
+      tests.connectionState = { status: r2.status, body: JSON.parse(await r2.text()) };
+    } catch (e) { tests.connectionState = { error: e.message }; }
+
+    // 3. Connect (QR)
+    try {
+      var r3 = await fetch(evoUrl + '/instance/connect/' + evoInstance, { headers: headers });
+      var r3text = await r3.text();
+      var r3body;
+      try { r3body = JSON.parse(r3text); } catch(e) { r3body = r3text.substring(0, 1000); }
+      tests.connect = { status: r3.status, body: r3body, bodyKeys: r3body && typeof r3body === 'object' ? Object.keys(r3body) : null };
+    } catch (e) { tests.connect = { error: e.message }; }
+
+    result.apiTests = tests;
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
