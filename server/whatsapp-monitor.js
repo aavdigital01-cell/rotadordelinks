@@ -352,13 +352,51 @@ async function createInstance() {
 
     return data;
   } catch (err) {
-    // Se já existe, ignora (Evolution API v2 returns "already in use" or "Forbidden")
+    // Se já existe mas pode ser instância fantasma - tenta deletar e recriar
     var msg = (err.message || '').toLowerCase();
     if (msg.includes('already') || msg.includes('in use') || msg.includes('forbidden') || msg.includes('instance name is not available')) {
-      console.log('[WHATSAPP] Instância já existe, usando existente');
-      return null;
+      console.log('[WHATSAPP] Instância fantasma detectada (nome em uso mas inacessível). Removendo e recriando...');
+      await deleteInstance();
+      // Aguarda a API processar a deleção
+      await new Promise(function(r) { setTimeout(r, 2000); });
+      // Tenta recriar uma vez
+      try {
+        var retryData = await evoApi('POST', '/instance/create', body);
+        console.log('[WHATSAPP] Instância recriada com sucesso');
+        if (retryData) {
+          if (retryData.qrcode && retryData.qrcode.base64) {
+            currentQRBase64 = retryData.qrcode.base64;
+            currentQR = retryData.qrcode.code || retryData.qrcode.base64;
+            console.log('[WHATSAPP] QR Code recebido na recriação da instância');
+          } else if (retryData.base64) {
+            currentQRBase64 = retryData.base64;
+            currentQR = retryData.code || retryData.base64;
+          }
+        }
+        return retryData;
+      } catch (retryErr) {
+        console.error('[WHATSAPP] Falha ao recriar instância:', retryErr.message);
+        // Se ainda falha, aceita a situação (instância pode realmente existir e estar ok)
+        return null;
+      }
     }
     throw err;
+  }
+}
+
+/**
+ * Remove a instância da Evolution API (para limpar instâncias fantasma)
+ */
+async function deleteInstance() {
+  try {
+    await evoApi('DELETE', '/instance/delete/' + EVOLUTION_INSTANCE_NAME);
+    console.log('[WHATSAPP] Instância "' + EVOLUTION_INSTANCE_NAME + '" removida');
+  } catch (err) {
+    // Tenta logout como fallback
+    try {
+      await evoApi('DELETE', '/instance/logout/' + EVOLUTION_INSTANCE_NAME);
+    } catch (e) {}
+    console.warn('[WHATSAPP] Aviso ao remover instância:', err.message);
   }
 }
 
@@ -956,8 +994,25 @@ function initialize(pgPool) {
       // Verifica estado da conexão
       var state = await checkConnectionState();
       if (state !== 'open') {
-        console.log('[WHATSAPP] Instância não conectada. Solicitando QR Code...');
-        await connectInstance();
+        // Se a instância não responde (404), pode ser fantasma - tenta recriar
+        try {
+          console.log('[WHATSAPP] Instância não conectada. Solicitando QR Code...');
+          await connectInstance();
+        } catch (connectErr) {
+          var connectMsg = (connectErr.message || '').toLowerCase();
+          if (connectMsg.includes('not exist') || connectMsg.includes('not found') || connectMsg.includes('404')) {
+            console.log('[WHATSAPP] Instância não existe no runtime. Recriando...');
+            await deleteInstance();
+            await new Promise(function(r) { setTimeout(r, 2000); });
+            await createInstance();
+            state = await checkConnectionState();
+            if (state !== 'open') {
+              await connectInstance();
+            }
+          } else {
+            throw connectErr;
+          }
+        }
       }
 
       // Inicia poll periódico de conexão (backup para webhooks)
