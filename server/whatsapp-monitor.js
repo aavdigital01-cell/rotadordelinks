@@ -518,7 +518,7 @@ async function handleWebhook(body) {
 
   var event = body.event;
   var data = body.data || body;
-  var instance = body.instance || body.instanceName;
+  var instance = body.instanceName || (typeof body.instance === 'string' ? body.instance : (body.instance && body.instance.instanceName)) || null;
 
   // Ignora eventos de outras instâncias
   if (instance && instance !== EVOLUTION_INSTANCE_NAME) return;
@@ -600,6 +600,25 @@ async function handleWebhook(body) {
     }
   } catch (err) {
     console.error('[WHATSAPP] [WEBHOOK] Erro ao processar evento ' + event + ':', err.message);
+  }
+}
+
+/**
+ * Atualiza contagem de membros de um grupo no banco de dados
+ */
+async function updateGroupMemberCount(groupId) {
+  try {
+    if (!connectionStatus.ready) return;
+    var data = await evoApi('GET', '/group/findGroupInfos/' + EVOLUTION_INSTANCE_NAME + '?groupJid=' + groupId);
+    if (data && data.participants) {
+      var count = data.participants.length;
+      await pool.query(
+        'UPDATE whatsapp_groups SET current_members=$1, last_scanned=NOW() WHERE id=$2',
+        [count, groupId]
+      );
+    }
+  } catch (err) {
+    console.warn('[WHATSAPP] Erro ao atualizar contagem de membros do grupo ' + groupId + ':', err.message);
   }
 }
 
