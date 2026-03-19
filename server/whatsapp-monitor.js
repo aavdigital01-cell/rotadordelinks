@@ -106,7 +106,7 @@ async function evoApi(method, path, body) {
     method: method,
     headers: {
       'Content-Type': 'application/json',
-      'Api-Key': EVOLUTION_API_KEY
+      'X-Api-Key': EVOLUTION_API_KEY
     }
   };
   if (body && (method === 'POST' || method === 'PUT')) {
