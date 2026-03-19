@@ -15,6 +15,8 @@
 
 const crypto = require('crypto');
 const fetch = require('node-fetch');
+var qrcodeTerminal = null;
+try { qrcodeTerminal = require('qrcode-terminal'); } catch (e) { /* opcional */ }
 
 var pool = null; // PostgreSQL pool
 var currentQR = null;
@@ -36,6 +38,29 @@ var connectionStatus = {
   error: null,
   reconnectAttempts: 0
 };
+
+/**
+ * Exibe QR Code no terminal (PM2 logs)
+ */
+function displayQRInTerminal(qrText) {
+  if (!qrText) return;
+  // Se é base64 de imagem, não dá pra exibir no terminal
+  if (qrText.startsWith('data:image')) {
+    console.log('[WHATSAPP] QR Code recebido (base64 image) - visualize no painel admin');
+    return;
+  }
+  if (qrcodeTerminal) {
+    console.log('[WHATSAPP] ═══════════ QR CODE ═══════════');
+    qrcodeTerminal.generate(qrText, { small: true }, function(qr) {
+      console.log(qr);
+    });
+    console.log('[WHATSAPP] ═══════════════════════════════');
+    console.log('[WHATSAPP] Escaneie o QR acima com seu WhatsApp');
+  } else {
+    console.log('[WHATSAPP] QR Code texto (instale qrcode-terminal para ver no terminal):');
+    console.log('[WHATSAPP] ' + qrText.substring(0, 200));
+  }
+}
 
 // Cache com TTL para nomes de grupos
 var GROUP_NAME_CACHE_TTL = 5 * 60 * 1000; // 5 minutos
@@ -635,6 +660,7 @@ function extractQRFromResponse(data, source) {
     currentQRBase64 = data.base64;
     currentQR = data.code || data.base64;
     console.log('[WHATSAPP] QR Code extraído (' + source + '): base64 direto');
+    displayQRInTerminal(data.code || data.base64);
     return true;
   }
 
@@ -645,6 +671,7 @@ function extractQRFromResponse(data, source) {
     currentQR = qr.code || qr.base64 || null;
     if (currentQRBase64 || currentQR) {
       console.log('[WHATSAPP] QR Code extraído (' + source + '): qrcode object');
+      displayQRInTerminal(qr.code || qr.base64);
       return true;
     }
   }
@@ -653,6 +680,7 @@ function extractQRFromResponse(data, source) {
   if (data.code && typeof data.code === 'string' && data.code.length > 20) {
     currentQR = data.code;
     console.log('[WHATSAPP] QR Code extraído (' + source + '): code text');
+    displayQRInTerminal(data.code);
     return true;
   }
 
@@ -663,6 +691,7 @@ function extractQRFromResponse(data, source) {
     currentQR = iqr.code || iqr.base64 || null;
     if (currentQRBase64 || currentQR) {
       console.log('[WHATSAPP] QR Code extraído (' + source + '): instance.qrcode');
+      displayQRInTerminal(iqr.code || iqr.base64);
       return true;
     }
   }
@@ -716,6 +745,7 @@ async function handleWebhook(body) {
             if (qrData.length > 500) currentQRBase64 = qrData;
           }
           console.log('[WHATSAPP] [WEBHOOK] QR Code atualizado');
+          displayQRInTerminal(currentQR);
         }
         break;
 
