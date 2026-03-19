@@ -56,7 +56,7 @@ nano .env
 Preencha:
 ```
 PORT=3000
-FRONTEND_URL=https://seudominio.com
+FRONTEND_URL=https://rotador.promosdetododia.com.br
 
 FIREBASE_PROJECT_ID=linkrotator-2bae9
 FIREBASE_CLIENT_EMAIL=cole-o-client-email-do-json

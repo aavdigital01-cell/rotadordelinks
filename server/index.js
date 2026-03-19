@@ -62,7 +62,7 @@ pool.on('connect', function(client) {
 
 // ===== MIDDLEWARE =====
 app.use(cors({
-  origin: process.env.FRONTEND_URL || '*',
+  origin: process.env.FRONTEND_URL || 'https://rotador.promosdetododia.com.br',
   credentials: true
 }));
 app.use(express.json());

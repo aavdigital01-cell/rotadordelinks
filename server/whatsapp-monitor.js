@@ -316,14 +316,10 @@ async function instanceExists() {
 async function getWebhookUrl() {
   var webhookUrl = (process.env.EVOLUTION_WEBHOOK_URL || '').trim();
   if (!webhookUrl) {
-    var frontUrl = (process.env.FRONTEND_URL || '').trim();
-    if (frontUrl && frontUrl !== '*') {
-      webhookUrl = frontUrl;
-    } else {
-      var port = process.env.PORT || 3000;
-      webhookUrl = 'http://172.17.0.1:' + port;
-      console.log('[WHATSAPP] Usando IP Docker bridge para webhook: ' + webhookUrl);
-    }
+    // Se WAHA roda no mesmo host (Docker), usa IP bridge local
+    var port = process.env.PORT || 3000;
+    webhookUrl = 'http://172.17.0.1:' + port;
+    console.log('[WHATSAPP] Usando IP Docker bridge para webhook: ' + webhookUrl);
   }
   return webhookUrl.replace(/\/$/, '') + '/api/whatsapp/webhook';
 }
@@ -999,9 +995,9 @@ function initialize(pgPool) {
   pool = pgPool;
   reconnectAttempts = 0;
 
-  EVOLUTION_API_URL = (process.env.EVOLUTION_API_URL || 'http://localhost:8080').replace(/\/$/, '');
+  EVOLUTION_API_URL = (process.env.EVOLUTION_API_URL || 'http://localhost:8085').replace(/\/$/, '');
   EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY || '';
-  EVOLUTION_INSTANCE_NAME = process.env.EVOLUTION_INSTANCE_NAME || 'linkrotator';
+  EVOLUTION_INSTANCE_NAME = process.env.EVOLUTION_INSTANCE_NAME || 'default';
 
   if (!EVOLUTION_API_URL || !EVOLUTION_API_KEY) {
     console.error('[WHATSAPP] EVOLUTION_API_URL e EVOLUTION_API_KEY são obrigatórios no .env');
