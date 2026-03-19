@@ -495,37 +495,74 @@ async function checkConnectionState() {
  * Solicita conexão (gera QR Code)
  */
 /**
- * Tenta connect via POST (v2) e fallback GET (v1)
+ * Flag para bug conhecido da Evolution API v2.1.x-v2.2.x
+ * GitHub Issue #2385: GET /instance/connect retorna {"count":0}
+ * PR #2365: QR Code Infinite Reconnection Loop
  */
-async function tryConnect() {
-  try {
-    // Evolution API v2 requer POST para gerar QR
-    var data = await evoApi('POST', '/instance/connect/' + EVOLUTION_INSTANCE_NAME, {});
-    console.log('[WHATSAPP] connect (POST) response: ' + JSON.stringify(data).substring(0, 500));
-    return data;
-  } catch (postErr) {
-    console.log('[WHATSAPP] POST connect falhou (' + postErr.message + '), tentando GET...');
-    var data = await evoApi('GET', '/instance/connect/' + EVOLUTION_INSTANCE_NAME);
-    console.log('[WHATSAPP] connect (GET) response: ' + JSON.stringify(data).substring(0, 500));
-    return data;
-  }
-}
+var knownEvolutionBug = false;
 
 async function connectInstance() {
   try {
-    var data = await tryConnect();
+    var data = await evoApi('GET', '/instance/connect/' + EVOLUTION_INSTANCE_NAME);
+    console.log('[WHATSAPP] connect response: ' + JSON.stringify(data).substring(0, 500));
+
+    // Detecta bug {"count":0} da Evolution API v2.1.x
+    if (data && typeof data.count !== 'undefined' && !data.base64 && !data.code && !data.qrcode) {
+      console.log('[WHATSAPP] ⚠ Bug detectado: Evolution API retornou {"count":' + data.count + '}');
+      console.log('[WHATSAPP] Este é um bug conhecido nas versões v2.1.0-v2.2.0 da Evolution API.');
+      console.log('[WHATSAPP] Ref: https://github.com/EvolutionAPI/evolution-api/issues/2385');
+      console.log('[WHATSAPP] Tentando workaround: deletar e recriar instância com sessão limpa...');
+      knownEvolutionBug = true;
+
+      // Workaround: deletar instância e recriar do zero
+      // Uma sessão limpa pode gerar QR antes do bug de reconnect loop ativar
+      await deleteInstance();
+      await new Promise(function(r) { setTimeout(r, 3000); });
+      await createInstance();
+      await new Promise(function(r) { setTimeout(r, 2000); });
+
+      // Tenta connect imediatamente na instância fresca
+      try {
+        data = await evoApi('GET', '/instance/connect/' + EVOLUTION_INSTANCE_NAME);
+        console.log('[WHATSAPP] connect (após recreate) response: ' + JSON.stringify(data).substring(0, 500));
+      } catch (retryErr) {
+        console.log('[WHATSAPP] Connect após recreate falhou:', retryErr.message);
+      }
+
+      var found = extractQRFromResponse(data, 'connect-after-recreate');
+      if (found) return data;
+
+      // Se ainda {"count":0}, aguarda webhook por 10s (último recurso)
+      console.log('[WHATSAPP] Aguardando QR via webhook por 10s...');
+      for (var i = 0; i < 5; i++) {
+        await new Promise(function(r) { setTimeout(r, 2000); });
+        if (currentQRBase64 || currentQR) {
+          console.log('[WHATSAPP] QR recebido via webhook!');
+          knownEvolutionBug = false;
+          return data;
+        }
+      }
+
+      // Bug confirmado — informa o usuário
+      connectionStatus.error = 'Evolution API com bug conhecido ({"count":0}). Atualize: docker pull atendai/evolution-api:latest && docker compose up -d';
+      console.log('[WHATSAPP] ════════════════════════════════════════════');
+      console.log('[WHATSAPP] AÇÃO NECESSÁRIA: Atualize a Evolution API!');
+      console.log('[WHATSAPP] Execute no servidor:');
+      console.log('[WHATSAPP]   docker pull atendai/evolution-api:latest');
+      console.log('[WHATSAPP]   docker compose up -d');
+      console.log('[WHATSAPP] Ref: https://github.com/EvolutionAPI/evolution-api/issues/2385');
+      console.log('[WHATSAPP] ════════════════════════════════════════════');
+      return data;
+    }
 
     var found = extractQRFromResponse(data, 'connect');
 
-    // Se QR não veio na resposta, aguarda webhook ou tenta polling
+    // Se QR não veio na resposta, aguarda webhook
     if (!found && !(currentQRBase64 || currentQR)) {
-      console.log('[WHATSAPP] Connect não retornou QR. Aguardando webhook ou polling...');
-      // Tenta fetchInstances como fonte alternativa de QR
+      console.log('[WHATSAPP] Connect não retornou QR. Aguardando webhook...');
       await fetchInstanceQR();
-      if (currentQRBase64 || currentQR) {
-        console.log('[WHATSAPP] QR obtido via fetchInstances');
-        return data;
-      }
+      if (currentQRBase64 || currentQR) return data;
+
       // Polling: tenta a cada 2s por até 10 segundos
       for (var attempt = 0; attempt < 5; attempt++) {
         await new Promise(function(r) { setTimeout(r, 2000); });
@@ -534,7 +571,7 @@ async function connectInstance() {
           return data;
         }
         try {
-          var retryData = await tryConnect();
+          var retryData = await evoApi('GET', '/instance/connect/' + EVOLUTION_INSTANCE_NAME);
           if (extractQRFromResponse(retryData, 'connect-poll-' + (attempt + 1))) {
             return retryData;
           }
@@ -542,10 +579,9 @@ async function connectInstance() {
           // Ignora erros no polling
         }
       }
-      // Última tentativa: fetchInstances
       await fetchInstanceQR();
       if (!(currentQRBase64 || currentQR)) {
-        console.log('[WHATSAPP] QR não recebido após polling. Frontend continuará tentando.');
+        console.log('[WHATSAPP] QR não recebido após polling.');
       }
     }
 
@@ -647,8 +683,9 @@ function extractQRFromResponse(data, source) {
  * Chamado pela rota POST /api/whatsapp/webhook no index.js
  */
 var connectingWebhookCount = 0;
-var MAX_CONNECTING_WITHOUT_QR = 15;
+var MAX_CONNECTING_WITHOUT_QR = 20;
 var recreatingInstance = false;
+var circuitBreakerTriggered = false;
 
 async function handleWebhook(body) {
   if (!body || !body.event) return;
@@ -689,6 +726,8 @@ async function handleWebhook(body) {
 
         if (state === 'open') {
           connectingWebhookCount = 0;
+          knownEvolutionBug = false;
+          circuitBreakerTriggered = false;
           connectionStatus.connected = true;
           connectionStatus.ready = true;
           connectionStatus.error = null;
@@ -711,9 +750,10 @@ async function handleWebhook(body) {
         } else if (state === 'connecting') {
           connectingWebhookCount++;
           // Circuit breaker: se ficou preso em "connecting" sem QR por muito tempo
-          if (connectingWebhookCount >= MAX_CONNECTING_WITHOUT_QR && !recreatingInstance && !(currentQR || currentQRBase64)) {
+          if (connectingWebhookCount >= MAX_CONNECTING_WITHOUT_QR && !recreatingInstance && !circuitBreakerTriggered && !(currentQR || currentQRBase64)) {
             recreatingInstance = true;
-            console.log('[WHATSAPP] Instância presa em "connecting" sem QR (' + connectingWebhookCount + ' eventos). Recriando...');
+            circuitBreakerTriggered = true; // Só tenta UMA vez
+            console.log('[WHATSAPP] Instância presa em "connecting" sem QR (' + connectingWebhookCount + ' eventos). Tentando recriar UMA vez...');
             (async function() {
               try {
                 await deleteInstance();
@@ -723,10 +763,12 @@ async function handleWebhook(body) {
                 await connectInstance();
               } catch (err) {
                 console.error('[WHATSAPP] Erro ao recriar instância:', err.message);
-                connectionStatus.error = 'Erro ao recriar instância: ' + err.message;
               } finally {
                 recreatingInstance = false;
                 connectingWebhookCount = 0;
+                if (knownEvolutionBug && !(currentQR || currentQRBase64)) {
+                  connectionStatus.error = 'Evolution API com bug conhecido. Atualize: docker pull atendai/evolution-api:latest && docker compose up -d';
+                }
               }
             })();
           }
