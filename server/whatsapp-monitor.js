@@ -494,7 +494,22 @@ async function connectInstance() {
   try {
     var data = await evoApi('GET', '/instance/connect/' + EVOLUTION_INSTANCE_NAME);
 
-    extractQRFromResponse(data, 'connect');
+    var found = extractQRFromResponse(data, 'connect');
+
+    // Se a resposta não contém QR (ex: {"count":0}), a instância está em estado inconsistente
+    // Deleta e recria para forçar geração de novo QR Code
+    if (!found && !(currentQRBase64 || currentQR)) {
+      console.log('[WHATSAPP] Connect retornou sem QR. Resposta:', JSON.stringify(data).substring(0, 200));
+      console.log('[WHATSAPP] Deletando instância inconsistente e recriando...');
+      await deleteInstance();
+      await new Promise(function(r) { setTimeout(r, 2000); });
+      await createInstance();
+      // Se createInstance trouxe QR, ok. Se não, tenta connect de novo
+      if (!(currentQRBase64 || currentQR)) {
+        var data2 = await evoApi('GET', '/instance/connect/' + EVOLUTION_INSTANCE_NAME);
+        extractQRFromResponse(data2, 'connect-retry');
+      }
+    }
 
     return data;
   } catch (err) {
