@@ -297,7 +297,11 @@ async function getWebhookUrl() {
     if (frontUrl && frontUrl !== '*') {
       webhookUrl = frontUrl;
     } else {
-      webhookUrl = 'http://localhost:' + (process.env.PORT || 3000);
+      // Se a Evolution API roda em Docker, localhost:3000 dentro do container
+      // não alcança o host. Tenta usar o IP do Docker bridge (172.17.0.1)
+      var port = process.env.PORT || 3000;
+      webhookUrl = 'http://172.17.0.1:' + port;
+      console.log('[WHATSAPP] Usando IP Docker bridge para webhook: ' + webhookUrl);
     }
   }
   return webhookUrl.replace(/\/$/, '') + '/api/whatsapp/webhook';
@@ -496,18 +500,30 @@ async function connectInstance() {
 
     var found = extractQRFromResponse(data, 'connect');
 
-    // Se a resposta não contém QR (ex: {"count":0}), a instância está em estado inconsistente
-    // Deleta e recria para forçar geração de novo QR Code
+    // Evolution API v2 pode não retornar QR na resposta HTTP
+    // O QR chega via webhook (QRCODE_UPDATED). Aguardar e tentar polling.
     if (!found && !(currentQRBase64 || currentQR)) {
-      console.log('[WHATSAPP] Connect retornou sem QR. Resposta:', JSON.stringify(data).substring(0, 200));
-      console.log('[WHATSAPP] Deletando instância inconsistente e recriando...');
-      await deleteInstance();
-      await new Promise(function(r) { setTimeout(r, 2000); });
-      await createInstance();
-      // Se createInstance trouxe QR, ok. Se não, tenta connect de novo
+      console.log('[WHATSAPP] Connect não retornou QR. Aguardando webhook ou polling...');
+      // Polling: tenta a cada 2s por até 10 segundos
+      for (var attempt = 0; attempt < 5; attempt++) {
+        await new Promise(function(r) { setTimeout(r, 2000); });
+        // Se o webhook já entregou o QR, retorna
+        if (currentQRBase64 || currentQR) {
+          console.log('[WHATSAPP] QR recebido via webhook (tentativa ' + (attempt + 1) + ')');
+          return data;
+        }
+        // Tenta buscar QR via connect novamente
+        try {
+          var retryData = await evoApi('GET', '/instance/connect/' + EVOLUTION_INSTANCE_NAME);
+          if (extractQRFromResponse(retryData, 'connect-poll-' + (attempt + 1))) {
+            return retryData;
+          }
+        } catch (retryErr) {
+          // Ignora erros no polling
+        }
+      }
       if (!(currentQRBase64 || currentQR)) {
-        var data2 = await evoApi('GET', '/instance/connect/' + EVOLUTION_INSTANCE_NAME);
-        extractQRFromResponse(data2, 'connect-retry');
+        console.log('[WHATSAPP] QR não recebido após polling. Frontend continuará tentando.');
       }
     }
 
