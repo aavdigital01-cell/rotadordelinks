@@ -999,8 +999,8 @@ function initialize(pgPool) {
   EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY || '';
   EVOLUTION_INSTANCE_NAME = process.env.EVOLUTION_INSTANCE_NAME || 'default';
 
-  if (!EVOLUTION_API_URL || !EVOLUTION_API_KEY) {
-    console.error('[WHATSAPP] EVOLUTION_API_URL e EVOLUTION_API_KEY são obrigatórios no .env');
+  if (!EVOLUTION_API_URL) {
+    console.error('[WHATSAPP] EVOLUTION_API_URL é obrigatório no .env');
     connectionStatus.error = 'WAHA API não configurada. Verifique o .env';
     return;
   }
