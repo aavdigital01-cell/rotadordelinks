@@ -476,13 +476,15 @@ async function fetchQRImage() {
 
   // WAHA retorna PNG direto
   if (contentType.includes('image/')) {
-    var buffer = await response.buffer();
-    var base64 = buffer.toString('base64');
+    var arrayBuf = await response.arrayBuffer();
+    var base64 = Buffer.from(arrayBuf).toString('base64');
+    console.log('[WHATSAPP] QR PNG recebido, tamanho base64: ' + base64.length);
     return 'data:image/png;base64,' + base64;
   }
 
   // Fallback: resposta JSON
   var text = await response.text();
+  console.log('[WHATSAPP] QR resposta não-imagem: ' + text.substring(0, 200));
   try {
     var data = JSON.parse(text);
     if (data.value) return data.value;
