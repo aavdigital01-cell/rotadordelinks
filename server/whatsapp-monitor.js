@@ -339,16 +339,7 @@ async function createInstance() {
     console.log('[WHATSAPP] Instância criada com sucesso');
 
     // Se a resposta já contém QR Code, salva
-    if (data) {
-      if (data.qrcode && data.qrcode.base64) {
-        currentQRBase64 = data.qrcode.base64;
-        currentQR = data.qrcode.code || data.qrcode.base64;
-        console.log('[WHATSAPP] QR Code recebido na criação da instância');
-      } else if (data.base64) {
-        currentQRBase64 = data.base64;
-        currentQR = data.code || data.base64;
-      }
-    }
+    extractQRFromResponse(data, 'createInstance');
 
     return data;
   } catch (err) {
@@ -363,16 +354,7 @@ async function createInstance() {
       try {
         var retryData = await evoApi('POST', '/instance/create', body);
         console.log('[WHATSAPP] Instância recriada com sucesso');
-        if (retryData) {
-          if (retryData.qrcode && retryData.qrcode.base64) {
-            currentQRBase64 = retryData.qrcode.base64;
-            currentQR = retryData.qrcode.code || retryData.qrcode.base64;
-            console.log('[WHATSAPP] QR Code recebido na recriação da instância');
-          } else if (retryData.base64) {
-            currentQRBase64 = retryData.base64;
-            currentQR = retryData.code || retryData.base64;
-          }
-        }
+        extractQRFromResponse(retryData, 'recreateInstance');
         return retryData;
       } catch (retryErr) {
         console.error('[WHATSAPP] Falha ao recriar instância:', retryErr.message);
@@ -512,37 +494,76 @@ async function connectInstance() {
   try {
     var data = await evoApi('GET', '/instance/connect/' + EVOLUTION_INSTANCE_NAME);
 
-    // Evolution API pode retornar QR em diferentes formatos
-    if (data.base64) {
-      currentQRBase64 = data.base64;
-      currentQR = data.code || data.base64;
-      console.log('[WHATSAPP] QR Code gerado pela Evolution API (base64)');
-    } else if (data.qrcode) {
-      // v2 format: { qrcode: { base64, code } }
-      var qr = typeof data.qrcode === 'object' ? data.qrcode : { base64: data.qrcode };
-      currentQRBase64 = qr.base64 || null;
-      currentQR = qr.code || qr.base64 || null;
-      console.log('[WHATSAPP] QR Code gerado pela Evolution API (qrcode object)');
-    } else if (data.code) {
-      currentQR = data.code;
-      console.log('[WHATSAPP] QR Code gerado pela Evolution API (code text)');
-    } else if (data.pairingCode) {
-      console.log('[WHATSAPP] Pairing code retornado ao invés de QR');
-    } else {
-      console.log('[WHATSAPP] Resposta do connect:', JSON.stringify(data).substring(0, 200));
-    }
+    extractQRFromResponse(data, 'connect');
 
     return data;
   } catch (err) {
-    // Se já está conectado
     var errMsg = (err.message || '').toLowerCase();
-    if (errMsg.includes('already') || errMsg.includes('connected') || errMsg.includes('open') || errMsg.includes('the instance')) {
+    // Se a instância não existe no runtime, propagar o erro para que o caller possa recriar
+    if (errMsg.includes('not exist') || errMsg.includes('not found') || errMsg.includes('404')) {
+      console.log('[WHATSAPP] Instância não encontrada no connect:', err.message);
+      throw err;
+    }
+    // Se já está conectado
+    if (errMsg.includes('already') || errMsg.includes('connected') || errMsg.includes('open')) {
       console.log('[WHATSAPP] Já está conectado');
       await checkConnectionState();
       return null;
     }
     throw err;
   }
+}
+
+/**
+ * Extrai QR Code de qualquer formato de resposta da Evolution API (v1/v2)
+ */
+function extractQRFromResponse(data, source) {
+  if (!data) return false;
+
+  // Formato 1: { base64: "...", code: "..." } (direto no root)
+  if (data.base64) {
+    currentQRBase64 = data.base64;
+    currentQR = data.code || data.base64;
+    console.log('[WHATSAPP] QR Code extraído (' + source + '): base64 direto');
+    return true;
+  }
+
+  // Formato 2: { qrcode: { base64: "...", code: "..." } } (Evolution API v2)
+  if (data.qrcode) {
+    var qr = typeof data.qrcode === 'object' ? data.qrcode : { base64: data.qrcode };
+    currentQRBase64 = qr.base64 || null;
+    currentQR = qr.code || qr.base64 || null;
+    if (currentQRBase64 || currentQR) {
+      console.log('[WHATSAPP] QR Code extraído (' + source + '): qrcode object');
+      return true;
+    }
+  }
+
+  // Formato 3: { code: "..." } (texto do QR)
+  if (data.code && typeof data.code === 'string' && data.code.length > 20) {
+    currentQR = data.code;
+    console.log('[WHATSAPP] QR Code extraído (' + source + '): code text');
+    return true;
+  }
+
+  // Formato 4: { instance: { qrcode: {...} } } (wrapper da Evolution API)
+  if (data.instance && data.instance.qrcode) {
+    var iqr = typeof data.instance.qrcode === 'object' ? data.instance.qrcode : { base64: data.instance.qrcode };
+    currentQRBase64 = iqr.base64 || null;
+    currentQR = iqr.code || iqr.base64 || null;
+    if (currentQRBase64 || currentQR) {
+      console.log('[WHATSAPP] QR Code extraído (' + source + '): instance.qrcode');
+      return true;
+    }
+  }
+
+  if (data.pairingCode) {
+    console.log('[WHATSAPP] Pairing code retornado ao invés de QR (' + source + ')');
+    return false;
+  }
+
+  console.log('[WHATSAPP] Nenhum QR encontrado na resposta (' + source + '):', JSON.stringify(data).substring(0, 300));
+  return false;
 }
 
 // ===== WEBHOOK HANDLER =====
@@ -1067,12 +1088,34 @@ async function requestQR() {
   try {
     var exists = await instanceExists();
     if (!exists) {
+      console.log('[WHATSAPP] requestQR: instância não existe, criando...');
       await createInstance();
     }
-    await connectInstance();
+
+    // Se createInstance já trouxe QR, retorna
+    if (currentQRBase64 || currentQR) return currentQRBase64 || currentQR;
+
+    try {
+      await connectInstance();
+    } catch (connectErr) {
+      var msg = (connectErr.message || '').toLowerCase();
+      if (msg.includes('not exist') || msg.includes('not found') || msg.includes('404')) {
+        // Instância fantasma — deletar e recriar
+        console.log('[WHATSAPP] requestQR: instância fantasma detectada, recriando...');
+        await deleteInstance();
+        await new Promise(function(r) { setTimeout(r, 2000); });
+        await createInstance();
+        if (currentQRBase64 || currentQR) return currentQRBase64 || currentQR;
+        await connectInstance();
+      } else {
+        throw connectErr;
+      }
+    }
+
     return currentQRBase64 || currentQR;
   } catch (err) {
     console.warn('[WHATSAPP] Erro ao solicitar QR:', err.message);
+    connectionStatus.error = 'Erro ao gerar QR: ' + err.message;
     return null;
   }
 }
