@@ -456,54 +456,79 @@ async function checkConnectionState() {
 }
 
 /**
+ * Busca QR Code como imagem PNG do WAHA (retorna base64 data URI)
+ */
+async function fetchQRImage() {
+  var url = EVOLUTION_API_URL + '/api/' + EVOLUTION_INSTANCE_NAME + '/auth/qr';
+  var response = await fetch(url, {
+    method: 'GET',
+    headers: { 'X-Api-Key': EVOLUTION_API_KEY }
+  });
+
+  if (!response.ok) {
+    var errText = await response.text();
+    var errData;
+    try { errData = JSON.parse(errText); } catch (e) { errData = {}; }
+    throw new Error(errData.message || errData.error || 'HTTP ' + response.status);
+  }
+
+  var contentType = response.headers.get('content-type') || '';
+
+  // WAHA retorna PNG direto
+  if (contentType.includes('image/')) {
+    var buffer = await response.buffer();
+    var base64 = buffer.toString('base64');
+    return 'data:image/png;base64,' + base64;
+  }
+
+  // Fallback: resposta JSON
+  var text = await response.text();
+  try {
+    var data = JSON.parse(text);
+    if (data.value) return data.value;
+    if (data.data) return 'data:image/png;base64,' + data.data;
+    if (data.base64) return data.base64;
+  } catch (e) {}
+
+  return null;
+}
+
+/**
  * Solicita QR Code via WAHA (GET /api/{session}/auth/qr)
  */
 async function connectInstance() {
   try {
-    var data = await evoApi('GET', '/api/' + EVOLUTION_INSTANCE_NAME + '/auth/qr');
-    console.log('[WHATSAPP] QR response: ' + JSON.stringify(data).substring(0, 500));
+    var qrBase64 = await fetchQRImage();
 
-    // WAHA retorna: { value: "qr-text", mimetype: "image/png", data: "base64..." }
-    if (data && data.value) {
-      currentQR = data.value;
-      if (data.data) {
-        currentQRBase64 = 'data:' + (data.mimetype || 'image/png') + ';base64,' + data.data;
-      }
-      console.log('[WHATSAPP] QR Code obtido via WAHA');
-      displayQRInTerminal(data.value);
-      return data;
+    if (qrBase64) {
+      currentQRBase64 = qrBase64;
+      currentQR = qrBase64;
+      console.log('[WHATSAPP] QR Code obtido via WAHA (imagem PNG)');
+      return { qr: qrBase64 };
     }
 
-    // Fallback: tenta extrair de outros formatos
-    var found = extractQRFromResponse(data, 'connect');
-    if (!found && !(currentQRBase64 || currentQR)) {
-      // Polling: tenta a cada 2s por até 10 segundos (QR pode demorar)
-      console.log('[WHATSAPP] QR não disponível ainda. Polling...');
-      for (var attempt = 0; attempt < 5; attempt++) {
-        await new Promise(function(r) { setTimeout(r, 2000); });
-        if (currentQRBase64 || currentQR) {
-          console.log('[WHATSAPP] QR recebido (tentativa ' + (attempt + 1) + ')');
-          return data;
-        }
-        try {
-          var retryData = await evoApi('GET', '/api/' + EVOLUTION_INSTANCE_NAME + '/auth/qr');
-          if (retryData && retryData.value) {
-            currentQR = retryData.value;
-            if (retryData.data) {
-              currentQRBase64 = 'data:' + (retryData.mimetype || 'image/png') + ';base64,' + retryData.data;
-            }
-            console.log('[WHATSAPP] QR Code obtido no poll ' + (attempt + 1));
-            displayQRInTerminal(retryData.value);
-            return retryData;
-          }
-        } catch (retryErr) {
-          // Ignora erros no polling
-        }
+    // Polling: tenta a cada 2s por até 10 segundos
+    console.log('[WHATSAPP] QR não disponível ainda. Polling...');
+    for (var attempt = 0; attempt < 5; attempt++) {
+      await new Promise(function(r) { setTimeout(r, 2000); });
+      if (currentQRBase64 || currentQR) {
+        console.log('[WHATSAPP] QR recebido (tentativa ' + (attempt + 1) + ')');
+        return { qr: currentQRBase64 || currentQR };
       }
-      console.log('[WHATSAPP] QR não recebido após polling.');
+      try {
+        var retryQR = await fetchQRImage();
+        if (retryQR) {
+          currentQRBase64 = retryQR;
+          currentQR = retryQR;
+          console.log('[WHATSAPP] QR Code obtido no poll ' + (attempt + 1));
+          return { qr: retryQR };
+        }
+      } catch (retryErr) {
+        // Ignora erros no polling
+      }
     }
-
-    return data;
+    console.log('[WHATSAPP] QR não recebido após polling.');
+    return null;
   } catch (err) {
     var errMsg = (err.message || '').toLowerCase();
     if (errMsg.includes('not exist') || errMsg.includes('not found') || errMsg.includes('404')) {
@@ -629,14 +654,11 @@ async function handleWebhook(body) {
 
           // Busca QR automaticamente quando WAHA sinaliza que precisa
           try {
-            var qrData = await evoApi('GET', '/api/' + EVOLUTION_INSTANCE_NAME + '/auth/qr');
-            if (qrData && qrData.value) {
-              currentQR = qrData.value;
-              if (qrData.data) {
-                currentQRBase64 = 'data:' + (qrData.mimetype || 'image/png') + ';base64,' + qrData.data;
-              }
+            var qrBase64 = await fetchQRImage();
+            if (qrBase64) {
+              currentQRBase64 = qrBase64;
+              currentQR = qrBase64;
               console.log('[WHATSAPP] [WEBHOOK] QR Code obtido');
-              displayQRInTerminal(qrData.value);
             }
           } catch (qrErr) {
             console.warn('[WHATSAPP] Erro ao buscar QR:', qrErr.message);
