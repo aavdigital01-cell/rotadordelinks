@@ -494,27 +494,47 @@ async function checkConnectionState() {
 /**
  * Solicita conexão (gera QR Code)
  */
+/**
+ * Tenta connect via POST (v2) e fallback GET (v1)
+ */
+async function tryConnect() {
+  try {
+    // Evolution API v2 requer POST para gerar QR
+    var data = await evoApi('POST', '/instance/connect/' + EVOLUTION_INSTANCE_NAME, {});
+    console.log('[WHATSAPP] connect (POST) response: ' + JSON.stringify(data).substring(0, 500));
+    return data;
+  } catch (postErr) {
+    console.log('[WHATSAPP] POST connect falhou (' + postErr.message + '), tentando GET...');
+    var data = await evoApi('GET', '/instance/connect/' + EVOLUTION_INSTANCE_NAME);
+    console.log('[WHATSAPP] connect (GET) response: ' + JSON.stringify(data).substring(0, 500));
+    return data;
+  }
+}
+
 async function connectInstance() {
   try {
-    var data = await evoApi('GET', '/instance/connect/' + EVOLUTION_INSTANCE_NAME);
+    var data = await tryConnect();
 
     var found = extractQRFromResponse(data, 'connect');
 
-    // Evolution API v2 pode não retornar QR na resposta HTTP
-    // O QR chega via webhook (QRCODE_UPDATED). Aguardar e tentar polling.
+    // Se QR não veio na resposta, aguarda webhook ou tenta polling
     if (!found && !(currentQRBase64 || currentQR)) {
       console.log('[WHATSAPP] Connect não retornou QR. Aguardando webhook ou polling...');
+      // Tenta fetchInstances como fonte alternativa de QR
+      await fetchInstanceQR();
+      if (currentQRBase64 || currentQR) {
+        console.log('[WHATSAPP] QR obtido via fetchInstances');
+        return data;
+      }
       // Polling: tenta a cada 2s por até 10 segundos
       for (var attempt = 0; attempt < 5; attempt++) {
         await new Promise(function(r) { setTimeout(r, 2000); });
-        // Se o webhook já entregou o QR, retorna
         if (currentQRBase64 || currentQR) {
           console.log('[WHATSAPP] QR recebido via webhook (tentativa ' + (attempt + 1) + ')');
           return data;
         }
-        // Tenta buscar QR via connect novamente
         try {
-          var retryData = await evoApi('GET', '/instance/connect/' + EVOLUTION_INSTANCE_NAME);
+          var retryData = await tryConnect();
           if (extractQRFromResponse(retryData, 'connect-poll-' + (attempt + 1))) {
             return retryData;
           }
@@ -522,6 +542,8 @@ async function connectInstance() {
           // Ignora erros no polling
         }
       }
+      // Última tentativa: fetchInstances
+      await fetchInstanceQR();
       if (!(currentQRBase64 || currentQR)) {
         console.log('[WHATSAPP] QR não recebido após polling. Frontend continuará tentando.');
       }
@@ -530,12 +552,10 @@ async function connectInstance() {
     return data;
   } catch (err) {
     var errMsg = (err.message || '').toLowerCase();
-    // Se a instância não existe no runtime, propagar o erro para que o caller possa recriar
     if (errMsg.includes('not exist') || errMsg.includes('not found') || errMsg.includes('404')) {
       console.log('[WHATSAPP] Instância não encontrada no connect:', err.message);
       throw err;
     }
-    // Se já está conectado
     if (errMsg.includes('already') || errMsg.includes('connected') || errMsg.includes('open')) {
       console.log('[WHATSAPP] Já está conectado');
       await checkConnectionState();
@@ -543,6 +563,29 @@ async function connectInstance() {
     }
     throw err;
   }
+}
+
+/**
+ * Tenta obter QR via fetchInstances (fonte alternativa)
+ */
+async function fetchInstanceQR() {
+  try {
+    var data = await evoApi('GET', '/instance/fetchInstances?instanceName=' + EVOLUTION_INSTANCE_NAME);
+    if (Array.isArray(data) && data.length > 0) {
+      var inst = data[0];
+      if (inst.qrcode) {
+        return extractQRFromResponse(inst, 'fetchInstances');
+      }
+      if (inst.instance && inst.instance.qrcode) {
+        return extractQRFromResponse(inst.instance, 'fetchInstances-nested');
+      }
+      console.log('[WHATSAPP] fetchInstances keys: ' + Object.keys(inst).join(',') +
+        ' status: ' + (inst.connectionStatus || inst.state || 'unknown'));
+    }
+  } catch (err) {
+    console.warn('[WHATSAPP] fetchInstanceQR falhou:', err.message);
+  }
+  return false;
 }
 
 /**
@@ -603,12 +646,19 @@ function extractQRFromResponse(data, source) {
  * Processa eventos recebidos via webhook da Evolution API
  * Chamado pela rota POST /api/whatsapp/webhook no index.js
  */
+var connectingWebhookCount = 0;
+var MAX_CONNECTING_WITHOUT_QR = 15;
+var recreatingInstance = false;
+
 async function handleWebhook(body) {
   if (!body || !body.event) return;
 
   var event = body.event;
   var data = body.data || body;
   var instance = body.instanceName || (typeof body.instance === 'string' ? body.instance : (body.instance && body.instance.instanceName)) || null;
+
+  // Log completo do payload para diagnóstico
+  console.log('[WHATSAPP] [WEBHOOK] PAYLOAD event=' + event + ' instance=' + instance + ' data=' + JSON.stringify(data).substring(0, 500));
 
   // Ignora eventos de outras instâncias
   if (instance && instance !== EVOLUTION_INSTANCE_NAME) return;
@@ -617,6 +667,7 @@ async function handleWebhook(body) {
     switch (event) {
       case 'qrcode.updated':
       case 'QRCODE_UPDATED':
+        connectingWebhookCount = 0; // Reset circuit breaker
         // Evolution API v2 pode enviar em diferentes formatos
         if (data) {
           var qrData = data.qrcode || data;
@@ -637,6 +688,7 @@ async function handleWebhook(body) {
         console.log('[WHATSAPP] [WEBHOOK] Estado da conexão: ' + state);
 
         if (state === 'open') {
+          connectingWebhookCount = 0;
           connectionStatus.connected = true;
           connectionStatus.ready = true;
           connectionStatus.error = null;
@@ -656,7 +708,30 @@ async function handleWebhook(body) {
             await loadSnapshotsFromDB();
             await scanGroupsWithDiff();
           }, 3000);
+        } else if (state === 'connecting') {
+          connectingWebhookCount++;
+          // Circuit breaker: se ficou preso em "connecting" sem QR por muito tempo
+          if (connectingWebhookCount >= MAX_CONNECTING_WITHOUT_QR && !recreatingInstance && !(currentQR || currentQRBase64)) {
+            recreatingInstance = true;
+            console.log('[WHATSAPP] Instância presa em "connecting" sem QR (' + connectingWebhookCount + ' eventos). Recriando...');
+            (async function() {
+              try {
+                await deleteInstance();
+                await new Promise(function(r) { setTimeout(r, 3000); });
+                await createInstance();
+                await new Promise(function(r) { setTimeout(r, 2000); });
+                await connectInstance();
+              } catch (err) {
+                console.error('[WHATSAPP] Erro ao recriar instância:', err.message);
+                connectionStatus.error = 'Erro ao recriar instância: ' + err.message;
+              } finally {
+                recreatingInstance = false;
+                connectingWebhookCount = 0;
+              }
+            })();
+          }
         } else if (state === 'close' || state === 'refused') {
+          connectingWebhookCount = 0;
           connectionStatus.connected = false;
           connectionStatus.ready = false;
           connectionStatus.lastDisconnect = new Date().toISOString();
